@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LK Dev Hub",
+  "version": "0.1.0",
+  "identifier": "br.com.lktechnologies.devhub",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "LK Dev Hub",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1050,
+        "minHeight": 700,
+        "backgroundColor": "#091321"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; frame-src 'none'",
+      "capabilities": [
+        {
+          "identifier": "main",
+          "windows": ["main"],
+          "permissions": []
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.png", "icons/icon.ico"]
+  }
+}

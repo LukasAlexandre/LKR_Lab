@@ -1,0 +1,11 @@
+CREATE TABLE projects(id TEXT PRIMARY KEY, local_path TEXT NOT NULL UNIQUE, data TEXT NOT NULL CHECK(json_valid(data)), updated_at TEXT NOT NULL);
+CREATE TABLE prompt_templates(id TEXT PRIMARY KEY, title TEXT NOT NULL, category TEXT NOT NULL, project_id TEXT REFERENCES projects(id) ON DELETE CASCADE, body TEXT NOT NULL);
+CREATE TABLE activities(id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT REFERENCES projects(id) ON DELETE SET NULL, action TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT(strftime('%Y-%m-%dT%H:%M:%fZ','now')));
+CREATE INDEX activities_project ON activities(project_id);
+INSERT INTO prompt_templates VALUES('audit','Auditar repositório','Development',NULL,'Analise {{project.name}} em {{project.path}}. Stack: {{project.stack}}. Branch: {{git.branch}}; HEAD: {{git.head}}. Leia CLAUDE.md e AGENTS.md antes de agir. Informe achados com evidências. Não faça merge nem operações destrutivas.');
+INSERT INTO prompt_templates VALUES('bug','Investigar bug','Development',NULL,'Investigue o problema em {{project.name}} ({{project.path}}). Branch: {{git.branch}}. Reproduza, identifique a causa e proponha a menor correção verificável. Preserve alterações existentes. Problema: [descreva aqui].');
+INSERT INTO prompt_templates VALUES('pr','Revisar PR','GitHub',NULL,'Revise {{github.pullRequest}} de {{project.name}}. Verifique correção, segurança, regressões e cobertura. Não faça merge. Cite evidências e limitações.');
+INSERT INTO prompt_templates VALUES('continue','Continuar sessão','Development',NULL,'Retome {{project.name}} em {{project.path}}. Leia a documentação atual e confira Git antes de agir. Não presuma que checkpoints anteriores ainda estão válidos. Branch registrada: {{git.branch}}; HEAD: {{git.head}}.');
+INSERT INTO prompt_templates VALUES('security','Revisão de segurança','Security',NULL,'Revise {{project.name}}: limites de confiança, execução de comandos, dependências, permissões e exposição de segredos. Não imprima credenciais. Classifique riscos com evidências.');
+INSERT INTO prompt_templates VALUES('gate','Verificar pré-deploy','Deployment',NULL,'Verifique build, testes, CI e mudanças pendentes de {{project.name}} em {{git.branch}}. Registre PASS, FAIL ou NOT VERIFIED com evidências. Não publique nem faça merge.');
+PRAGMA user_version=1;

@@ -1,0 +1,12 @@
+pub mod agents;
+pub mod commands;
+pub mod database;
+pub mod git;
+pub mod github;
+pub mod launchers;
+pub mod models;
+pub mod ports;
+pub mod projects;
+pub mod snapshot;
+pub mod system;
+pub type HubResult<T> = Result<T, String>;

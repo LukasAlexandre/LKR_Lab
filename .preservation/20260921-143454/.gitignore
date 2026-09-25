@@ -1,0 +1,11 @@
+node_modules/
+dist/
+target/
+.env
+.env.*
+!.env.example
+*.db
+*.db-shm
+*.db-wal
+src-tauri/gen/
+.DS_Store
