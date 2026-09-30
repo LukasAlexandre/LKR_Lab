@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "lab": "node lkr-lab/bridge/server.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "2.11.1",

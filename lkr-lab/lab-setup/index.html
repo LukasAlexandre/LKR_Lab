@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0a0b0d" />
+    <meta name="description" content="LKR LAB · Lab Setup — checklist de estrutura e compras do laboratório." />
+    <!-- Nenhuma requisição externa: só arquivos locais e o bridge local na mesma origem. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' file:; img-src 'self' file: data: blob:; connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'"
+    />
+    <title>Lab Setup · LKR LAB</title>
+    <link rel="stylesheet" href="../core/lkr-core.css" />
+    <link rel="stylesheet" href="lab-setup.css" />
+    <script src="../core/lkr-core.js" defer></script>
+    <script src="catalog.js" defer></script>
+    <script src="store.js" defer></script>
+    <script src="app.js" defer></script>
+    <script src="sync.js" defer></script>
+  </head>
+  <body>
+    <a class="ls-skip" href="#ls-items">Ir para os itens</a>
+
+    <div class="lkr-shell">
+      <!-- Navegação da plataforma: só Lab Setup está ativo nesta versão. -->
+      <aside class="lkr-rail" aria-label="LKR LAB">
+        <div class="lkr-rail__brand">
+          <div class="lkr-brand">
+            <span class="lkr-brand__mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span>
+              <strong class="lkr-brand__name">LKR LAB</strong>
+              <span class="lkr-brand__tagline">Build. Learn. Create.</span>
+            </span>
+          </div>
+        </div>
+
+        <nav class="lkr-rail__nav" aria-label="Módulos">
+          <p class="lkr-rail__group">MÓDULOS</p>
+          <ul class="lkr-nav">
+            <li><span class="lkr-nav__item" aria-disabled="true"><span class="lkr-nav__glyph">&lt;/&gt;</span><span class="lkr-nav__label">Desenvolvimento</span><span class="lkr-nav__soon">EM BREVE</span></span></li>
+            <li><span class="lkr-nav__item" aria-disabled="true"><span class="lkr-nav__glyph">▤</span><span class="lkr-nav__label">Projetos</span><span class="lkr-nav__soon">EM BREVE</span></span></li>
+            <li>
+              <span class="lkr-nav__item lkr-nav__item--parent"><span class="lkr-nav__glyph">◇</span><span class="lkr-nav__label">Laboratório</span></span>
+              <ul class="lkr-nav__sub">
+                <li><a class="lkr-nav__item lkr-nav__item--active" href="./" aria-current="page"><span class="lkr-nav__glyph">›</span><span class="lkr-nav__label">Lab Setup</span></a></li>
+              </ul>
+            </li>
+            <li><span class="lkr-nav__item" aria-disabled="true"><span class="lkr-nav__glyph">⌁</span><span class="lkr-nav__label">Eletrônica</span><span class="lkr-nav__soon">EM BREVE</span></span></li>
+            <li><span class="lkr-nav__item" aria-disabled="true"><span class="lkr-nav__glyph">▭</span><span class="lkr-nav__label">Computadores</span><span class="lkr-nav__soon">EM BREVE</span></span></li>
+            <li><span class="lkr-nav__item" aria-disabled="true"><span class="lkr-nav__glyph">≡</span><span class="lkr-nav__label">Servidor</span><span class="lkr-nav__soon">EM BREVE</span></span></li>
+            <li><span class="lkr-nav__item" aria-disabled="true"><span class="lkr-nav__glyph">#</span><span class="lkr-nav__label">Inventário</span><span class="lkr-nav__soon">EM BREVE</span></span></li>
+          </ul>
+        </nav>
+
+        <div class="lkr-rail__footer">
+          <strong><span data-icon="shield"></span>Local-first</strong>
+          Dados apenas neste navegador.
+        </div>
+      </aside>
+
+      <div class="lkr-main">
+        <header class="lkr-topbar">
+          <div class="lkr-topbar__brand lkr-brand">
+            <span class="lkr-brand__mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            <span>
+              <strong class="lkr-brand__name">LKR LAB</strong>
+              <span class="lkr-brand__tagline">Build. Learn. Create.</span>
+            </span>
+          </div>
+
+          <nav class="lkr-crumbs" aria-label="Você está em">
+            <span>LKR LAB</span><span aria-hidden="true">/</span><span>Laboratório</span><span aria-hidden="true">/</span><span aria-current="page">Lab Setup</span>
+          </nav>
+
+          <span class="lkr-topbar__spacer"></span>
+
+          <span class="ls-save" id="ls-save" data-state="idle" role="status" aria-live="polite">
+            <i class="ls-save__dot" aria-hidden="true"></i><span class="ls-save__text">Salvo localmente</span>
+          </span>
+
+          <!-- GitHub Sync: backup versionado via bridge local -->
+          <div class="ls-sync" id="ls-sync">
+            <button class="lkr-btn lkr-btn--ghost ls-sync__trigger" type="button" id="ls-sync-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="ls-sync-pop" title="GitHub Sync">
+              <span data-icon="github"></span><span class="ls-actions__label">GitHub</span>
+            </button>
+            <div class="ls-pop" id="ls-sync-pop" role="dialog" aria-labelledby="ls-sync-title" hidden>
+              <div class="ls-pop__head">
+                <p class="lkr-dialog__eyebrow">BACKUP VERSIONADO</p>
+                <h2 class="ls-pop__title" id="ls-sync-title">GitHub Sync</h2>
+              </div>
+              <dl class="ls-pop__rows">
+                <div><dt>Repositório</dt><dd class="lkr-mono" id="ls-sync-repo">—</dd></div>
+                <div><dt>Branch</dt><dd class="lkr-mono" id="ls-sync-branch">—</dd></div>
+                <div><dt>Estado</dt><dd id="ls-sync-state">—</dd></div>
+                <div><dt>Último backup</dt><dd class="lkr-mono" id="ls-sync-last">—</dd></div>
+                <div><dt>Commit</dt><dd class="lkr-mono" id="ls-sync-commit">—</dd></div>
+              </dl>
+              <p class="ls-pop__notice" id="ls-sync-notice" hidden></p>
+              <div class="ls-pop__actions">
+                <button class="lkr-btn lkr-btn--primary ls-pop__main" type="button" id="ls-sync-now"><span data-icon="github"></span><span>Sincronizar agora</span></button>
+                <div class="ls-pop__row">
+                  <button class="lkr-btn" type="button" id="ls-sync-check"><span data-icon="refresh"></span><span>Verificar atualização</span></button>
+                  <button class="lkr-btn" type="button" id="ls-sync-restore"><span data-icon="download"></span><span>Restaurar backup</span></button>
+                </div>
+                <button class="lkr-btn lkr-btn--ghost ls-pop__undo" type="button" id="ls-sync-undo" hidden><span data-icon="undo"></span><span id="ls-sync-undo-label">Desfazer última restauração</span></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="ls-actions" role="group" aria-label="Dados">
+            <button class="lkr-btn lkr-btn--ghost" type="button" id="ls-export" title="Exportar backup (.json)">
+              <span data-icon="download"></span><span class="ls-actions__label">Exportar</span>
+            </button>
+            <button class="lkr-btn lkr-btn--ghost" type="button" id="ls-import" title="Importar backup (.json)">
+              <span data-icon="upload"></span><span class="ls-actions__label">Importar</span>
+            </button>
+            <button class="lkr-btn lkr-btn--ghost" type="button" id="ls-reset" title="Resetar checklist">
+              <span data-icon="reset"></span><span class="ls-actions__label">Resetar</span>
+            </button>
+          </div>
+          <input type="file" id="ls-import-file" accept="application/json,.json" hidden />
+
+          <span class="lkr-module-tag">LAB SETUP</span>
+        </header>
+
+        <div class="ls-storage-warning" id="ls-storage-warning" role="alert" hidden></div>
+
+        <main class="lkr-container ls-page" id="ls-main">
+          <!-- Resumo -->
+          <section class="ls-hero" aria-labelledby="ls-hero-title">
+            <div class="ls-hero__intro">
+              <p class="ls-eyebrow">LABORATÓRIO <span aria-hidden="true">·</span> MÓDULO 01</p>
+              <h1 id="ls-hero-title">Preparando seu laboratório</h1>
+              <p class="ls-hero__lead">
+                Estruture sua bancada, organize suas ferramentas e evolua o laboratório conforme novos projetos surgirem.
+              </p>
+            </div>
+
+            <div class="ls-progress" aria-labelledby="ls-progress-label">
+              <div class="ls-progress__head">
+                <p id="ls-progress-label" class="ls-progress__label">
+                  <strong class="lkr-mono" id="ls-done">0</strong> de <span class="lkr-mono" id="ls-total">0</span> itens concluídos
+                </p>
+                <p class="ls-progress__pct lkr-mono" id="ls-pct">0%</p>
+              </div>
+              <div class="ls-bar ls-bar--lg" role="progressbar" aria-labelledby="ls-progress-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="ls-bar">
+                <i class="ls-bar__fill"></i>
+              </div>
+              <p class="ls-progress__meta" id="ls-updated">Nenhuma alteração registrada ainda.</p>
+            </div>
+
+            <dl class="ls-stats">
+              <div class="ls-stat">
+                <dt>Comprados</dt>
+                <dd class="lkr-mono" id="ls-stat-done">0</dd>
+              </div>
+              <div class="ls-stat">
+                <dt>Pendentes</dt>
+                <dd class="lkr-mono" id="ls-stat-pending">0</dd>
+              </div>
+              <div class="ls-stat">
+                <dt>Categorias</dt>
+                <dd class="lkr-mono"><span id="ls-stat-categories">0</span><small id="ls-stat-categories-meta"></small></dd>
+              </div>
+              <div class="ls-stat">
+                <dt>Investimento estimado</dt>
+                <dd class="lkr-mono" id="ls-stat-cost">—</dd>
+              </div>
+            </dl>
+          </section>
+
+          <!-- Progresso por categoria + custos -->
+          <section class="ls-overview" aria-label="Visão geral">
+            <div class="ls-panel">
+              <div class="ls-panel__head">
+                <h2 class="ls-panel__title">Progresso por categoria</h2>
+                <span class="ls-panel__hint">Clique para filtrar</span>
+              </div>
+              <div class="ls-cats" id="ls-cats"></div>
+            </div>
+
+            <div class="ls-panel ls-costs">
+              <div class="ls-panel__head">
+                <h2 class="ls-panel__title">Custos estimados</h2>
+                <span class="ls-panel__hint">R$ · faixa mín–máx</span>
+              </div>
+              <dl class="ls-costs__list">
+                <div class="ls-costs__row ls-costs__row--total">
+                  <dt>Total estimado</dt>
+                  <dd class="lkr-mono" id="ls-cost-total">—</dd>
+                </div>
+                <div class="ls-costs__row">
+                  <dt><i class="ls-dot ls-dot--done" aria-hidden="true"></i>Itens concluídos</dt>
+                  <dd class="lkr-mono" id="ls-cost-done">—</dd>
+                </div>
+                <div class="ls-costs__row">
+                  <dt><i class="ls-dot" aria-hidden="true"></i>Ainda pendente</dt>
+                  <dd class="lkr-mono" id="ls-cost-pending">—</dd>
+                </div>
+              </dl>
+              <div class="ls-costs__split" aria-hidden="true"><i id="ls-cost-split"></i></div>
+              <p class="ls-costs__note" id="ls-cost-note"></p>
+            </div>
+          </section>
+
+          <!-- Filtros -->
+          <div class="ls-toolbar" id="ls-toolbar">
+            <div class="ls-segment" role="group" aria-label="Filtrar por status" id="ls-status"></div>
+            <div class="ls-chips" role="group" aria-label="Filtrar por categoria" id="ls-chip-list"></div>
+            <div class="ls-toolbar__actions">
+              <label class="ls-search">
+                <span class="lkr-sr-only">Buscar item</span>
+                <span data-icon="search" class="ls-search__icon"></span>
+                <input class="lkr-input ls-search__input" type="search" id="ls-search" placeholder="Buscar item..." autocomplete="off" spellcheck="false" />
+                <kbd class="lkr-kbd ls-search__kbd" aria-hidden="true">/</kbd>
+              </label>
+              <button class="lkr-btn lkr-btn--primary" type="button" id="ls-add" aria-keyshortcuts="n">
+                <span data-icon="plus"></span>Adicionar item
+              </button>
+            </div>
+          </div>
+
+          <p class="ls-results" id="ls-results" aria-live="polite"></p>
+
+          <!-- Itens -->
+          <div class="ls-list" id="ls-items" tabindex="-1"></div>
+        </main>
+
+        <footer class="lkr-container ls-footer">
+          <p class="ls-footer__local"><span data-icon="shield"></span>Dados armazenados localmente neste navegador. O backup no GitHub só acontece quando você sincroniza.</p>
+          <p class="ls-footer__keys">
+            <span><kbd class="lkr-kbd">/</kbd> buscar</span>
+            <span><kbd class="lkr-kbd">N</kbd> novo item</span>
+            <span><kbd class="lkr-kbd">Esc</kbd> limpar / fechar</span>
+          </p>
+          <p class="ls-footer__meta lkr-mono">LKR LAB · LAB SETUP · SCHEMA V1</p>
+        </footer>
+      </div>
+    </div>
+
+    <!-- Modal: adicionar item -->
+    <dialog class="lkr-dialog" id="ls-add-dialog" aria-labelledby="ls-add-title">
+      <form class="lkr-dialog__form" id="ls-add-form" novalidate>
+        <div class="lkr-dialog__head">
+          <p class="lkr-dialog__eyebrow">LAB SETUP · NOVO ITEM</p>
+          <h2 class="lkr-dialog__title" id="ls-add-title">Adicionar item</h2>
+        </div>
+        <div class="lkr-dialog__body ls-form">
+          <label class="lkr-field">
+            <span class="lkr-field__label">Nome</span>
+            <input class="lkr-input" name="name" maxlength="120" required autocomplete="off" aria-describedby="ls-add-name-error" />
+            <span class="lkr-field__error" id="ls-add-name-error"></span>
+          </label>
+          <div class="ls-form__row">
+            <label class="lkr-field">
+              <span class="lkr-field__label">Categoria</span>
+              <select class="lkr-select" name="category" id="ls-add-category"></select>
+            </label>
+            <label class="lkr-field">
+              <span class="lkr-field__label">Prioridade</span>
+              <select class="lkr-select" name="priority" id="ls-add-priority"></select>
+            </label>
+          </div>
+          <label class="lkr-field">
+            <span class="lkr-field__label">Descrição <em>· opcional</em></span>
+            <input class="lkr-input" name="description" maxlength="280" autocomplete="off" placeholder="Para que serve" />
+          </label>
+          <div class="ls-form__row">
+            <label class="lkr-field">
+              <span class="lkr-field__label">Preço mínimo <em>· R$</em></span>
+              <input class="lkr-input lkr-mono" name="priceMin" type="number" min="0" step="1" inputmode="decimal" placeholder="0" aria-describedby="ls-add-price-error" />
+            </label>
+            <label class="lkr-field">
+              <span class="lkr-field__label">Preço máximo <em>· R$</em></span>
+              <input class="lkr-input lkr-mono" name="priceMax" type="number" min="0" step="1" inputmode="decimal" placeholder="0" aria-describedby="ls-add-price-error" />
+            </label>
+          </div>
+          <span class="lkr-field__error" id="ls-add-price-error"></span>
+          <label class="lkr-field">
+            <span class="lkr-field__label">Observações <em>· opcional</em></span>
+            <textarea class="lkr-textarea" name="notes" rows="3" maxlength="5000" placeholder="Loja, modelo, preço encontrado…"></textarea>
+          </label>
+        </div>
+        <div class="lkr-dialog__foot">
+          <button class="lkr-btn" type="button" id="ls-add-cancel">Cancelar</button>
+          <button class="lkr-btn lkr-btn--primary" type="submit">Adicionar item</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

@@ -4,6 +4,8 @@ Local developer control center da LK Technologies Brasil. Reúne projetos, Git, 
 
 **Estado: v0.1 foundation em desenvolvimento.** Código real, sem dados de demonstração. Build da interface e testes do núcleo são independentes da validação desktop Windows. Consulte [TASKS.md](TASKS.md) e [checkpoint](docs/CHECKPOINT.md) antes de considerar esta versão pronta para uso diário.
 
+> **LKR LAB** — o repositório está evoluindo para o hub pessoal LKR LAB. O primeiro módulo, **Lab Setup** (checklist de estrutura e compras do laboratório), fica em [`lkr-lab/`](lkr-lab/README.md): HTML/CSS/JS puro, abre direto no navegador e é independente da aplicação desktop abaixo.
+
 ![Interface implementada — prévia web sem backend](docs/images/current-preview.png)
 
 A imagem acima é a interface implementada em prévia web, sem backend nativo. O [mockup aprovado](docs/images/concept.png) é a referência visual. A aplicação começa com cadastro vazio e estados explícitos de indisponibilidade.
