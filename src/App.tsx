@@ -41,6 +41,7 @@ import { Worktrees } from "./features/Worktrees";
 import { AgentProviders } from "./features/AgentProviders";
 import { Knowledge } from "./features/Knowledge";
 import { routes, routeFromHash } from "./app/routing";
+import { WindowTitleBar } from "./shell/WindowTitleBar";
 export default function App() {
   const [route, setRoute] = useState(routeFromHash);
   const selectedId = useActiveProjectId();
@@ -279,6 +280,8 @@ export default function App() {
     ? processes.filter((process) => process.projectId === selected.id)
     : [];
   return (
+    <>
+    {desktop && <WindowTitleBar />}
     <div
       className={`app ${sidebarCompact ? "sidebar-compact" : ""} density-${density}`}
     >
@@ -847,5 +850,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </>
   );
 }

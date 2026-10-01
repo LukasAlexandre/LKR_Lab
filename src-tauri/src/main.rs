@@ -284,7 +284,7 @@ fn main() {
         ])
         .run(tauri::generate_context!());
     if let Err(error) = result {
-        eprintln!("Falha ao iniciar LK Dev Hub: {error}");
+        eprintln!("Falha ao iniciar LKR LAB: {error}");
         std::process::exit(1);
     }
 }
