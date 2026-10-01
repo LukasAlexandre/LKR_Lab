@@ -389,7 +389,16 @@ fn missing_binding_is_reported_and_blocks_local_operations() {
     assert!(projects::local_dir(&after)
         .unwrap_err()
         .contains("Localizar"));
-    assert!(hub_core::snapshot::generate(&after).is_err());
+    assert!(hub_core::snapshot::generate(
+        &after,
+        &hub_core::runtime::inspect(
+            &after,
+            std::slice::from_ref(&after),
+            vec![],
+            &Default::default()
+        )
+    )
+    .is_err());
     assert!(hub_core::launchers::launch(&after, "folder").is_err());
 }
 #[test]

@@ -2,7 +2,7 @@
 use hub_core::{database::Database, models::*, HubResult};
 use serde::Serialize;
 use std::sync::Mutex;
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 struct AppState(Mutex<Database>);
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,21 +208,100 @@ async fn sync_run(
 fn open_localhost(port: u16) -> HubResult<()> {
     hub_core::launchers::open_url(&format!("http://127.0.0.1:{port}"))
 }
+/// Processos iniciados pelo LKR LAB ("Rodar"). O resto é externo e nunca é parado daqui.
+struct RuntimeState(hub_core::supervisor::Supervisor);
+fn runtime_of(
+    app: &tauri::AppHandle,
+    id: &str,
+) -> HubResult<(hub_core::models::Project, hub_core::runtime::ProjectRuntime)> {
+    let state = app.state::<AppState>();
+    let (project, all) = {
+        let guard = db(&state)?;
+        (guard.project(id)?, guard.projects()?)
+    };
+    let supervisor = &app.state::<RuntimeState>().0;
+    let runtime = hub_core::runtime::inspect_live(&project, &all, supervisor.runs_for(id), &|| {
+        supervisor.managed_pids()
+    });
+    Ok((project, runtime))
+}
 #[tauri::command]
-async fn generate_context(state: State<'_, AppState>, id: String) -> HubResult<String> {
-    let p = db(&state)?.project(&id)?;
-    let text = tauri::async_runtime::spawn_blocking(move || hub_core::snapshot::generate(&p))
+async fn project_runtime(
+    app: tauri::AppHandle,
+    id: String,
+) -> HubResult<hub_core::runtime::ProjectRuntime> {
+    tauri::async_runtime::spawn_blocking(move || runtime_of(&app, &id).map(|(_, runtime)| runtime))
         .await
-        .map_err(|e| e.to_string())??;
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn runtime_start(
+    app: tauri::AppHandle,
+    id: String,
+    script: String,
+) -> HubResult<hub_core::supervisor::RunInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let project = db(&state)?.project(&id)?;
+        let run = app.state::<RuntimeState>().0.start(&project, &script)?;
+        db(&state)?.activity(&id, &format!("Execução iniciada: {}", run.command))?;
+        Ok(run)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn runtime_stop(app: tauri::AppHandle, run_id: String) -> HubResult<()> {
+    app.state::<RuntimeState>().0.stop(&run_id)
+}
+#[tauri::command]
+async fn runtime_restart(
+    app: tauri::AppHandle,
+    id: String,
+    run_id: String,
+) -> HubResult<hub_core::supervisor::RunInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let project = db(&state)?.project(&id)?;
+        let run = app.state::<RuntimeState>().0.restart(&project, &run_id)?;
+        db(&state)?.activity(&id, &format!("Execução reiniciada: {}", run.command))?;
+        Ok(run)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn runtime_logs(
+    app: tauri::AppHandle,
+    run_id: String,
+    since: u64,
+) -> HubResult<hub_core::supervisor::LogChunk> {
+    app.state::<RuntimeState>().0.logs(&run_id, since)
+}
+#[tauri::command]
+async fn generate_context(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> HubResult<String> {
+    let task_id = id.clone();
+    let text = tauri::async_runtime::spawn_blocking(move || {
+        let (project, runtime) = runtime_of(&app, &task_id)?;
+        hub_core::snapshot::generate(&project, &runtime)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     db(&state)?.activity(&id, "Contexto de desenvolvimento gerado")?;
     Ok(text)
 }
 #[tauri::command]
-async fn save_context(state: State<'_, AppState>, id: String) -> HubResult<bool> {
-    let p = db(&state)?.project(&id)?;
-    let text = tauri::async_runtime::spawn_blocking(move || hub_core::snapshot::generate(&p))
-        .await
-        .map_err(|e| e.to_string())??;
+async fn save_context(app: tauri::AppHandle, id: String) -> HubResult<bool> {
+    let text = tauri::async_runtime::spawn_blocking(move || {
+        let (project, runtime) = runtime_of(&app, &id)?;
+        hub_core::snapshot::generate(&project, &runtime)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     if let Some(file) = rfd::AsyncFileDialog::new()
         .set_file_name("development-context.md")
         .add_filter("Markdown", &["md"])
@@ -335,6 +414,11 @@ fn main() {
             let database = Database::open(&dir.join("hub.db")).map_err(std::io::Error::other)?;
             app.manage(AppState(Mutex::new(database)));
             app.manage(SyncRuntime::default());
+            let handle = app.handle().clone();
+            let sink: hub_core::supervisor::EventSink = std::sync::Arc::new(move |event| {
+                let _ = handle.emit("runtime://event", event);
+            });
+            app.manage(RuntimeState(hub_core::supervisor::Supervisor::new(sink)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -356,6 +440,11 @@ fn main() {
             apply_portable,
             sync_status,
             sync_run,
+            project_runtime,
+            runtime_start,
+            runtime_stop,
+            runtime_restart,
+            runtime_logs,
             open_localhost,
             generate_context,
             save_context,
@@ -371,9 +460,17 @@ fn main() {
             remove_worktree,
             launch_worktree
         ])
-        .run(tauri::generate_context!());
-    if let Err(error) = result {
-        eprintln!("Falha ao iniciar LKR LAB: {error}");
-        std::process::exit(1);
+        .build(tauri::generate_context!());
+    match result {
+        Ok(app) => app.run(|handle, event| {
+            // Sair do app encerra as árvores gerenciadas: nada fica órfão.
+            if let tauri::RunEvent::Exit = event {
+                handle.state::<RuntimeState>().0.stop_all();
+            }
+        }),
+        Err(error) => {
+            eprintln!("Falha ao iniciar LKR LAB: {error}");
+            std::process::exit(1);
+        }
     }
 }

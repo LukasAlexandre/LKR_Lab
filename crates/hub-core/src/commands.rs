@@ -23,6 +23,28 @@ pub fn executable(name: &str) -> Option<PathBuf> {
     }
     None
 }
+/// Ferramenta de desenvolvimento no PATH (só diretórios absolutos). No Windows aceita o
+/// shim .cmd do npm/pnpm/yarn; o chamador garante que os argumentos são fixos e validados.
+pub fn resolve_tool(name: &str) -> Option<PathBuf> {
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return None;
+    }
+    let path = std::env::var_os("PATH")?;
+    let suffixes: &[&str] = if cfg!(windows) {
+        &[".exe", ".cmd"]
+    } else {
+        &[""]
+    };
+    for dir in std::env::split_paths(&path).filter(|p| p.is_absolute()) {
+        for suffix in suffixes {
+            let candidate = dir.join(format!("{name}{suffix}"));
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
 pub fn run(program: &str, args: &[&str], cwd: Option<&Path>) -> HubResult<String> {
     let exe = executable(program).ok_or_else(|| {
         format!("{program} não encontrado no PATH. Instale a CLI e reinicie o aplicativo.")

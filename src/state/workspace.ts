@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { api, desktop } from "../shared/api";
 import { preferences } from "../shared/preferences";
-import type { Activity, AgentContext, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
+import type { Activity, AgentContext, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
 import { createResource, type Resource } from "./resource";
 import type { KnowledgeEntry } from "../shared/types";
 import { trackOperation } from "./operations";
@@ -24,6 +24,7 @@ function projectSources(id: string) {
     git: createResource<GitState | null>(null, () => trackOperation("Consultando Git", () => api("git_state", { id }), id)),
     hosting: createResource<HostingState | null>(null, () => trackOperation("Consultando GitHub", () => api("github_state", { id }), id)),
     agents: createResource<AgentContext | null>(null, () => api("agent_context", { id })),
+    runtime: createResource<ProjectRuntime | null>(null, () => api("project_runtime", { id })),
     worktrees: createResource<Worktree[]>([], () => trackOperation("Consultando worktrees", () => api("list_worktrees", { id }), id)),
   };
 }
@@ -65,6 +66,11 @@ export const workspace = {
   selectProject, loadRegistry, refreshRepositories,
   async refreshEnvironment() {
     if (!desktop) return;
-    await Promise.all([ports.refresh(), processes.refresh(), environment.refresh()]);
+    const id = activeId();
+    await Promise.all([
+      ports.refresh(), processes.refresh(), environment.refresh(),
+      // Atualizar também refaz o runtime (Git, scripts, processos, portas) do projeto ativo.
+      id ? forProject(id).runtime.refresh() : Promise.resolve(),
+    ]);
   },
 };

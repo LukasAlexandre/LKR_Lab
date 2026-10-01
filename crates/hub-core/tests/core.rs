@@ -283,7 +283,11 @@ fn snapshot_does_not_read_env_contents() {
     std::fs::write(tmp.path().join(".env"), "JWT_SECRET=sentinel-never-include").unwrap();
     let mut db = Database::open(&tmp.path().join("hub.db")).unwrap();
     let p = db.save(None, input(tmp.path())).unwrap();
-    let snapshot = hub_core::snapshot::generate(&p).unwrap();
+    let snapshot = hub_core::snapshot::generate(
+        &p,
+        &hub_core::runtime::inspect(&p, std::slice::from_ref(&p), vec![], &Default::default()),
+    )
+    .unwrap();
     assert!(!snapshot.contains("sentinel-never-include"));
     assert!(snapshot.contains(".env: true"));
     assert!(snapshot.contains("NOT VERIFIED"));

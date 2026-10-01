@@ -105,17 +105,27 @@ pub struct ProcessInfo {
     pub start_time: u64,
     pub project_id: Option<String>,
     pub confidence: String,
+    /// Iniciado pelo LKR LAB ("Rodar"). Só estes podem ser parados sem confirmação extra.
+    pub managed: bool,
 }
 #[derive(Clone)]
 struct ProcessSample {
     info: ProcessInfo,
     cwd: Option<std::path::PathBuf>,
+    parent: Option<u32>,
 }
 type ProcessCache = Mutex<Option<(Instant, Vec<ProcessSample>)>>;
-fn process_snapshot() -> Vec<ProcessSample> {
+fn snapshot_cache() -> &'static ProcessCache {
     static CACHE: OnceLock<ProcessCache> = OnceLock::new();
-    let mut cache = CACHE
-        .get_or_init(|| Mutex::new(None))
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+/// Descarta a foto de processos (vale 500 ms): usado quando o próprio app inicia ou encerra
+/// uma árvore, para a próxima leitura não mostrar processos que acabaram de sumir.
+pub fn invalidate_process_cache() {
+    *snapshot_cache().lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+fn process_snapshot() -> Vec<ProcessSample> {
+    let mut cache = snapshot_cache()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
     if let Some((updated, samples)) = cache.as_ref() {
@@ -143,6 +153,7 @@ fn process_snapshot() -> Vec<ProcessSample> {
                     .or_insert_with(|| cwd.canonicalize().ok())
                     .clone()
             }),
+            parent: process.parent().map(|p| p.as_u32()),
             info: ProcessInfo {
                 pid: pid.as_u32(),
                 name: process.name().to_string_lossy().into(),
@@ -151,6 +162,7 @@ fn process_snapshot() -> Vec<ProcessSample> {
                 start_time: process.start_time(),
                 project_id: None,
                 confidence: "unknown".into(),
+                managed: false,
             },
         })
         .collect();
@@ -163,24 +175,81 @@ pub fn owner_of<'a>(
     cwd: &std::path::Path,
     projects: &'a [crate::models::Project],
 ) -> Option<&'a crate::models::Project> {
+    // Compara sem o prefixo verbatim do Windows: a pasta vinculada pode ter sido gravada
+    // de qualquer das duas formas e o cwd do processo vem canonicalizado.
+    let cwd = crate::runtime::plain_path(cwd.to_path_buf());
     projects
         .iter()
         .filter(|project| {
             !project.local_path.is_empty()
-                && cwd.starts_with(std::path::Path::new(&project.local_path))
+                && cwd.starts_with(crate::runtime::plain_path(std::path::PathBuf::from(
+                    &project.local_path,
+                )))
         })
         .max_by_key(|project| project.local_path.len())
 }
 pub fn processes(projects: &[crate::models::Project]) -> Vec<ProcessInfo> {
-    let mut result: Vec<_> = process_snapshot()
+    processes_managed(projects, &std::collections::HashMap::new())
+}
+/// Dono de cada processo, só com evidência:
+///  1. managed — o PID está numa árvore iniciada pelo LKR LAB (`managed`: PID → projeto);
+///  2. cwd — a pasta de trabalho está dentro da pasta vinculada de um projeto;
+///  3. descendant — filho de um processo gerenciado que ficou fora do grupo.
+///
+/// Projeto sem pasta nesta máquina nunca é dono de nada.
+pub fn processes_managed(
+    projects: &[crate::models::Project],
+    managed: &std::collections::HashMap<u32, String>,
+) -> Vec<ProcessInfo> {
+    processes_managed_with(projects, &|| managed.clone())
+}
+/// Igual a `processes_managed`, mas pede os PIDs gerenciados DEPOIS de fotografar os
+/// processos: tudo que está na foto e ainda vive já está no grupo, então um processo recém-nascido
+/// da árvore gerenciada nunca é classificado como externo por uma corrida entre as duas leituras.
+pub fn processes_managed_with(
+    projects: &[crate::models::Project],
+    managed: &dyn Fn() -> std::collections::HashMap<u32, String>,
+) -> Vec<ProcessInfo> {
+    let samples = process_snapshot();
+    let managed = managed();
+    let managed = &managed;
+    let parents: std::collections::HashMap<u32, Option<u32>> =
+        samples.iter().map(|s| (s.info.pid, s.parent)).collect();
+    let bound = |id: &String| {
+        projects
+            .iter()
+            .any(|p| &p.id == id && !p.local_path.is_empty())
+    };
+    let mut result: Vec<_> = samples
         .into_iter()
         .map(|mut sample| {
-            let project = sample
+            let pid = sample.info.pid;
+            if let Some(id) = managed.get(&pid).filter(|id| bound(id)) {
+                sample.info.project_id = Some(id.clone());
+                sample.info.confidence = "managed".into();
+                sample.info.managed = true;
+                return sample.info;
+            }
+            if let Some(project) = sample
                 .cwd
                 .as_deref()
-                .and_then(|cwd| owner_of(cwd, projects));
-            sample.info.project_id = project.map(|p| p.id.clone());
-            sample.info.confidence = if project.is_some() { "cwd" } else { "unknown" }.into();
+                .and_then(|cwd| owner_of(cwd, projects))
+            {
+                sample.info.project_id = Some(project.id.clone());
+                sample.info.confidence = "cwd".into();
+                return sample.info;
+            }
+            let mut ancestor = sample.parent;
+            for _ in 0..8 {
+                let Some(parent) = ancestor else { break };
+                if let Some(id) = managed.get(&parent).filter(|id| bound(id)) {
+                    sample.info.project_id = Some(id.clone());
+                    sample.info.confidence = "descendant".into();
+                    sample.info.managed = true;
+                    break;
+                }
+                ancestor = parents.get(&parent).copied().flatten();
+            }
             sample.info
         })
         .collect();

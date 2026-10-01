@@ -101,3 +101,15 @@ Limites: o repositório de sync é o próprio checkout do LKR LAB; se o remoto a
 - O bridge só lê/escreve caminhos fixos definidos no servidor (`MODULES`), nunca vindos da requisição; não há rota de comando; Git roda com `execFile`, argumentos fixos e sem prompts; mensagens de erro passam por `redact`.
 - Metadados e preferências guardam só strings curtas e validadas; nada de tokens.
 - `data/*.tmp-*` (escrita atômica) está no `.gitignore`.
+
+## Project Runtime Manager (estado desta máquina)
+
+O runtime de um projeto é **derivado da máquina real a cada leitura** e nunca vai para o workspace portátil nem para o SQLite: stack e gerenciador (por arquivos/lockfiles da raiz, com evidência), scripts do `package.json`, resumo do Git DO PROJETO (`git::summary`, só leitura — não tem relação com o repositório de sync do bridge), processos e portas com dono verificado. Estados: `unbound`, `missing`, `ready`, `running`, `partial`, `error` (estado de runtime ≠ estado do workspace).
+
+- **Dono de processo** (`system::processes_managed`), só com evidência: `managed` (PID na árvore iniciada pelo LKR LAB), `cwd` (dentro da pasta vinculada; comparação por componentes, sem o prefixo verbatim do Windows) ou `descendant` de processo gerenciado. Projeto sem pasta nunca é dono de nada. Porta só é do projeto se o PID dono for do projeto.
+- **Managed × externo**: só o que o supervisor iniciou pode ser parado daqui. Processo externo aparece como “Em execução externamente” e não tem Parar (adoção fica para depois).
+- **Rodar** (`supervisor.rs`): `<gerenciador> run <script>` no diretório vinculado, sem shell nosso; o script precisa existir no package.json LOCAL e ter nome `[A-Za-z0-9][A-Za-z0-9:_.-]*`. **Fronteira de confiança**: nada vindo do workspace.json, do Git remoto do LKR LAB ou de `Project.commands` vira comando. Sem lockfile (ou com lockfiles conflitantes) o gerenciador não é inventado e Rodar fica indisponível com o motivo.
+- **Árvore de processos**: cada execução vive num Job Object do Windows (`KILL_ON_JOB_CLOSE`); Parar/Reiniciar encerram npm → node → vite por handle (nunca por nome, imune a reuso de PID) e Reiniciar espera a árvore sumir antes de iniciar. Ao sair do app nada fica órfão.
+- **Estado e logs**: eventos `runtime://event` (starting, running, stopping, stopped, failed, completed) sem polling; stdout/stderr em buffer de 2000 linhas (ANSI removido), buscado só para a execução aberta. Externos: consulta leve a cada 5 s com a janela visível.
+- **Web**: o controle é exclusivo do desktop; a web mostra o painel desabilitado (“Disponível no aplicativo desktop”).
+- **Contexto IA** (`snapshot::generate`) inclui um resumo do runtime com nomes e estados — nunca o texto dos scripts (podem conter segredos).

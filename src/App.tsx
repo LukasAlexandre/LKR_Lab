@@ -44,6 +44,7 @@ import { routes, routeFromHash } from "./app/routing";
 import { WindowTitleBar } from "./shell/WindowTitleBar";
 import { LocationNotice } from "./components/LocationNotice";
 import { SyncIndicator } from "./components/SyncIndicator";
+import { ProjectRuntime, RuntimeDesktopOnly } from "./features/ProjectRuntime";
 export default function App() {
   const [route, setRoute] = useState(routeFromHash);
   const selectedId = useActiveProjectId();
@@ -413,6 +414,8 @@ export default function App() {
                 edit={setForm}
                 remove={remove}
               />
+              {selected && <ProjectRuntime project={selected} context={() => void context()} report={report} />}
+              <RuntimeDesktopOnly />
               {selected && (
                 <Panel
                   title={selected.name}
@@ -471,8 +474,9 @@ export default function App() {
                         </div>
                       ))}
                       <p className="footnote">
-                        Execução de serviços planejada; comandos não são
-                        executados por esta versão.
+                        Estes comandos são só metadados do cadastro e nunca são
+                        executados. O painel Runtime roda apenas scripts do
+                        package.json local.
                       </p>
                     </div>
                   </div>

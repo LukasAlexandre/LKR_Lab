@@ -18,6 +18,7 @@ pub struct GitState {
     pub files: Vec<ChangedFile>,
     pub remote: Option<String>,
     pub stashes: usize,
+    pub conflicts: u32,
 }
 #[derive(Debug, Serialize)]
 pub struct ChangedFile {
@@ -57,6 +58,9 @@ pub fn parse_status(text: &str) -> GitState {
                 original: None,
             });
         } else if line.starts_with("1 ") || line.starts_with("2 ") || line.starts_with("u ") {
+            if line.starts_with("u ") {
+                state.conflicts += 1;
+            }
             if let Some(xy) = line.split_whitespace().nth(1) {
                 let mut c = xy.chars();
                 if c.next().is_some_and(|c| c != '.') {
@@ -92,6 +96,63 @@ pub fn parse_status(text: &str) -> GitState {
     }
     state.clean = state.staged + state.unstaged + state.untracked == 0;
     state
+}
+/// Resumo leve do repositório DO PROJETO (uma única chamada `git status`).
+/// Somente leitura; não tem relação com o repositório de sync do workspace (bridge).
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitSummary {
+    pub is_repo: bool,
+    pub branch: String,
+    pub detached: bool,
+    pub upstream: Option<String>,
+    pub ahead: Option<u32>,
+    pub behind: Option<u32>,
+    pub staged: u32,
+    pub unstaged: u32,
+    pub untracked: u32,
+    pub conflicts: u32,
+    pub changes: u32,
+    pub clean: bool,
+    pub error: Option<String>,
+}
+pub fn summary(path: &Path) -> GitSummary {
+    match run(
+        "git",
+        &[
+            "--no-optional-locks",
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--branch",
+            "--untracked-files=normal",
+        ],
+        Some(path),
+    ) {
+        Ok(text) => {
+            let state = parse_status(&text);
+            GitSummary {
+                is_repo: true,
+                detached: state.branch == "(detached)",
+                branch: state.branch,
+                upstream: state.upstream,
+                ahead: state.ahead,
+                behind: state.behind,
+                staged: state.staged,
+                unstaged: state.unstaged,
+                untracked: state.untracked,
+                conflicts: state.conflicts,
+                changes: state.files.len() as u32,
+                clean: state.clean,
+                error: None,
+            }
+        }
+        Err(error) => GitSummary {
+            is_repo: false,
+            error: Some(error),
+            ..GitSummary::default()
+        },
+    }
 }
 pub fn inspect(path: &Path) -> HubResult<GitState> {
     let mut state = parse_status(&run(

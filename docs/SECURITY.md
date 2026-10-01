@@ -26,3 +26,7 @@ Sem commit, push, merge, reset, rebase ou fetch automático. Sem scan de disco. 
 ## Antes de release comercial
 
 Revisar runner e configurações Git não confiáveis; adicionar autorização de confirmação no host para operações sensíveis, auditoria de dependências transitivas, assinatura de instalador e updater; completar backup, retenção de atividades, tratamento de discos de rede e smoke tests Windows. Não há alegação de auditoria de segurança completa.
+
+## Execução de comandos (Project Runtime Manager)
+
+O LKR LAB passou a executar scripts, sempre por ação explícita do usuário. Limites: só scripts do `package.json` da pasta vinculada e canônica (sem escapar por symlink); nome validado por padrão restrito e comparado com o arquivo; argumentos fixos (`run <nome>`), sem shell próprio e sem interpolação; projeto `unbound`/`missing` nunca executa; dados portáteis (workspace.json, `Project.commands`) são só metadados. Parar atua apenas em árvores iniciadas pelo próprio app (Job Object); processos externos nunca são encerrados por essa via. O script em si é código do projeto local e roda com as permissões do usuário.
