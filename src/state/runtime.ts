@@ -83,6 +83,8 @@ export function startRuntimeEvents() {
   });
 }
 
-export const runScript = (id: string, script: string) => api<RunInfo>("runtime_start", { id, script });
+/** Executa uma ação do projeto. O backend resolve o comando; aqui só vão o id e a opção escolhida. */
+export const runCommand = (id: string, commandId: string, selection?: string) =>
+  api<RunInfo>("runtime_start", { id, commandId, selection: selection ?? null });
 export const stopRun = (runId: string) => api<void>("runtime_stop", { runId });
 export const restartRun = (id: string, runId: string) => api<RunInfo>("runtime_restart", { id, runId });

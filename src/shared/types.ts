@@ -184,10 +184,70 @@ export interface RuntimeGit {
   clean: boolean;
   error: string | null;
 }
+export type RunSource = "node" | "cargo" | "tauri" | "compose";
+export type ActionGroup = "run" | "quality" | "build" | "control";
+export interface CommandChoice {
+  id: string;
+  label: string;
+}
+/** Ação executável do projeto. Vem do backend (arquivos locais); a interface só devolve o id. */
+export interface RuntimeCommand {
+  id: string;
+  label: string;
+  detail: string;
+  source: RunSource;
+  program: string;
+  args: string[];
+  cwd: string;
+  group: ActionGroup;
+  kind: ScriptKind;
+  longRunning: boolean;
+  observer: boolean;
+  choices: CommandChoice[];
+  selectionRequired: boolean;
+  available: boolean;
+  unavailableReason: string | null;
+}
+export interface ToolStatus {
+  id: string;
+  label: string;
+  available: boolean;
+  version: string | null;
+  reason: string | null;
+}
+export interface StackComposition {
+  headline: string;
+  parts: { role: string; label: string }[];
+}
+export interface ComposeServiceRuntime {
+  name: string;
+  state: "running" | "restarting" | "paused" | "exited" | "created" | "dead" | "absent" | string;
+  health: string | null;
+  exitCode: number | null;
+  ports: { published: number | null; target: number; protocol: string }[];
+  profiles: string[];
+}
+export interface ComposeRuntime {
+  file: string;
+  overrideFiles: string[];
+  note: string | null;
+  projectName: string | null;
+  services: ComposeServiceRuntime[];
+  containers: number;
+  running: number;
+  expected: number;
+  startedHere: boolean;
+  error: string | null;
+}
 export interface RunInfo {
   id: string;
   projectId: string;
   script: string;
+  commandId: string;
+  label: string;
+  source: RunSource;
+  observer: boolean;
+  selection: string | null;
   command: string;
   kind: ScriptKind;
   state: RunState;
@@ -213,11 +273,22 @@ export interface ProjectRuntime {
   externalRunning: boolean;
   canRun: boolean;
   runBlockedReason: string | null;
+  tauri: { version: number | null; versionEvidence: string | null; confDir: string; devUrlPort: number | null; hasScript: boolean; localCli: boolean } | null;
+  rust: { dir: string; workspace: boolean; virtualManifest: boolean; packages: string[]; bins: { package: string; name: string; packageDir: string; isTauri: boolean }[]; defaultRun: string | null; notes: string[] } | null;
+  docker: { dockerfile: boolean; composeFiles: string[]; overrideFiles: string[]; kind: "compose" | "dockerfile" } | null;
+  composition: StackComposition;
+  tools: ToolStatus[];
+  commands: RuntimeCommand[];
+  primaryCommand: string | null;
+  compose: ComposeRuntime | null;
+  lastTask: { command: string; state: RunState; exitCode: number | null } | null;
 }
 export interface LogLine {
   seq: number;
   stream: "out" | "err";
   text: string;
+  /** Quem escreveu, quando reconhecível (tauri dev mistura Tauri, Vite e Cargo). */
+  source: "cargo" | "vite" | "tauri" | null;
 }
 export interface LogChunk {
   lines: LogLine[];

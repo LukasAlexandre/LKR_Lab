@@ -48,7 +48,17 @@ impl RunState {
 pub struct RunInfo {
     pub id: String,
     pub project_id: String,
+    /// Nome da ação sem a origem ("dev", "run", "up"…). Para Node é o nome do script.
     pub script: String,
+    /// Identidade da ação: "node:dev", "cargo:test", "tauri:dev", "compose:up"…
+    pub command_id: String,
+    pub label: String,
+    /// node | cargo | tauri | compose
+    pub source: &'static str,
+    /// Só observa (logs do Compose): não conta como projeto em execução.
+    pub observer: bool,
+    /// Opção escolhida (binário Rust, serviço do Compose), se houver.
+    pub selection: Option<String>,
     /// Exibição do comando ("npm run dev"); nunca é executado como texto.
     pub command: String,
     pub kind: ScriptKind,
@@ -89,6 +99,51 @@ pub struct LogLine {
     /// "out" | "err"
     pub stream: &'static str,
     pub text: String,
+    /// Quem escreveu a linha, quando dá para reconhecer com segurança (um `tauri dev` mistura
+    /// Tauri, Vite e Cargo na mesma saída). `None` = a própria origem da execução.
+    pub source: Option<&'static str>,
+}
+
+/// Reconhece a origem de linhas de um `tauri dev`/`tauri build`. Só padrões inequívocos;
+/// o resto fica sem etiqueta em vez de arriscar um palpite.
+pub fn classify_line(run_source: &str, text: &str) -> Option<&'static str> {
+    if run_source != "tauri" {
+        return None;
+    }
+    let line = text.trim_start();
+    const CARGO: [&str; 12] = [
+        "Compiling ",
+        "Finished `",
+        "Finished dev",
+        "Running `",
+        "Building [",
+        "Blocking waiting",
+        "Downloading crates",
+        "Downloaded ",
+        "Updating crates",
+        "Locking ",
+        "Checking ",
+        "error[E",
+    ];
+    if CARGO.iter().any(|p| line.starts_with(p)) {
+        return Some("cargo");
+    }
+    if line.contains("VITE v") || line.starts_with("➜") || line.contains("[vite]") {
+        return Some("vite");
+    }
+    const TAURI: [&str; 7] = [
+        "Running BeforeDevCommand",
+        "Running DevCommand",
+        "Running BeforeBuildCommand",
+        "Info ",
+        "Warn ",
+        "Warning ",
+        "Error ",
+    ];
+    if TAURI.iter().any(|p| line.starts_with(p)) {
+        return Some("tauri");
+    }
+    None
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,11 +160,12 @@ struct LogBuffer {
     next_seq: u64,
 }
 impl LogBuffer {
-    fn push(&mut self, stream: &'static str, text: String) {
+    fn push(&mut self, stream: &'static str, text: String, source: Option<&'static str>) {
         self.lines.push_back(LogLine {
             seq: self.next_seq,
             stream,
             text,
+            source,
         });
         self.next_seq += 1;
         while self.lines.len() > MAX_LOG_LINES {
@@ -129,6 +185,14 @@ struct Run {
     id: String,
     project_id: String,
     script: String,
+    command_id: String,
+    label: String,
+    source: &'static str,
+    observer: bool,
+    selection: Option<String>,
+    exclusive: Option<&'static str>,
+    /// Raiz do projeto: o cache do Compose é invalidado quando uma operação dele termina.
+    root: std::path::PathBuf,
     command: String,
     kind: ScriptKind,
     started_at: u64,
@@ -138,12 +202,25 @@ struct Run {
     group: group::Group,
 }
 impl Run {
+    fn is_live(&self) -> bool {
+        self.status
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .state
+            .is_active()
+            || !self.group.pids().is_empty()
+    }
     fn info(&self) -> RunInfo {
         let status = self.status.lock().unwrap_or_else(|e| e.into_inner());
         RunInfo {
             id: self.id.clone(),
             project_id: self.project_id.clone(),
             script: self.script.clone(),
+            command_id: self.command_id.clone(),
+            label: self.label.clone(),
+            source: self.source,
+            observer: self.observer,
+            selection: self.selection.clone(),
             command: self.command.clone(),
             kind: self.kind,
             state: status.state,
@@ -276,25 +353,49 @@ impl Supervisor {
             .ok_or_else(|| "Execução não encontrada.".to_string())
     }
 
-    /// Inicia `script` do projeto. O comando vem SOMENTE do package.json local
-    /// (validado em `runtime::launch_spec`); nada vem do workspace portátil.
+    /// Inicia `script` do package.json local (API anterior): equivale à ação `node:<script>`.
     pub fn start(&self, project: &Project, script: &str) -> HubResult<RunInfo> {
         let spec = runtime::launch_spec(project, script)?;
+        self.launch(project, spec)
+    }
+
+    /// Inicia uma ação do projeto (`node:dev`, `cargo:test`, `tauri:dev`, `compose:up`…).
+    /// O comando é resolvido AGORA, dos arquivos locais da pasta vinculada (`actions::resolve`);
+    /// id e seleção que chegam de fora são só chaves nessa lista. Nada vem do workspace portátil.
+    pub fn start_command(
+        &self,
+        project: &Project,
+        command_id: &str,
+        selection: Option<&str>,
+    ) -> HubResult<RunInfo> {
+        let spec = crate::actions::resolve(project, command_id, selection)?;
+        self.launch(project, spec)
+    }
+
+    fn launch(&self, project: &Project, spec: runtime::LaunchSpec) -> HubResult<RunInfo> {
+        let script = spec.name.clone();
         {
             let runs = self.runs.lock().unwrap_or_else(|e| e.into_inner());
-            if runs.iter().any(|r| {
-                r.project_id == project.id
-                    && r.script == script
-                    && (r
-                        .status
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .state
-                        .is_active()
-                        || !r.group.pids().is_empty())
-            }) {
-                return Err(format!("“{script}” já está em execução neste projeto."));
+            let mine = || {
+                runs.iter()
+                    .filter(|r| r.project_id == project.id && r.is_live())
+            };
+            if mine().any(|r| r.command_id == spec.command_id && r.selection == spec.selection) {
+                return Err(format!(
+                    "“{}” já está em execução neste projeto.",
+                    spec.label
+                ));
             }
+            // Subir, parar e reiniciar containers não rodam em paralelo no mesmo projeto.
+            if let Some(group) = spec.exclusive {
+                if mine().any(|r| r.exclusive == Some(group)) {
+                    return Err("Há uma operação do Compose em andamento neste projeto: aguarde ou cancele.".into());
+                }
+            }
+        }
+        // Derrubar o projeto encerra também o acompanhamento de logs dele (nada de observador órfão).
+        if spec.command_id == "compose:down" {
+            self.stop_observers(&project.id);
         }
         let group = group::Group::new()?;
         let mut command = Command::new(&spec.program);
@@ -305,7 +406,9 @@ impl Supervisor {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .env("NO_COLOR", "1")
-            .env("FORCE_COLOR", "0");
+            .env("FORCE_COLOR", "0")
+            .env("CARGO_TERM_COLOR", "never")
+            .env("DOCKER_CLI_HINTS", "false");
         group::prepare(&mut command);
         let mut child: Child = command
             .spawn()
@@ -315,7 +418,14 @@ impl Supervisor {
         let run = Arc::new(Run {
             id: uuid::Uuid::new_v4().to_string(),
             project_id: project.id.clone(),
-            script: script.to_string(),
+            script,
+            command_id: spec.command_id.clone(),
+            label: spec.label.clone(),
+            source: spec.source,
+            observer: spec.observer,
+            selection: spec.selection.clone(),
+            exclusive: spec.exclusive,
+            root: spec.root.clone(),
             command: spec.display,
             kind: spec.kind,
             started_at: now_ms(),
@@ -371,6 +481,11 @@ impl Supervisor {
             let lock = self.emit_lock.clone();
             thread::spawn(move || {
                 let code = child.wait().ok().and_then(|s| s.code());
+                if run.source == "compose" {
+                    // O estado dos containers mudou: a próxima leitura do `ps` precisa ser fresca.
+                    // Antes de publicar o estado final, para quem reage a ele não ler cache velho.
+                    crate::compose::invalidate(&run.root);
+                }
                 {
                     let mut status = run.status.lock().unwrap_or_else(|e| e.into_inner());
                     status.exit_code = code;
@@ -402,10 +517,11 @@ impl Supervisor {
                 loop {
                     match rx.recv_timeout(Duration::from_millis(100)) {
                         Ok((stream, text)) => {
+                            let source = classify_line(run.source, &text);
                             run.logs
                                 .lock()
                                 .unwrap_or_else(|e| e.into_inner())
-                                .push(stream, text);
+                                .push(stream, text, source);
                             dirty = true;
                         }
                         Err(RecvTimeoutError::Timeout) => {}
@@ -514,9 +630,18 @@ impl Supervisor {
         if run.project_id != project.id {
             return Err("Execução de outro projeto.".into());
         }
-        let script = run.script.clone();
+        let (command_id, selection) = (run.command_id.clone(), run.selection.clone());
         self.stop_and_wait(run_id, Duration::from_secs(15))?;
-        self.start(project, &script)
+        self.start_command(project, &command_id, selection.as_deref())
+    }
+
+    /// Para os acompanhamentos (logs ao vivo) do projeto, sem esperar.
+    pub fn stop_observers(&self, project_id: &str) {
+        for run in self.all() {
+            if run.project_id == project_id && run.observer && run.is_live() {
+                let _ = self.stop(&run.id);
+            }
+        }
     }
 
     pub fn logs(&self, run_id: &str, since: u64) -> HubResult<LogChunk> {

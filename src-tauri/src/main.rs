@@ -234,16 +234,23 @@ async fn project_runtime(
         .await
         .map_err(|e| e.to_string())?
 }
+/// Executa uma ação do projeto. `command_id` e `selection` são só chaves: o comando é
+/// resolvido no backend, dos arquivos locais da pasta vinculada (`actions::resolve`).
 #[tauri::command]
 async fn runtime_start(
     app: tauri::AppHandle,
     id: String,
-    script: String,
+    command_id: String,
+    selection: Option<String>,
 ) -> HubResult<hub_core::supervisor::RunInfo> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
         let project = db(&state)?.project(&id)?;
-        let run = app.state::<RuntimeState>().0.start(&project, &script)?;
+        let run = app.state::<RuntimeState>().0.start_command(
+            &project,
+            &command_id,
+            selection.as_deref(),
+        )?;
         db(&state)?.activity(&id, &format!("Execução iniciada: {}", run.command))?;
         Ok(run)
     })
@@ -269,6 +276,11 @@ async fn runtime_restart(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+/// Encerra os acompanhamentos de logs (observadores) do projeto: nunca sobrevivem à tela.
+#[tauri::command]
+fn runtime_stop_observers(app: tauri::AppHandle, id: String) {
+    app.state::<RuntimeState>().0.stop_observers(&id);
 }
 #[tauri::command]
 fn runtime_logs(
@@ -444,6 +456,7 @@ fn main() {
             runtime_start,
             runtime_stop,
             runtime_restart,
+            runtime_stop_observers,
             runtime_logs,
             open_localhost,
             generate_context,

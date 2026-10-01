@@ -112,12 +112,96 @@ fn runtime_section(rt: &ProjectRuntime) -> String {
             })
             .collect(),
     );
+    let composition = if rt.detection.composition.parts.is_empty() {
+        "nenhuma".to_string()
+    } else {
+        rt.detection
+            .composition
+            .parts
+            .iter()
+            .map(|p| format!("{} {}", p.role, p.label))
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+    // Versões vêm de `--version`; motivos são mensagens do produto (nunca saída crua de comandos).
+    let tools = list(
+        rt.tools
+            .iter()
+            .map(|t| match (&t.version, t.available) {
+                (Some(v), true) => format!("{} (disponível, {v})", t.label),
+                (None, true) => format!("{} (disponível)", t.label),
+                (_, false) => format!(
+                    "{} (ausente: {})",
+                    t.label,
+                    t.reason.clone().unwrap_or_default()
+                ),
+            })
+            .collect(),
+    );
+    // Só rótulo e id: os argumentos e o texto dos scripts não vão para o contexto.
+    let commands = list(
+        rt.commands
+            .iter()
+            .filter(|c| c.available)
+            .map(|c| format!("{} [{}]", c.label, c.id))
+            .collect(),
+    );
+    let blocked = list(
+        rt.commands
+            .iter()
+            .filter(|c| !c.available)
+            .map(|c| {
+                format!(
+                    "{} [{}]: {}",
+                    c.label,
+                    c.id,
+                    c.unavailable_reason.clone().unwrap_or_default()
+                )
+            })
+            .collect(),
+    );
+    let compose = match &rt.compose {
+        None => "não aplicável".to_string(),
+        Some(c) => format!(
+            "{} · containers: {} · serviços: {}{}{}",
+            c.file,
+            c.containers,
+            list(
+                c.services
+                    .iter()
+                    .map(|s| format!("{} ({})", s.name, s.state))
+                    .collect()
+            ),
+            if c.started_here {
+                " · subido por esta sessão"
+            } else {
+                ""
+            },
+            // O texto do erro do Compose pode citar variáveis do projeto: fica só na tela.
+            if c.error.is_some() {
+                " · leitura com erro (ver tela de Runtime)"
+            } else {
+                ""
+            },
+        ),
+    };
+    let last_task = match &rt.last_task {
+        None => "nenhuma".to_string(),
+        Some(t) => format!(
+            "{} — {:?}{}",
+            t.command,
+            t.state,
+            t.exit_code
+                .map(|c| format!(" (exit {c})"))
+                .unwrap_or_default()
+        ),
+    };
     format!(
-        "\n## Runtime (estado desta máquina, observado agora)\nProject ID: {}\nStatus: {:?}{}\nStack: {}\nGerenciador de pacotes: {}\nGit: {}\nScripts: {}\nExecuções gerenciadas: {}\nPortas com dono verificado: {}\nProcesso externo em execução: {}\n",
+        "\n## Runtime (estado desta máquina, observado agora)\nProject ID: {}\nStatus: {:?}{}\nStack: {}\nComposição: {}\nGerenciador de pacotes: {}\nFerramentas: {}\nGit: {}\nScripts: {}\nAções disponíveis: {}\nAções indisponíveis: {}\nCompose: {}\nÚltima tarefa: {}\nExecuções gerenciadas: {}\nPortas com dono verificado: {}\nProcesso externo em execução: {}\n",
         rt.project_id,
         rt.status,
         rt.status_detail.as_ref().map(|d| format!(" — {d}")).unwrap_or_default(),
-        stack, manager, git, scripts, runs, ports,
+        stack, composition, manager, tools, git, scripts, commands, blocked, compose, last_task, runs, ports,
         if rt.external_running { "sim" } else { "não" }
     )
 }
