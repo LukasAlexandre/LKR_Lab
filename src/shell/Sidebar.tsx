@@ -13,7 +13,7 @@ export const Sidebar = memo(function Sidebar({ route, sidebarCompact, toggle, pr
             <i />
           </div>
           <div>
-            <strong>LK Dev Hub</strong>
+            <strong>LKR LAB</strong>
             <small>DEVELOPER WORKSPACE</small>
           </div>
           <button

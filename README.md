@@ -1,6 +1,6 @@
-# LK Dev Hub
+# LKR LAB
 
-Local developer control center da LK Technologies Brasil. Reúne projetos, Git, portas, processos e contexto de IA em uma aplicação Windows. O repositório se chama **LK-Tools**; o produto mantém o nome provisório **LK Dev Hub**.
+Local developer control center da LK Technologies Brasil. Reúne projetos, Git, portas, processos e contexto de IA em uma aplicação Windows. O produto se chama **LKR LAB** (antes, provisoriamente, LK Dev Hub). Identificadores técnicos legados foram mantidos de propósito para não quebrar build, dados e instalação: pacote npm e crate `lk-dev-hub`, identifier `br.com.lktechnologies.devhub` (pasta de dados) e chaves `lk.*`.
 
 **Estado: v0.1 foundation em desenvolvimento.** Código real, sem dados de demonstração. Build da interface e testes do núcleo são independentes da validação desktop Windows. Consulte [TASKS.md](TASKS.md) e [checkpoint](docs/CHECKPOINT.md) antes de considerar esta versão pronta para uso diário.
 

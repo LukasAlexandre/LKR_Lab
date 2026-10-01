@@ -1,6 +1,6 @@
 # Performance contract
 
-The LK Dev Hub is a local-first desktop tool. UI navigation must never wait for
+LKR LAB is a local-first desktop tool. UI navigation must never wait for
 OS, Git, GitHub, or agent-provider collection.
 
 ## Budgets
