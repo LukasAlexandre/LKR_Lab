@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "projects": [
+    {
+      "id": "proj-a",
+      "name": "Alpha",
+      "description": "Projeto com acentuação: ação, coração — e “aspas”.",
+      "repository": "https://github.com/org/alpha",
+      "stack": ["Rust", "React"],
+      "tags": ["core"],
+      "ports": [{ "name": "web", "port": 3000 }],
+      "commands": [{ "name": "dev", "program": "npm", "args": ["run", "dev"] }],
+      "createdAt": "2026-01-01T10:00:00.000Z",
+      "updatedAt": "2026-01-02T10:00:00.000Z"
+    },
+    {
+      "id": "proj-b",
+      "name": "Beta",
+      "description": "",
+      "repository": "",
+      "stack": [],
+      "tags": [],
+      "ports": [],
+      "commands": [],
+      "createdAt": "",
+      "updatedAt": ""
+    }
+  ],
+  "prompts": [
+    { "id": "audit", "title": "Auditar repositório", "category": "Development", "projectId": null, "body": "Analise {{project.name}}." },
+    { "id": "mine", "title": "Meu prompt", "category": "Dev", "projectId": "proj-a", "body": "corpo\ncom linhas" }
+  ],
+  "knowledge": [
+    { "id": "k1", "projectId": "proj-a", "title": "Decisão", "kind": "decision", "body": "Usar SQLite.", "tags": "db,sqlite", "updatedAt": "2026-01-03T10:00:00.000Z" }
+  ],
+  "preferences": { "sidebarCompact": true, "density": "compact", "promptFavorites": ["audit", "mine"] }
+}

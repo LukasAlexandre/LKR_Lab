@@ -43,6 +43,7 @@ import { Knowledge } from "./features/Knowledge";
 import { routes, routeFromHash } from "./app/routing";
 import { WindowTitleBar } from "./shell/WindowTitleBar";
 import { LocationNotice } from "./components/LocationNotice";
+import { SyncIndicator } from "./components/SyncIndicator";
 export default function App() {
   const [route, setRoute] = useState(routeFromHash);
   const selectedId = useActiveProjectId();
@@ -327,6 +328,7 @@ export default function App() {
             <span className={`dot ${desktop ? "green" : ""}`} />
             {desktop ? "Desktop local" : "Prévia web"}
           </div>
+          <SyncIndicator />
           <ActivityCenter />
           <div className="avatar">LK</div>
         </header>

@@ -145,6 +145,65 @@ fn apply_portable(
 ) -> HubResult<hub_core::portable::ApplySummary> {
     db(&state)?.apply_portable(&workspace)
 }
+/// Estado de sync (comandos abaixo): a interface nunca fala com o bridge nem com o Git.
+#[derive(Default)]
+struct SyncRuntime {
+    running: std::sync::atomic::AtomicBool,
+}
+fn save_preferences(
+    app: &tauri::AppHandle,
+    preferences: Option<hub_core::portable::PortablePreferences>,
+) -> HubResult<()> {
+    if let Some(preferences) = preferences {
+        let state = app.state::<AppState>();
+        db(&state)?.save_preferences(preferences)?;
+    }
+    Ok(())
+}
+/// Estado local (sem rede) ou, com `check_remote`, comparado ao repositório via bridge.
+#[tauri::command]
+async fn sync_status(
+    app: tauri::AppHandle,
+    preferences: Option<hub_core::portable::PortablePreferences>,
+    check_remote: bool,
+) -> HubResult<hub_core::sync::SyncStatus> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_preferences(&app, preferences)?;
+        let state = app.state::<AppState>();
+        if check_remote {
+            hub_core::sync::status(&state.0, &hub_core::bridge::HttpBridge::from_env())
+        } else {
+            hub_core::sync::local_status(&state.0)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+/// Ação "Sincronizar". `resolution` ("local" | "remote") só vem de uma escolha explícita.
+#[tauri::command]
+async fn sync_run(
+    app: tauri::AppHandle,
+    preferences: Option<hub_core::portable::PortablePreferences>,
+    resolution: Option<String>,
+) -> HubResult<hub_core::sync::SyncStatus> {
+    tauri::async_runtime::spawn_blocking(move || {
+        save_preferences(&app, preferences)?;
+        let resolution = resolution
+            .as_deref()
+            .map(hub_core::sync::Resolution::parse)
+            .transpose()?;
+        let state = app.state::<AppState>();
+        let runtime = app.state::<SyncRuntime>();
+        hub_core::sync::sync(
+            &state.0,
+            &hub_core::bridge::HttpBridge::from_env(),
+            resolution,
+            &runtime.running,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 #[tauri::command]
 fn open_localhost(port: u16) -> HubResult<()> {
     hub_core::launchers::open_url(&format!("http://127.0.0.1:{port}"))
@@ -275,6 +334,7 @@ fn main() {
             std::fs::create_dir_all(&dir)?;
             let database = Database::open(&dir.join("hub.db")).map_err(std::io::Error::other)?;
             app.manage(AppState(Mutex::new(database)));
+            app.manage(SyncRuntime::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -294,6 +354,8 @@ fn main() {
             bind_project,
             export_portable,
             apply_portable,
+            sync_status,
+            sync_run,
             open_localhost,
             generate_context,
             save_context,

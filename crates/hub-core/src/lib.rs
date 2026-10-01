@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod bridge;
 pub mod commands;
 pub mod database;
 pub mod git;
@@ -9,5 +10,6 @@ pub mod portable;
 pub mod ports;
 pub mod projects;
 pub mod snapshot;
+pub mod sync;
 pub mod system;
 pub type HubResult<T> = Result<T, String>;

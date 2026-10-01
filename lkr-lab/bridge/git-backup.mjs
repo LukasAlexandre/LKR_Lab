@@ -383,6 +383,53 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
     };
   }
 
+  /**
+   * GET /api/remote/:module — o que o GitHub tem, SEM tocar na árvore de trabalho.
+   * Atualiza só origin/<branch> (fetch) e lê o arquivo do módulo direto desse ref.
+   * Falha de rede não é erro: devolve fetched=false e o que já se sabia do remote.
+   */
+  async function remoteState(moduleId = "lab-setup", { fetch = true } = {}) {
+    const mod = moduleOf(moduleId);
+    const info = await inspect({ requireRemote: false });
+    let fetchError = null;
+    if (fetch && info.remote) {
+      try {
+        await fetchRemote(info.branch);
+      } catch (error) {
+        if (!(error instanceof BackupError)) throw error;
+        fetchError = { code: error.code, message: error.message };
+      }
+    }
+    const counts = info.remote ? await divergence(info.branch) : null;
+    const result = {
+      branch: info.branch,
+      repo: info.remoteLabel,
+      remote: info.remote,
+      remoteBranch: Boolean(counts),
+      fetched: fetch && info.remote && !fetchError,
+      fetchError,
+      ahead: counts ? counts.ahead : null,
+      behind: counts ? counts.behind : null,
+      file: { status: "missing" },
+    };
+    if (!counts) return result;
+    // mod.file é constante deste arquivo; o ref é montado a partir de um nome validado em inspect().
+    const shown = await git(["show", "refs/remotes/origin/" + info.branch + ":" + mod.file]);
+    if (!shown.ok) return result; // arquivo ainda não existe no remote
+    let envelope;
+    try {
+      envelope = JSON.parse(shown.stdout);
+    } catch {
+      return { ...result, file: { status: "invalid", message: "JSON ilegível no repositório remoto." } };
+    }
+    if (envelope && Number.isInteger(envelope.schemaVersion) && envelope.schemaVersion > mod.schemaVersion) {
+      return { ...result, file: { status: "newer", message: "O arquivo foi criado por uma versão mais nova do LKR LAB (v" + envelope.schemaVersion + ")." } };
+    }
+    const prepared = mod.prepare(envelope);
+    if (!prepared.ok) return { ...result, file: { status: "invalid", message: prepared.error } };
+    return { ...result, file: { status: "ok", state: prepared.state, stateHash: prepared.hash, updatedAt: envelope.updatedAt || null } };
+  }
+
   /** POST /api/lab-sync */
   async function sync(moduleId, payload) {
     const mod = moduleOf(moduleId);
@@ -456,7 +503,7 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
    * POST /api/lab-update — traz commits do GitHub somente por fast-forward.
    * Se houver divergência ou alterações locais em risco, para sem mexer em nada.
    */
-  async function update(moduleId = "lab-setup") {
+  async function update(moduleId = "lab-setup", { strict = false } = {}) {
     const mod = moduleOf(moduleId);
     return exclusive(async () => {
       const info = await inspect();
@@ -466,6 +513,13 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
       if (counts.behind === 0) return { success: true, updated: false, commits: 0, stateChanged: false, labStateChanged: false, branch: info.branch, message: "O repositório local já está atualizado." };
       if (counts.ahead > 0) throw new BackupError("DIVERGED");
       if (await fileStatus(mod)) throw new BackupError("LOCAL_CHANGES", { message: "O arquivo " + mod.file + " tem alterações locais não commitadas. Nada foi alterado." });
+      if (strict) {
+        // Pedido pelo sync do desktop: nunca mover a árvore de quem está desenvolvendo.
+        const dirty = lines((await git(["status", "--porcelain=v1", "--untracked-files=no"])).stdout);
+        if (dirty.length) {
+          throw new BackupError("LOCAL_CHANGES", { message: "Há alterações não commitadas no repositório. Atualize-o manualmente (git pull) e sincronize de novo. Nada foi alterado." });
+        }
+      }
 
       const oldHead = (await gitOrThrow(["rev-parse", "HEAD"])).trim();
       await gitOrThrow(["merge", "--ff-only", "--quiet", "refs/remotes/origin/" + info.branch]);
@@ -484,5 +538,5 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
     });
   }
 
-  return { status, readState, sync, update, repoRoot };
+  return { status, readState, remoteState, sync, update, repoRoot };
 }

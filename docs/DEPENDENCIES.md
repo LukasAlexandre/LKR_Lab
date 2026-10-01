@@ -28,6 +28,7 @@ Versions resolved from npm and crates.io on 2026-09-19. Direct dependencies revi
 | tauri | 2.11.5 | Apache-2.0 OR MIT |
 | tauri-build | 2.6.3 | Apache-2.0 OR MIT |
 | serde | 1.0.229 | MIT OR Apache-2.0 |
+| sha2 | 0.10.9 | MIT OR Apache-2.0 |
 | serde_json | 1.0.151 | MIT OR Apache-2.0 |
 | rusqlite | 0.40.2 | MIT |
 | uuid | 1.26.1 | Apache-2.0 OR MIT |

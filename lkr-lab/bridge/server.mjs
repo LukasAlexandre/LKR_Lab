@@ -141,7 +141,7 @@ export function createLabServer({ backup = createGitBackup({ repoRoot: REPO_ROOT
     }
 
     // Rotas por módulo (lab-setup, workspace…): o id só escolhe uma entrada fixa de MODULES.
-    const moduleRoute = /^\/api\/(state|sync|update)\/([a-z][a-z-]{0,39})$/.exec(url.pathname);
+    const moduleRoute = /^\/api\/(state|sync|update|remote)\/([a-z][a-z-]{0,39})$/.exec(url.pathname);
     const route = moduleRoute ? req.method + " /api/" + moduleRoute[1] + "/:module" : req.method + " " + url.pathname;
     const moduleId = moduleRoute ? moduleRoute[2] : url.searchParams.get("module") || "lab-setup";
     try {
@@ -152,8 +152,10 @@ export function createLabServer({ backup = createGitBackup({ repoRoot: REPO_ROOT
           return sendJson(res, 200, { success: true, ...(await backup.readState(moduleId)) });
         case "POST /api/sync/:module":
           return sendJson(res, 200, await backup.sync(moduleId, await readJsonBody(req)));
+        case "GET /api/remote/:module":
+          return sendJson(res, 200, { success: true, ...(await backup.remoteState(moduleId, { fetch: url.searchParams.get("fetch") !== "0" })) });
         case "POST /api/update/:module":
-          return sendJson(res, 200, await backup.update(moduleId));
+          return sendJson(res, 200, await backup.update(moduleId, { strict: url.searchParams.get("strict") === "1" }));
         case "GET /api/lab-state":
           return sendJson(res, 200, { success: true, ...(await backup.readState("lab-setup")) });
         case "POST /api/lab-sync":

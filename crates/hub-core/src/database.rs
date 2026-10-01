@@ -1,6 +1,7 @@
 use crate::{
     models::*,
-    portable::{ApplySummary, PortableProject, PortableWorkspace},
+    portable::{ApplySummary, PortablePreferences, PortableProject, PortableWorkspace},
+    sync::SyncMeta,
     HubResult,
 };
 use rusqlite::{params, Connection};
@@ -20,7 +21,7 @@ impl Database {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 3 {
+        if version > 4 {
             return Err("Banco criado por versão mais recente do aplicativo.".into());
         }
         if version == 0 {
@@ -37,6 +38,12 @@ impl Database {
         }
         if version < 3 {
             migrate_bindings(&mut conn)?;
+        }
+        if version < 4 {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            tx.execute_batch(include_str!("../migrations/004_sync_state.sql"))
+                .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
         }
         Ok(Self { conn })
     }
@@ -279,17 +286,91 @@ impl Database {
     }
     /// Dados portáteis do SQLite: projetos sem caminho, prompts e knowledge.
     pub fn export_portable(&self) -> HubResult<PortableWorkspace> {
-        Ok(PortableWorkspace {
+        let mut ws = PortableWorkspace {
             version: crate::portable::SCHEMA_VERSION,
             projects: self.projects()?.iter().map(PortableProject::from).collect(),
             prompts: self.prompts()?,
             knowledge: self.knowledge()?,
-        })
+            preferences: self.preferences()?,
+        };
+        crate::portable::normalize(&mut ws);
+        Ok(ws)
+    }
+    pub fn preferences(&self) -> HubResult<PortablePreferences> {
+        let data: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT data FROM portable_preferences WHERE id=1",
+                [],
+                |r| r.get(0),
+            )
+            .ok();
+        match data {
+            Some(text) => serde_json::from_str(&text).map_err(|e| e.to_string()),
+            None => Ok(PortablePreferences::default()),
+        }
+    }
+    /// Guarda as preferências portáteis enviadas pela interface (normalizadas).
+    pub fn save_preferences(
+        &mut self,
+        prefs: PortablePreferences,
+    ) -> HubResult<PortablePreferences> {
+        let mut ws = PortableWorkspace {
+            version: crate::portable::SCHEMA_VERSION,
+            projects: vec![],
+            prompts: vec![],
+            knowledge: vec![],
+            preferences: prefs,
+        };
+        crate::portable::normalize(&mut ws);
+        let prefs = ws.preferences;
+        if self.preferences()? != prefs {
+            set_preferences(&self.conn, &prefs)?;
+        }
+        Ok(prefs)
+    }
+    pub fn sync_meta(&self) -> HubResult<SyncMeta> {
+        self.conn
+            .query_row(
+                "SELECT base_hash,last_applied_hash,last_synced_at FROM sync_state WHERE id=1",
+                [],
+                |r| {
+                    Ok(SyncMeta {
+                        base_hash: r.get(0)?,
+                        last_applied_hash: r.get(1)?,
+                        last_synced_at: r.get(2)?,
+                    })
+                },
+            )
+            .map_err(|e| e.to_string())
+    }
+    /// Marca que local e arquivo versionado concordam em `hash` (push concluído
+    /// ou conteúdo já igual). Só é chamado depois do sucesso.
+    pub fn mark_synced(&self, hash: &str) -> HubResult<()> {
+        self.conn
+            .execute(
+                "UPDATE sync_state SET base_hash=?1,last_synced_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1",
+                [hash],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
     /// Torna o SQLite igual ao workspace portátil, numa transação. Vínculos de
     /// pasta dos projetos que continuam no workspace são preservados; atividades
     /// (histórico desta máquina) não são tocadas.
     pub fn apply_portable(&mut self, ws: &PortableWorkspace) -> HubResult<ApplySummary> {
+        self.apply_inner(ws, None)
+    }
+    /// Aplica o workspace vindo do arquivo versionado e, na MESMA transação,
+    /// registra `hash` como último aplicado e base de sync. Se algo falhar, nada muda.
+    pub fn apply_synced(&mut self, ws: &PortableWorkspace, hash: &str) -> HubResult<ApplySummary> {
+        self.apply_inner(ws, Some(hash))
+    }
+    fn apply_inner(
+        &mut self,
+        ws: &PortableWorkspace,
+        applied: Option<&str>,
+    ) -> HubResult<ApplySummary> {
         crate::portable::validate(ws)?;
         let now: String = self
             .conn
@@ -337,6 +418,14 @@ impl Database {
         // Por último: projetos que saíram do workspace (o vínculo vai junto, a pasta nunca).
         let removed_projects =
             delete_absent(&tx, "projects", ws.projects.iter().map(|p| p.id.as_str()))?;
+        set_preferences(&tx, &ws.preferences)?;
+        if let Some(hash) = applied {
+            tx.execute(
+                "UPDATE sync_state SET base_hash=?1,last_applied_hash=?1,last_synced_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1",
+                [hash],
+            )
+            .map_err(|e| e.to_string())?;
+        }
         tx.execute(
             "INSERT INTO activities(action) VALUES('Workspace atualizado a partir de data/workspace.json')",
             [],
@@ -350,6 +439,15 @@ impl Database {
             removed_projects,
         })
     }
+}
+
+fn set_preferences(conn: &Connection, prefs: &PortablePreferences) -> HubResult<()> {
+    conn.execute(
+        "INSERT INTO portable_preferences(id,data) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
+        [serde_json::to_string(prefs).map_err(|e| e.to_string())?],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 const PROJECT_SELECT: &str =

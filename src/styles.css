@@ -1681,3 +1681,23 @@ summary {
 }
 
 .location-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.sync-indicator:disabled { cursor: progress; }
+.sync-indicator small { color: var(--muted); }
+.sync-good { color: var(--success); }
+.sync-warn { color: var(--warning); }
+.sync-info { color: var(--accent); }
+.sync-danger { color: var(--danger); }
+.sync-busy { color: var(--text); }

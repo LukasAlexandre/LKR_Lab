@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 pub const SCHEMA_VERSION: u32 = 1;
+/// Prompts criados pela migration 001: não contam como conteúdo do usuário.
+const SEED_PROMPT_IDS: [&str; 6] = ["audit", "bug", "pr", "continue", "security", "gate"];
+const DENSITIES: [&str; 2] = ["comfortable", "compact"];
 const KINDS: [&str; 5] = ["note", "decision", "architecture", "bug", "documentation"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -40,6 +43,30 @@ pub struct PortableProject {
     pub updated_at: String,
 }
 
+/// Preferências do desktop marcadas como `portable` (src/shared/preferences.ts).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortablePreferences {
+    #[serde(default)]
+    pub sidebar_compact: bool,
+    #[serde(default = "default_density")]
+    pub density: String,
+    #[serde(default)]
+    pub prompt_favorites: Vec<String>,
+}
+fn default_density() -> String {
+    "comfortable".into()
+}
+impl Default for PortablePreferences {
+    fn default() -> Self {
+        Self {
+            sidebar_compact: false,
+            density: default_density(),
+            prompt_favorites: vec![],
+        }
+    }
+}
+
 /// O que o SQLite exporta: dados portáteis, sem vínculos nem atividades.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +75,8 @@ pub struct PortableWorkspace {
     pub projects: Vec<PortableProject>,
     pub prompts: Vec<Prompt>,
     pub knowledge: Vec<KnowledgeEntry>,
+    #[serde(default)]
+    pub preferences: PortablePreferences,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -121,6 +150,128 @@ pub fn remote_identity(url: &str) -> String {
         .trim_end_matches(".git")
         .trim_end_matches('/')
         .to_string()
+}
+
+/// Forma canônica, igual à de lkr-workspace.js: listas por id, textos aparados,
+/// itens vazios de listas descartados, favoritos únicos e ordenados.
+pub fn normalize(ws: &mut PortableWorkspace) {
+    fn clean(list: &mut Vec<String>) {
+        *list = list
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+    }
+    for p in &mut ws.projects {
+        p.name = p.name.trim().to_string();
+        p.repository = p.repository.trim().to_string();
+        clean(&mut p.stack);
+        clean(&mut p.tags);
+        for port in &mut p.ports {
+            port.name = port.name.trim().to_string();
+        }
+        for c in &mut p.commands {
+            c.name = c.name.trim().to_string();
+            c.program = c.program.trim().to_string();
+        }
+    }
+    for p in &mut ws.prompts {
+        p.title = p.title.trim().to_string();
+        p.category = p.category.trim().to_string();
+        if p.project_id.as_deref() == Some("") {
+            p.project_id = None;
+        }
+    }
+    for k in &mut ws.knowledge {
+        k.title = k.title.trim().to_string();
+        if k.project_id.as_deref() == Some("") {
+            k.project_id = None;
+        }
+    }
+    ws.projects.sort_by(|a, b| a.id.cmp(&b.id));
+    ws.prompts.sort_by(|a, b| a.id.cmp(&b.id));
+    ws.knowledge.sort_by(|a, b| a.id.cmp(&b.id));
+    let favorites = &mut ws.preferences.prompt_favorites;
+    favorites.retain(|f| valid_id(f));
+    favorites.sort();
+    favorites.dedup();
+    favorites.truncate(500);
+    if !DENSITIES.contains(&ws.preferences.density.as_str()) {
+        ws.preferences.density = default_density();
+    }
+}
+
+/// JSON com chaves ordenadas e sem espaços: mesma entrada, mesmos bytes.
+fn write_canonical(value: &serde_json::Value, out: &mut String) {
+    use serde_json::Value;
+    match value {
+        Value::Object(map) => {
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            out.push('{');
+            for (i, key) in keys.into_iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push_str(&serde_json::to_string(key).unwrap_or_default());
+                out.push(':');
+                write_canonical(&map[key], out);
+            }
+            out.push('}');
+        }
+        Value::Array(items) => {
+            out.push('[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_canonical(item, out);
+            }
+            out.push(']');
+        }
+        other => out.push_str(&other.to_string()),
+    }
+}
+
+/// SHA-256 (hex) do workspace canônico. Carimbos de data ficam de fora: salvar
+/// sem mudar conteúdo não pode gerar divergência nem commit.
+pub fn content_hash(ws: &PortableWorkspace) -> String {
+    use sha2::{Digest, Sha256};
+    let mut ws = ws.clone();
+    normalize(&mut ws);
+    let mut value = serde_json::to_value(&ws).unwrap_or_default();
+    if let Some(projects) = value["projects"].as_array_mut() {
+        for p in projects {
+            if let Some(map) = p.as_object_mut() {
+                map.remove("createdAt");
+                map.remove("updatedAt");
+            }
+        }
+    }
+    if let Some(notes) = value["knowledge"].as_array_mut() {
+        for k in notes {
+            if let Some(map) = k.as_object_mut() {
+                map.remove("updatedAt");
+            }
+        }
+    }
+    let mut text = String::new();
+    write_canonical(&value, &mut text);
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Máquina nova: sem projetos nem knowledge, só os prompts de fábrica e preferências padrão.
+pub fn is_empty(ws: &PortableWorkspace) -> bool {
+    ws.projects.is_empty()
+        && ws.knowledge.is_empty()
+        && ws
+            .prompts
+            .iter()
+            .all(|p| SEED_PROMPT_IDS.contains(&p.id.as_str()))
+        && ws.preferences == PortablePreferences::default()
 }
 
 fn check(ok: bool, message: impl FnOnce() -> String) -> HubResult<()> {
@@ -220,6 +371,14 @@ pub fn validate(ws: &PortableWorkspace) -> HubResult<()> {
             format!("prompt {} referencia projeto inexistente", p.id)
         })?;
     }
+    check(DENSITIES.contains(&ws.preferences.density.as_str()), || {
+        "preferências: densidade desconhecida".into()
+    })?;
+    check(
+        ws.preferences.prompt_favorites.len() <= 500
+            && ws.preferences.prompt_favorites.iter().all(|f| valid_id(f)),
+        || "preferências: favoritos inválidos".into(),
+    )?;
     unique(ws.knowledge.iter().map(|k| k.id.as_str()), "conhecimento")?;
     for k in &ws.knowledge {
         check(

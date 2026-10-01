@@ -416,6 +416,66 @@ describe("git-backup: módulo workspace", () => {
     expect((await rejects(ctx.backup.readState("workspace"))).code).toBe("INVALID_BACKUP");
   }, T);
 
+  it("remoteState lê o arquivo do ref remoto sem tocar na árvore de trabalho", async () => {
+    const ctx = await setup();
+    expect((await ctx.backup.remoteState("workspace")).file).toEqual({ status: "missing" });
+
+    const other = await cloneOf(ctx, "other");
+    await other.backup.sync("workspace", { schemaVersion: 1, state: workspaceState() });
+    const headBefore = git(ctx.work, "rev-parse", "HEAD");
+    const remote = await ctx.backup.remoteState("workspace");
+    expect(remote).toMatchObject({ fetched: true, remote: true, remoteBranch: true, behind: 1, ahead: 0, branch: "main" });
+    expect(remote.file.status).toBe("ok");
+    expect(remote.file.state.projects[0].id).toBe("p1");
+    expect(remote.file.stateHash).toMatch(/^h[0-9a-f]{16}$/);
+    // Nada mudou no repositório de quem está desenvolvendo.
+    expect(git(ctx.work, "rev-parse", "HEAD")).toBe(headBefore);
+    expect(await exists(path.join(ctx.work, WS_FILE))).toBe(false);
+    expect(git(ctx.work, "status", "--porcelain")).toBe("");
+  }, T);
+
+  it("remoteState distingue arquivo inválido e de versão futura; falha de rede não é exceção", async () => {
+    const ctx = await setup();
+    const other = await cloneOf(ctx, "other");
+    await fs.mkdir(path.join(other.dir, "data"));
+    const publish = async (text) => {
+      await fs.writeFile(path.join(other.dir, WS_FILE), text);
+      git(other.dir, "add", WS_FILE);
+      git(other.dir, "commit", "--quiet", "-m", "x");
+      git(other.dir, "push", "--quiet", "origin", "main");
+    };
+    await publish("{quebrado");
+    expect((await ctx.backup.remoteState("workspace")).file.status).toBe("invalid");
+    await publish(JSON.stringify({ schemaVersion: 9, source: "lkr-lab", module: "workspace", state: { version: 9 } }));
+    expect((await ctx.backup.remoteState("workspace")).file).toMatchObject({ status: "newer" });
+    await publish(JSON.stringify({ schemaVersion: 1, source: "lkr-lab", module: "workspace", state: { version: 1, projects: [{ id: "../x", name: "n" }] } }));
+    expect((await ctx.backup.remoteState("workspace")).file.status).toBe("invalid");
+
+    git(ctx.work, "remote", "set-url", "origin", path.join(ctx.base, "nao-existe.git"));
+    const offline = await ctx.backup.remoteState("workspace");
+    expect(offline.fetched).toBe(false);
+    expect(offline.fetchError).toMatchObject({ code: expect.any(String) });
+  }, T);
+
+  it("update strict recusa mexer na árvore com alterações de desenvolvimento", async () => {
+    const ctx = await setup();
+    const other = await cloneOf(ctx, "other");
+    await fs.writeFile(path.join(other.dir, "code.txt"), "novo\n");
+    git(other.dir, "add", "code.txt");
+    git(other.dir, "commit", "--quiet", "-m", "code");
+    git(other.dir, "push", "--quiet", "origin", "main");
+
+    await fs.writeFile(path.join(ctx.work, "README.md"), "# projeto\nwip\n");
+    const head = git(ctx.work, "rev-parse", "HEAD");
+    expect((await rejects(ctx.backup.update("workspace", { strict: true }))).code).toBe("LOCAL_CHANGES");
+    expect(git(ctx.work, "rev-parse", "HEAD")).toBe(head);
+    expect(await fs.readFile(path.join(ctx.work, "README.md"), "utf8")).toBe("# projeto\nwip\n");
+
+    git(ctx.work, "checkout", "--quiet", "--", "README.md");
+    expect(await ctx.backup.update("workspace", { strict: true })).toMatchObject({ success: true, updated: true });
+    expect(await exists(path.join(ctx.work, "code.txt"))).toBe(true);
+  }, T);
+
   it("módulo desconhecido (inclusive nomes do prototype) é recusado", async () => {
     const ctx = await setup();
     for (const id of ["constructor", "__proto__", "../x", "nope"]) {
