@@ -110,8 +110,8 @@
 
   /*
    * O indicador do topo combina duas camadas:
-   *  - local: autosave no localStorage (sempre instantâneo);
-   *  - sync:  backup no GitHub, informado por sync.js (null = sem sincronização).
+   *  - local: autosave no cache local (sempre instantâneo);
+   *  - sync:  estado portátil/GitHub, informado por sync.js (null = sem sincronização).
    * Problema local tem prioridade; depois vem o estado do GitHub.
    */
   const indicator = { local: store.state.updatedAt ? "saved" : "idle", sync: null };
@@ -122,6 +122,7 @@
     "local-error": "Falha ao salvar",
     syncing: "Sincronizando…",
     "sync-error": "Não foi possível sincronizar",
+    conflict: "Conflito com o repositório",
     unsynced: "Alterações não sincronizadas",
     synced: "Sincronizado com GitHub",
     reset: "Checklist resetado",
@@ -134,6 +135,7 @@
     else if (indicator.local === "error") state = "local-error";
     else if (indicator.sync === "syncing") state = "syncing";
     else if (indicator.sync === "error") state = "sync-error";
+    else if (indicator.sync === "conflict") state = "conflict";
     else if (indicator.sync === "unsynced") state = "unsynced";
     else if (indicator.sync === "synced") state = "synced";
     else if (indicator.local === "reset") state = "reset";

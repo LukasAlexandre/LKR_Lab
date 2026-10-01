@@ -17,9 +17,11 @@
 - [x] Worktrees em leitura e paleta Ctrl+K.
 - [x] Typecheck, lint, build web, 14 testes frontend, 8 testes Rust, Clippy.
 - [x] Inspeção visual de 13 rotas, modal/paleta e ausência de overflow horizontal a 1100px.
+- [x] Estado portátil × estado da máquina ([docs/STATE.md](docs/STATE.md), ADR-004): Lab Setup reconcilia com `data/lab-setup.json` (adoção automática segura, pendência, conflito), metadados de sync v2 com migração; preferências do desktop tipadas com escopo e migração das chaves antigas; `pathAvailable` por máquina.
 
 ## NEXT
 
+- [ ] Workspace portátil do desktop: exportar projetos (sem `local_path`), prompts, knowledge e preferências `portable` para `data/workspace.json`; religar caminho por máquina (localizar, clonar, remover referência).
 - [ ] Rodar `scripts/validate-windows.ps1` e checklist manual de docs/DEVELOPMENT.md.
 - [ ] Confirmar startup Tauri, IPC, seletor de pasta e persistência via UI Windows.
 - [ ] Validar portas TCP/UDP IPv4/IPv6, PID e kill somente em processo descartável.

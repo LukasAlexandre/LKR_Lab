@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { api, desktop, errorText } from "./shared/api";
 import { Badge, Empty, Modal, Panel, Refresh } from "./shared/ui";
-import { usePersistentState } from "./shared/preferences";
+import { usePreference } from "./shared/preferences";
 import { useActiveProjectId, useResource, workspace } from "./state/workspace";
 import { Sidebar } from "./shell/Sidebar";
 import { CommandPalette } from "./shell/CommandPalette";
@@ -47,14 +47,8 @@ export default function App() {
   const setSelectedId = workspace.selectProject;
   const projectsSource = useResource(workspace.projects);
   const { data: projects } = projectsSource;
-  const [sidebarCompact, setSidebarCompact] = usePersistentState(
-    "lk.sidebarCompact",
-    false,
-  );
-  const [density, setDensity] = usePersistentState<"comfortable" | "compact">(
-    "lk.density",
-    "comfortable",
-  );
+  const [sidebarCompact, setSidebarCompact] = usePreference("sidebarCompact");
+  const [density, setDensity] = usePreference("density");
   const environmentSource = useResource(workspace.environment);
   const toggleSidebar = useCallback(() => setSidebarCompact(value => !value), [setSidebarCompact]);
   const portsSource = useResource(workspace.ports);
@@ -422,6 +416,9 @@ export default function App() {
                 >
                   <p>{selected.description}</p>
                   <div className="path-box mono">{selected.localPath}</div>
+                  {selected.pathAvailable === false && (
+                    <Badge tone="warn">Pasta não encontrada nesta máquina</Badge>
+                  )}
                   <Launchers
                     id={selected.id}
                     launch={launch}

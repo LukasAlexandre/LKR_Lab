@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { api, desktop } from "../shared/api";
+import { preferences } from "../shared/preferences";
 import type { Activity, AgentContext, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
 import { createResource, type Resource } from "./resource";
 import type { KnowledgeEntry } from "../shared/types";
@@ -33,27 +34,18 @@ function forProject(id: string) {
   return sources;
 }
 
-let activeId = "";
-try { const stored: unknown = JSON.parse(localStorage.getItem("lk.activeProject") ?? '""'); if (typeof stored === "string") activeId = stored; } catch { /* Preferences may be unavailable. */ }
-const activeListeners = new Set<() => void>();
-function selectProject(id: string) {
-  if (id === activeId) return;
-  activeId = id;
-  try { localStorage.setItem("lk.activeProject", JSON.stringify(id)); } catch { /* Keep session usable. */ }
-  activeListeners.forEach((listener) => listener());
-}
+// Projeto ativo: preferência desta máquina (o id vem do SQLite local).
+const selectProject = (id: string) => preferences.set({ activeProjectId: id });
+const activeId = () => preferences.get().activeProjectId;
 export function useActiveProjectId() {
-  return useSyncExternalStore(
-    (listener) => { activeListeners.add(listener); return () => { activeListeners.delete(listener); }; },
-    () => activeId,
-  );
+  return useSyncExternalStore(preferences.subscribe, activeId);
 }
 
 async function loadRegistry() {
   if (!desktop) return;
   await Promise.all([projects.refresh(), activities.refresh(), prompts.refresh()]);
   const snapshot = projects.getSnapshot();
-  if (snapshot.status === "ready" && !snapshot.data.some((project) => project.id === activeId))
+  if (snapshot.status === "ready" && !snapshot.data.some((project) => project.id === activeId()))
     selectProject(snapshot.data[0]?.id ?? "");
 }
 

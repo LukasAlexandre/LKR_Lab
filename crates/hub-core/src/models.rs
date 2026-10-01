@@ -15,6 +15,15 @@ pub struct Project {
     pub created_at: String,
     pub updated_at: String,
 }
+/// Projeto como a interface o vê: cadastro + observações desta máquina.
+/// Só é serializado para o renderer; nunca volta ao banco.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectEntry {
+    #[serde(flatten)]
+    pub project: Project,
+    pub path_available: bool,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectInput {

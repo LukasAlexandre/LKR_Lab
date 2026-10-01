@@ -22,6 +22,8 @@ export interface Project extends ProjectInput {
   slug: string;
   createdAt: string;
   updatedAt: string;
+  /** Observação desta máquina (list_projects): a pasta existe aqui? Nunca é salva. */
+  pathAvailable?: boolean;
 }
 export interface Discovery {
   name: string;

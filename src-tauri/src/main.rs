@@ -19,8 +19,12 @@ fn db<'a>(state: &'a State<'_, AppState>) -> HubResult<std::sync::MutexGuard<'a,
         .map_err(|_| "Banco temporariamente indisponível".into())
 }
 #[tauri::command]
-fn list_projects(state: State<AppState>) -> HubResult<Vec<Project>> {
-    db(&state)?.projects()
+fn list_projects(state: State<AppState>) -> HubResult<Vec<ProjectEntry>> {
+    let projects = db(&state)?.projects()?;
+    Ok(projects
+        .into_iter()
+        .map(hub_core::projects::entry)
+        .collect())
 }
 #[tauri::command]
 fn save_project(

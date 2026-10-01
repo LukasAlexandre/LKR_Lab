@@ -1,4 +1,8 @@
-use crate::{commands, models::ProjectInput, HubResult};
+use crate::{
+    commands,
+    models::{Project, ProjectEntry, ProjectInput},
+    HubResult,
+};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 pub fn slug(name: &str) -> String {
@@ -23,6 +27,20 @@ pub fn canonical(path: &str) -> HubResult<PathBuf> {
         return Err("O caminho precisa ser uma pasta.".into());
     }
     Ok(path)
+}
+/// Observação desta máquina: a pasta cadastrada existe aqui? Calculada a cada
+/// leitura e nunca persistida, para que um cadastro vindo de outra máquina não
+/// pareça válido só porque o caminho foi salvo.
+pub fn path_available(path: &str) -> bool {
+    let path = Path::new(path);
+    path.is_absolute() && path.is_dir()
+}
+pub fn entry(project: Project) -> ProjectEntry {
+    let path_available = path_available(&project.local_path);
+    ProjectEntry {
+        project,
+        path_available,
+    }
 }
 pub fn validate(mut p: ProjectInput) -> HubResult<ProjectInput> {
     p.name = p.name.trim().to_string();

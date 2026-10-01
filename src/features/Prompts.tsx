@@ -4,7 +4,7 @@ import { api, desktop } from "../shared/api";
 import { renderPrompt } from "../shared/logic";
 import { Badge, Empty } from "../shared/ui";
 import type { GitState, Project, Prompt } from "../shared/types";
-import { usePersistentState } from "../shared/preferences";
+import { usePreference } from "../shared/preferences";
 import { normalizeSearch } from "../shared/search";
 export function Prompts({
   prompts,
@@ -29,7 +29,7 @@ export function Prompts({
   const project = projects.find((p) => p.id === projectId);
   const [query, setQuery] = useState("");
   const [goal, setGoal] = useState("");
-  const [favorites, setFavorites] = usePersistentState<string[]>("lk.prompt.favorites", []);
+  const [favorites, setFavorites] = usePreference("promptFavorites");
   const generated =
     editing && project
       ? renderPrompt(

@@ -11,6 +11,9 @@
  *     ui:     { status, category }
  *   }
  *
+ * `ui` (filtros) é estado desta máquina: fica só no cache local e nunca vai para
+ * o arquivo portátil (ver persistableState e docs/STATE.md).
+ *
  * O estado guarda apenas o que o usuário produziu. As definições dos itens do
  * sistema vêm do catálogo e são mescladas por id a cada carregamento, então
  * novos itens do catálogo aparecem sem apagar marcações nem observações.
@@ -239,6 +242,11 @@
     return "h" + hashString(stableStringify({ version: state.version, items, custom: state.custom || [] }));
   }
 
+  /** Nada produzido pelo usuário: nenhuma marcação, observação ou item personalizado. */
+  function isEmptyContent(state) {
+    return !(state.custom || []).length && Object.values(state.items || {}).every((e) => !e.completed && !e.notes);
+  }
+
   // --------------------------------------------------------- estatísticas
 
   function costRange(list) {
@@ -415,12 +423,14 @@
     /**
      * Substitui o estado pelo backup. Antes guarda o estado atual em
      * SNAPSHOT_KEY, para que uma restauração acidental possa ser desfeita.
+     * Os filtros (`ui`) são desta máquina e não são trocados pelo backup.
      */
     function importData(input, options) {
       const result = previewImport(input);
       if (!result.ok) return result;
       const snapshot = { takenAt: now(), reason: (options && options.reason) || "import", state: JSON.parse(JSON.stringify(state)) };
       if (!storage.set(SNAPSHOT_KEY, JSON.stringify(snapshot))) return { ok: false, error: "Não foi possível guardar o estado anterior; nada foi alterado." };
+      result.state.ui = Object.assign({}, state.ui);
       state = result.state;
       return Object.assign(result, { ok: persist() });
     }
@@ -476,6 +486,7 @@
       undoImport,
       persistable: () => persistableState(state),
       contentHash: () => stateHash(state),
+      isEmpty: () => isEmptyContent(state),
     };
   }
 
@@ -492,6 +503,7 @@
     computeStats,
     normalizeState,
     persistableState,
+    isEmptyContent,
     stableStringify,
     stateHash,
   };

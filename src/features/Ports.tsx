@@ -5,9 +5,7 @@ import { Badge, Empty, Refresh } from "../shared/ui";
 import type { PortInfo, ProcessInfo, Project } from "../shared/types";
 import { VirtualList } from "../components/VirtualList";
 import { portKind, protectedProcesses as systemProcesses, type PortKind } from "./portClassification";
-import { usePersistentState } from "../shared/preferences";
-
-type PortFilter = "projects" | "expected" | "unexpected" | "unknown" | "conflicts" | "system" | "all";
+import { usePreference, type PortProtocol } from "../shared/preferences";
 
 export function Ports({ ports, projects, refresh, busy, confirmKill, report, associate, compact = false }: {
   ports: PortInfo[];
@@ -20,8 +18,8 @@ export function Ports({ ports, projects, refresh, busy, confirmKill, report, ass
   compact?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = usePersistentState<PortFilter>("lk.ports.filter", "projects");
-  const [protocol, setProtocol] = usePersistentState("lk.ports.protocol", "all");
+  const [filter, setFilter] = usePreference("portsFilter");
+  const [protocol, setProtocol] = usePreference("portsProtocol");
   const counts = useMemo(() => ports.reduce<Record<PortKind, number>>((result, port) => {
     result[portKind(port)] += 1;
     return result;
@@ -54,7 +52,7 @@ export function Ports({ ports, projects, refresh, busy, confirmKill, report, ass
       </div>
       <div className="toolbar-search"><Filter size={14} /><input aria-label="Filtrar portas" placeholder="Porta, processo, PID ou projeto…" value={query} onChange={(event) => setQuery(event.target.value)} /></div>
       <Refresh onClick={refresh} busy={busy} />
-      <select aria-label="Protocolo" value={protocol} onChange={event => setProtocol(event.target.value)}><option value="all">TCP + UDP</option><option>TCP</option><option>UDP</option></select>
+      <select aria-label="Protocolo" value={protocol} onChange={event => setProtocol(event.target.value as PortProtocol)}><option value="all">TCP + UDP</option><option>TCP</option><option>UDP</option></select>
     </div>}
     {!filtered.length ? <Empty title={ports.length ? "Nenhuma porta neste filtro" : "Nenhuma porta carregada"}>
       <p>{ports.length ? "Troque o filtro ou ajuste a busca." : "Atualize para consultar sockets locais."}</p>

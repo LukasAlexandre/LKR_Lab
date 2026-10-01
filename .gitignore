@@ -9,3 +9,4 @@ target/
 *.db-wal
 src-tauri/gen/
 .DS_Store
+data/*.tmp-*

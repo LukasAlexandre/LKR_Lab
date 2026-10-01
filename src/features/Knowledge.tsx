@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Copy, Plus, Save, Search } from "lucide-react";
 import { api, desktop, errorText } from "../shared/api";
-import { usePersistentState } from "../shared/preferences";
+import { usePreference } from "../shared/preferences";
 import { Empty, Refresh } from "../shared/ui";
 import { SourceStatus } from "../components/SourceStatus";
 import { VirtualList } from "../components/VirtualList";
@@ -13,7 +13,7 @@ export function Knowledge() {
   const activeId = useActiveProjectId();
   const { data: projects } = useResource(workspace.projects);
   const { data: entries, loading } = useResource(workspace.knowledge);
-  const [draft, setDraft] = usePersistentState<KnowledgeEntry | null>("lk.knowledge.draft", null);
+  const [draft, setDraft] = usePreference("knowledgeDraft");
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState("all");
   const [pending, setPending] = useState(false);

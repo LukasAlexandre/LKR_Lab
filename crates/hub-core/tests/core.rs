@@ -70,6 +70,33 @@ fn migrations_crud_and_persistence() {
     assert_eq!(db.activities().unwrap().len(), 3);
 }
 #[test]
+fn missing_local_path_is_observed_not_persisted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let folder = tmp.path().join("projeto");
+    std::fs::create_dir(&folder).unwrap();
+    let mut db = Database::open(&tmp.path().join("test.db")).unwrap();
+    let saved = db.save(None, input(&folder)).unwrap();
+    assert!(projects::entry(saved.clone()).path_available);
+
+    // Mesma situação de um cadastro vindo de outra máquina: o caminho não existe aqui.
+    std::fs::remove_dir(&folder).unwrap();
+    let listed = db.projects().unwrap().into_iter().next().unwrap();
+    let entry = projects::entry(listed);
+    assert!(!entry.path_available);
+    assert_eq!(entry.project.local_path, saved.local_path);
+    let json = serde_json::to_value(&entry).unwrap();
+    assert_eq!(json["pathAvailable"], false);
+    assert_eq!(json["id"], saved.id.as_str());
+
+    // A observação nunca vai para o banco.
+    let stored: String = db
+        .conn
+        .query_row("SELECT data FROM projects", [], |r| r.get(0))
+        .unwrap();
+    assert!(!stored.contains("pathAvailable"));
+    assert!(!projects::path_available("relativo/projeto"));
+}
+#[test]
 fn invalid_input_is_rejected() {
     let tmp = tempfile::tempdir().unwrap();
     let mut p = input(tmp.path());

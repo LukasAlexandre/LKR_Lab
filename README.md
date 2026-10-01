@@ -74,6 +74,8 @@ O teste live de portas abre apenas um listener temporário e verifica sua presen
 
 ## Dados e privacidade
 
+O que é portátil (vai para o Git por sync explícito) e o que é desta máquina está em [docs/STATE.md](docs/STATE.md).
+
 SQLite em `app_data_dir()/hub.db` (Windows normalmente `%APPDATA%/br.com.lktechnologies.devhub/hub.db`). Sem telemetria. Campos e templates são dados locais em texto: **não cadastre segredos**. Conteúdo de `.env` não é lido. Snapshot pode conter caminhos, nomes e assuntos de commits; revise antes de compartilhar.
 
 Nenhuma licença de redistribuição do código próprio foi escolhida. Dependências mantêm suas licenças; veja [DEPENDENCIES.md](docs/DEPENDENCIES.md).

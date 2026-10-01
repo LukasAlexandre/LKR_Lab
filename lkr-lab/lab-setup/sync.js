@@ -1,29 +1,37 @@
 /*
- * LKR LAB · Lab Setup — GitHub Sync
+ * LKR LAB · Lab Setup — estado portátil e GitHub Sync
  *
- * localStorage continua sendo a persistência instantânea. Esta camada só
- * conversa com o bridge local (npm run lab) quando o usuário pede:
+ * O cache local (localStorage, via store.js) continua sendo o autosave
+ * instantâneo. O estado portátil é data/lab-setup.json no repositório, lido e
+ * escrito somente pelo bridge local (npm run lab):
  *
+ *   Abrir / voltar à aba   GET  /api/lab-state   → reconciliação (lkr-portable.js)
  *   Sincronizar agora      POST /api/lab-sync    → data/lab-setup.json → commit → push
  *   Verificar atualização  GET  /api/git/status?fetch=1  (+ POST /api/lab-update, fast-forward)
- *   Restaurar backup       GET  /api/lab-state   → validação → confirmação → localStorage
+ *   Restaurar backup       GET  /api/lab-state   → validação → confirmação → cache local
  *
- * Detecta alterações pendentes comparando o hash do conteúdo atual com o hash
- * do último estado sincronizado (lastSyncedHash). Nenhuma credencial passa por aqui.
- * Depende de: ../core/lkr-core.js, store.js, app.js
+ * Reconciliação: se só o repositório mudou (máquina nova, git pull), o estado
+ * portátil é adotado automaticamente (com "Desfazer"); se só este navegador
+ * mudou, fica "aguardando sync"; se os dois mudaram, nada é sobrescrito e o
+ * usuário escolhe a versão. Publicar no Git é sempre uma ação explícita.
+ *
+ * Os metadados de sync são desta máquina (nunca vão para o Git).
+ * Nenhuma credencial passa por aqui.
+ * Depende de: ../core/lkr-core.js, ../core/lkr-portable.js, store.js, app.js
  */
 (function () {
   "use strict";
 
   const { bridge, formatDate, toast, confirmDialog, createLocalStorage } = window.LKR.core;
+  const portable = window.LKR.portable;
   const lab = window.LKR.labSetup;
   const app = lab.app;
   const store = app.store;
 
-  // Metadados do sync deste navegador (não fazem parte do estado exportado/versionado).
   const META_KEY = lab.STORAGE_KEY + ":sync";
   const BRIDGE_URL = "http://127.0.0.1:4317/lab-setup/";
-  const metaStorage = createLocalStorage();
+  const RECHECK_MIN_MS = 3000;
+  const metaStore = portable.createMetaStore(createLocalStorage(), META_KEY);
 
   const $ = (id) => document.getElementById(id);
   const els = {
@@ -36,6 +44,9 @@
     last: $("ls-sync-last"),
     commit: $("ls-sync-commit"),
     notice: $("ls-sync-notice"),
+    conflict: $("ls-sync-conflict"),
+    takeRepo: $("ls-sync-take-repo"),
+    keepLocal: $("ls-sync-keep-local"),
     now: $("ls-sync-now"),
     check: $("ls-sync-check"),
     restore: $("ls-sync-restore"),
@@ -43,32 +54,18 @@
     undoLabel: $("ls-sync-undo-label"),
   };
 
-  let meta = loadMeta(); // { lastSyncedHash, lastSuccess: {at, commit, branch, repo}, lastAttempt: {at, ok, code, message} }
   let remote = null; // resposta mais recente de /api/git/status
   let online = null; // null = ainda não verificado
   let busy = null; // "sync" | "check" | "restore"
   let failed = false; // última tentativa falhou e nada mudou desde então
+  let conflict = null; // { hash, commit, updatedAt }: repositório e navegador mudaram
+  let portableInvalid = false; // data/lab-setup.json existe mas está ilegível
+  let lastCheck = 0;
 
-  function loadMeta() {
-    try {
-      const value = JSON.parse(metaStorage.get(META_KEY));
-      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-    } catch {
-      return {};
-    }
-  }
-
-  function saveMeta() {
-    metaStorage.set(META_KEY, JSON.stringify(meta));
-  }
-
+  const meta = () => metaStore.get();
   const plural = (count, one, many) => count + " " + (count === 1 ? one : many);
 
   // ================================================================ estado
-
-  function isEmptyState() {
-    return !store.state.custom.length && Object.values(store.state.items).every((e) => !e.completed && !e.notes);
-  }
 
   /** O arquivo do repositório já contém exatamente o conteúdo local e está publicado. */
   function repoMatchesLocal(hash) {
@@ -79,17 +76,23 @@
   function syncState() {
     if (busy === "sync") return "syncing";
     if (failed) return "error";
+    if (conflict) return "conflict";
     const hash = store.contentHash();
-    if (meta.lastSyncedHash === hash || repoMatchesLocal(hash)) return "synced";
-    if (meta.lastSyncedHash) return "unsynced";
-    if (!online) return null;
-    return isEmptyState() && !(remote && remote.backup && remote.backup.exists) ? null : "unsynced";
+    if (remote && remote.repository && remote.backup) {
+      if (repoMatchesLocal(hash)) return "synced";
+      return store.isEmpty() && !remote.backup.exists ? null : "unsynced";
+    }
+    // Sem resposta do bridge: usa o que esta máquina sabe da última reconciliação.
+    if (meta().baseHash === hash) return "synced";
+    if (meta().baseHash) return "unsynced";
+    return null;
   }
 
   const STATE_LABEL = {
     synced: "✓ Sincronizado",
     unsynced: "● Alterações locais não sincronizadas",
     syncing: "◌ Sincronizando…",
+    conflict: "! Conflito com o repositório",
     error: "! Não foi possível sincronizar",
   };
 
@@ -99,41 +102,58 @@
     els.root.dataset.state = state || "local";
 
     const info = remote && remote.repository ? remote : null;
-    els.repo.textContent = (info && info.repo) || (meta.lastSuccess && meta.lastSuccess.repo) || "—";
-    els.branch.textContent = (info && info.branch) || (meta.lastSuccess && meta.lastSuccess.branch) || "—";
+    const last = meta().lastSuccess;
+    els.repo.textContent = (info && info.repo) || (last && last.repo) || "—";
+    els.branch.textContent = (info && info.branch) || (last && last.branch) || "—";
     els.state.textContent = online === false ? "Bridge local desligado" : STATE_LABEL[state] || "● Salvo localmente";
     els.state.dataset.state = online === false ? "offline" : state || "local";
 
     const lastCommit = info && info.lastBackupCommit;
-    const lastAt = (lastCommit && lastCommit.date) || (meta.lastSuccess && meta.lastSuccess.at);
+    const lastAt = (lastCommit && lastCommit.date) || (last && last.at);
     els.last.textContent = lastAt ? formatDate(lastAt) : "—";
-    els.commit.textContent = (lastCommit && lastCommit.hash) || (meta.lastSuccess && meta.lastSuccess.commit) || "—";
+    els.commit.textContent = (lastCommit && lastCommit.hash) || (last && last.commit) || "—";
 
     renderNotice();
+    els.conflict.hidden = !conflict;
 
     const blocked = !online || Boolean(busy) || Boolean(info === null && online);
-    els.now.disabled = blocked;
+    els.now.disabled = blocked || Boolean(conflict) || portableInvalid;
     els.check.disabled = blocked;
-    els.restore.disabled = blocked || !(info && info.backup && info.backup.exists);
+    els.restore.disabled = blocked || !(info && info.backup && info.backup.exists && info.backup.valid);
+    els.takeRepo.disabled = Boolean(busy);
+    els.keepLocal.disabled = Boolean(busy);
     els.now.lastElementChild.textContent = busy === "sync" ? "Sincronizando…" : "Sincronizar agora";
     els.check.lastElementChild.textContent = busy === "check" ? "Verificando…" : "Verificar atualização";
     els.restore.lastElementChild.textContent = busy === "restore" ? "Carregando…" : "Restaurar backup";
 
     const snapshot = store.getSnapshot();
     els.undo.hidden = !snapshot;
-    if (snapshot) {
-      els.undoLabel.textContent = "Desfazer " + (snapshot.reason === "restore" ? "restauração" : "importação") + " de " + formatDate(snapshot.takenAt);
-    }
+    if (snapshot) els.undoLabel.textContent = "Desfazer " + reasonLabel(snapshot.reason) + " de " + formatDate(snapshot.takenAt);
+  }
+
+  function reasonLabel(reason) {
+    if (reason === "restore") return "restauração";
+    if (reason === "repo") return "atualização do repositório";
+    return "importação";
   }
 
   function renderNotice() {
     let text = "";
     let tone = "";
+    const file = (remote && remote.backup && remote.backup.file) || "data/lab-setup.json";
     if (online === false) {
       text =
         (location.protocol === "file:" ? "Página aberta como arquivo local." : "Esta página não está sendo servida pelo bridge do LKR LAB.") +
-        " Para usar o GitHub Sync, rode “npm run lab” e abra " + BRIDGE_URL +
+        " Para usar o estado portátil, rode “npm run lab” e abra " + BRIDGE_URL +
         ". O localStorage é separado por endereço: use Exportar/Importar para levar os dados até lá.";
+    } else if (conflict) {
+      text =
+        "O " + file + " mudou no repositório" + (conflict.commit ? " (commit " + conflict.commit.hash + ")" : "") +
+        " e este navegador também tem alterações não publicadas. Nada foi sobrescrito: escolha qual versão manter.";
+      tone = "warning";
+    } else if (portableInvalid) {
+      text = "O arquivo " + file + " do repositório está inválido. Nada foi sobrescrito; corrija-o no Git ou sincronize depois de corrigir.";
+      tone = "error";
     } else if (remote && !remote.repository) {
       text = (remote.error && remote.error.message) || "Repositório Git não encontrado.";
       tone = "error";
@@ -143,14 +163,14 @@
     } else if (remote && remote.repository && !remote.remote) {
       text = "O repositório não tem o remote “origin” configurado.";
       tone = "error";
-    } else if (failed && meta.lastAttempt) {
-      text = meta.lastAttempt.message;
+    } else if (failed && meta().lastAttempt) {
+      text = meta().lastAttempt.message;
       tone = "error";
     } else if (remote && remote.behind > 0) {
       text = "O GitHub tem " + plural(remote.behind, "commit mais recente", "commits mais recentes") + ". Use “Verificar atualização”.";
       tone = "warning";
     } else if (remote && remote.dirty) {
-      text = "Há outras alterações no projeto. O sync commita somente " + remote.backup.file + ".";
+      text = "Há outras alterações no projeto. O sync commita somente " + file + ".";
     }
     els.notice.hidden = !text;
     els.notice.textContent = text;
@@ -164,10 +184,53 @@
     return res;
   }
 
+  // ======================================================== reconciliação
+
+  /**
+   * Compara o cache local com data/lab-setup.json e aplica a decisão de
+   * lkr-portable.js. Nunca escreve no repositório.
+   */
+  async function reconcileWithRepo() {
+    if (busy || !bridge.reachable) return;
+    lastCheck = Date.now();
+    const res = await bridge.request("/api/lab-state");
+    if (res.offline) {
+      online = false;
+      return render();
+    }
+    const file = portable.fileFromResponse(res);
+    if (!file || busy) return render(); // erro de Git: o status já informa
+    app.flushNotes();
+    portableInvalid = file.status === "invalid";
+    const decision = portable.reconcile({ localHash: store.contentHash(), localEmpty: store.isEmpty(), baseHash: meta().baseHash, file });
+    conflict = decision.status === "conflict" ? { hash: file.hash, commit: res.data.commit, updatedAt: res.data.backup.updatedAt } : null;
+    if (!meta().migratedAt) metaStore.update({ migratedAt: new Date().toISOString() });
+
+    if (decision.action === "mark-base") {
+      metaStore.update({ baseHash: file.hash });
+    } else if (decision.action === "adopt") {
+      const firstLoad = store.isEmpty();
+      const result = app.replaceState(res.data.backup, "repo");
+      if (result.ok) {
+        metaStore.update({ baseHash: file.hash });
+        const commit = res.data.commit ? " · commit " + res.data.commit.hash : "";
+        toast((firstLoad ? "Estado restaurado do repositório" : "Atualizado com a versão do repositório") + commit + ".", "success");
+      } else {
+        toast(result.error || "Não foi possível aplicar o estado do repositório.", "error");
+      }
+    }
+    render();
+  }
+
+  function recheckSoon() {
+    if (document.visibilityState !== "visible" || Date.now() - lastCheck < RECHECK_MIN_MS) return;
+    refreshStatus(false).then(reconcileWithRepo);
+  }
+
   // ================================================================ ações
 
   async function syncNow() {
-    if (busy) return;
+    if (busy || conflict) return;
     app.flushNotes();
     busy = "sync";
     failed = false;
@@ -177,16 +240,16 @@
     const at = new Date().toISOString();
     if (res.ok) {
       const data = res.data;
-      meta.lastSyncedHash = data.stateHash;
-      meta.lastSuccess = { at: data.timestamp || at, commit: data.commit, branch: data.branch, repo: data.repo };
-      meta.lastAttempt = { at, ok: true, code: data.alreadySynced ? "UP_TO_DATE" : "PUSHED", message: data.message };
-      saveMeta();
+      metaStore.update({
+        baseHash: data.stateHash,
+        lastSuccess: { at: data.timestamp || at, commit: data.commit, branch: data.branch, repo: data.repo },
+        lastAttempt: { at, ok: true, code: data.alreadySynced ? "UP_TO_DATE" : "PUSHED", message: data.message },
+      });
       toast(data.alreadySynced ? "Já está sincronizado." : "Sincronizado com GitHub · commit " + data.commit, "success");
     } else {
       if (res.offline) online = false;
       failed = true;
-      meta.lastAttempt = { at, ok: false, code: res.error.code, message: res.error.message };
-      saveMeta();
+      metaStore.update({ lastAttempt: { at, ok: false, code: res.error.code, message: res.error.message } });
       toast(res.error.message, "error");
     }
     await refreshStatus(false);
@@ -216,7 +279,7 @@
       message: [
         "Há " + plural(data.behind, "commit novo", "commits novos") + " em origin/" + data.branch + ".",
         "O repositório local será atualizado somente por fast-forward: nenhum arquivo local é descartado. Se houver risco de conflito, a operação é interrompida sem alterar nada.",
-        "Os dados deste navegador não mudam agora; depois você decide se restaura o backup.",
+        "Se este navegador não tiver alterações pendentes, o Lab Setup passa a usar a nova versão (com opção de desfazer). Caso contrário, você escolhe qual manter.",
       ],
       confirmLabel: "Atualizar",
     });
@@ -230,9 +293,10 @@
     render();
     if (!update.ok) return toast(update.error.message, "error");
     toast(update.data.message, "success");
-    if (update.data.labStateChanged) await restoreBackup();
+    if (update.data.labStateChanged) await reconcileWithRepo();
   }
 
+  /** Substitui o cache local pelo arquivo do repositório, com confirmação. */
   async function restoreBackup() {
     if (busy) return;
     busy = "restore";
@@ -265,12 +329,19 @@
     const result = app.replaceState(data.backup, "restore");
     if (!result.ok) return toast(result.error || "Não foi possível restaurar o backup.", "error");
     failed = false;
-    if (data.synced && store.contentHash() === data.stateHash) {
-      meta.lastSyncedHash = data.stateHash;
-      saveMeta();
-    }
+    conflict = null;
+    metaStore.update({ baseHash: data.stateHash });
     render();
     toast("Backup restaurado.", "success");
+  }
+
+  /** Conflito resolvido a favor deste navegador: o cache vira "aguardando sync". */
+  function keepLocal() {
+    if (!conflict || busy) return;
+    metaStore.update({ baseHash: conflict.hash });
+    conflict = null;
+    render();
+    toast("Mantida a versão deste navegador. Use “Sincronizar agora” para publicá-la.", "success");
   }
 
   async function undoRestore() {
@@ -280,7 +351,7 @@
       eyebrow: "DESFAZER",
       title: "Voltar ao estado anterior?",
       message: [
-        "Recupera o estado que existia antes da " + (snapshot.reason === "restore" ? "restauração" : "importação") + " de " + formatDate(snapshot.takenAt) + ".",
+        "Recupera o estado que existia antes da " + reasonLabel(snapshot.reason) + " de " + formatDate(snapshot.takenAt) + ".",
         "O estado atual do Lab Setup será substituído.",
       ],
       confirmLabel: "Desfazer",
@@ -322,6 +393,8 @@
     els.now.addEventListener("click", syncNow);
     els.check.addEventListener("click", checkUpdate);
     els.restore.addEventListener("click", restoreBackup);
+    els.takeRepo.addEventListener("click", restoreBackup);
+    els.keepLocal.addEventListener("click", keepLocal);
     els.undo.addEventListener("click", undoRestore);
 
     // Fecha ao clicar fora, exceto quando um modal de confirmação está aberto por cima.
@@ -339,10 +412,13 @@
       failed = false;
       render();
     });
+
+    // Voltar à aba (ex.: depois de um git pull no terminal) confere o repositório de novo.
+    if (bridge.reachable) document.addEventListener("visibilitychange", recheckSoon);
   }
 
   bind();
   if (!bridge.reachable) online = false;
   render();
-  if (bridge.reachable) refreshStatus(false).then(render);
+  if (bridge.reachable) refreshStatus(false).then(reconcileWithRepo);
 })();

@@ -81,6 +81,16 @@
   background: var(--warning);
 }
 
+.ls-save[data-state="conflict"] {
+  color: var(--warning);
+}
+
+.ls-save[data-state="conflict"] .ls-save__dot {
+  border-radius: 1px;
+  background: var(--warning);
+  transform: rotate(45deg);
+}
+
 .ls-save[data-state="syncing"] {
   color: var(--text);
 }
@@ -156,6 +166,7 @@
 }
 
 .ls-sync[data-state="unsynced"] .ls-sync__trigger,
+.ls-sync[data-state="conflict"] .ls-sync__trigger,
 .ls-sync[data-state="error"] .ls-sync__trigger {
   color: var(--text);
 }
@@ -227,6 +238,10 @@
   color: var(--accent-strong);
 }
 
+#ls-sync-state[data-state="conflict"] {
+  color: var(--warning);
+}
+
 #ls-sync-state[data-state="error"] {
   color: var(--danger);
 }
@@ -284,6 +299,21 @@
   height: 28px;
   padding: 0 var(--space-2);
   font-size: 12px;
+}
+
+.ls-pop__conflict {
+  margin-top: var(--space-2);
+}
+
+.ls-pop__conflict[hidden] {
+  display: none;
+}
+
+.ls-pop__scope {
+  margin: var(--space-3) 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--faint);
 }
 
 .ls-actions {

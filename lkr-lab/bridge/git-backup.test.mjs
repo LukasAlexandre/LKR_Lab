@@ -8,6 +8,15 @@ import os from "node:os";
 import path from "node:path";
 import { classifyGitError, createGitBackup, describeRemote, redact } from "./git-backup.mjs";
 import { createLabServer } from "./server.mjs";
+import "../core/lkr-portable.js";
+
+const lab = globalThis.LKR.labSetup;
+const portable = globalThis.LKR.portable;
+
+function memoryStorage() {
+  const data = new Map();
+  return { get: (key) => (data.has(key) ? data.get(key) : null), set: (key, value) => (data.set(key, value), true), remove: (key) => data.delete(key) };
+}
 
 const T = 60_000;
 const FILE = "data/lab-setup.json";
@@ -291,6 +300,77 @@ describe("git-backup: utilitários", () => {
   });
 });
 
+describe("estado portátil entre máquinas (Git real)", () => {
+  // Mesma sequência do navegador: GET /api/lab-state → reconcile → importData.
+  async function open(machine, storage) {
+    const store = lab.createStore({ catalog: lab.catalog, storage });
+    const meta = portable.createMetaStore(storage, lab.STORAGE_KEY + ":sync");
+    let res;
+    try {
+      res = { ok: true, data: await machine.backup.readState() };
+    } catch (error) {
+      res = { ok: false, error: { code: error.code } };
+    }
+    const file = portable.fileFromResponse(res);
+    const decision = portable.reconcile({ localHash: store.contentHash(), localEmpty: store.isEmpty(), baseHash: meta.get().baseHash, file });
+    if (decision.action === "adopt") {
+      expect(store.importData(res.data.backup, { reason: "repo" }).ok).toBe(true);
+      meta.update({ baseHash: file.hash });
+    } else if (decision.action === "mark-base") meta.update({ baseHash: file.hash });
+    return { store, meta, decision };
+  }
+
+  it("casa → GitHub → trabalho: clonar e abrir restaura; edição dos dois lados vira conflito", async () => {
+    const ctx = await setup();
+    const casaStorage = memoryStorage();
+    const casa = await open({ backup: ctx.backup }, casaStorage);
+    expect(casa.decision.status).toBe("empty");
+    casa.store.setCompleted("trena", true);
+    casa.store.setNotes("multimetro", NOTE);
+    casa.store.setUi({ status: "done", category: "all" });
+    const sent = await ctx.backup.sync("lab-setup", { schemaVersion: 1, state: casa.store.persistable() });
+    casa.meta.update({ baseHash: sent.stateHash });
+
+    const trabalho = await cloneOf(ctx, "trabalho");
+    const trabalhoStorage = memoryStorage();
+    const first = await open(trabalho, trabalhoStorage);
+    expect(first.decision).toEqual({ status: "in-sync", action: "adopt" });
+    expect(first.store.getItem("multimetro").notes).toBe(NOTE);
+    expect(first.store.state.ui).toEqual({ status: "all", category: "all" });
+    expect((await open(trabalho, trabalhoStorage)).decision.action).toBe("mark-base");
+
+    // Casa publica de novo; trabalho sem edições recebe por fast-forward e adota.
+    casa.store.setNotes("trena", "Emprestei ao vizinho.");
+    await ctx.backup.sync("lab-setup", { schemaVersion: 1, state: casa.store.persistable() });
+    expect((await trabalho.backup.update()).labStateChanged).toBe(true);
+    const second = await open(trabalho, trabalhoStorage);
+    expect(second.decision.action).toBe("adopt");
+    expect(second.store.getItem("trena").notes).toBe("Emprestei ao vizinho.");
+
+    // Os dois editam: trabalho não perde nada e não adota.
+    second.store.setNotes("esquadro", "Só no trabalho.");
+    casa.store.setNotes("esquadro", "Só em casa.");
+    await ctx.backup.sync("lab-setup", { schemaVersion: 1, state: casa.store.persistable() });
+    await trabalho.backup.update();
+    const third = await open(trabalho, trabalhoStorage);
+    expect(third.decision.status).toBe("conflict");
+    expect(third.store.getItem("esquadro").notes).toBe("Só no trabalho.");
+  }, T);
+
+  it("arquivo portátil corrompido não é adotado nem sobrescrito na leitura", async () => {
+    const ctx = await setup();
+    await fs.mkdir(path.join(ctx.work, "data"), { recursive: true });
+    await fs.writeFile(path.join(ctx.work, FILE), "{corrompido");
+    const storage = memoryStorage();
+    const before = lab.createStore({ catalog: lab.catalog, storage });
+    before.setNotes("trena", "local");
+    const opened = await open({ backup: ctx.backup }, storage);
+    expect(opened.decision).toEqual({ status: "invalid", action: "none" });
+    expect(opened.store.getItem("trena").notes).toBe("local");
+    expect(await fs.readFile(path.join(ctx.work, FILE), "utf8")).toBe("{corrompido");
+  }, T);
+});
+
 describe("bridge HTTP", () => {
   function request(port, { method = "GET", path: pathname, headers = {}, body }) {
     return new Promise((resolve, reject) => {
@@ -315,6 +395,12 @@ describe("bridge HTTP", () => {
     try {
       expect(server.address().address).toBe("127.0.0.1");
       expect((await request(port, { path: "/lab-setup/" })).status).toBe(200);
+      expect((await request(port, { path: "/core/lkr-portable.js" })).status).toBe(200);
+      expect((await request(port, { path: "/core/lkr-portable.test.js" })).status).toBe(404);
+      // Uma origem só para o cache local: localhost redireciona para 127.0.0.1.
+      const moved = await request(port, { path: "/lab-setup/?x=1", headers: { Host: "localhost:" + port } });
+      expect(moved.status).toBe(308);
+      expect(moved.headers.location).toBe(origin + "/lab-setup/?x=1");
       for (const blocked of ["/bridge/server.mjs", "/../package.json", "/%2e%2e/package.json", "/lab-setup/store.test.js", "/lab-setup/..%5c..%5cpackage.json"]) {
         expect((await request(port, { path: blocked })).status).toBe(404);
       }

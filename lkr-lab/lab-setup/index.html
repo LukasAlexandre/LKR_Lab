@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="lab-setup.css" />
     <script src="../core/lkr-core.js" defer></script>
     <script src="catalog.js" defer></script>
+    <script src="../core/lkr-portable.js" defer></script>
     <script src="store.js" defer></script>
     <script src="app.js" defer></script>
     <script src="sync.js" defer></script>
@@ -56,7 +57,7 @@
 
         <div class="lkr-rail__footer">
           <strong><span data-icon="shield"></span>Local-first</strong>
-          Dados apenas neste navegador.
+          Autosave neste navegador; Git só quando você sincroniza.
         </div>
       </aside>
 
@@ -98,6 +99,10 @@
                 <div><dt>Commit</dt><dd class="lkr-mono" id="ls-sync-commit">—</dd></div>
               </dl>
               <p class="ls-pop__notice" id="ls-sync-notice" hidden></p>
+              <div class="ls-pop__row ls-pop__conflict" id="ls-sync-conflict" hidden>
+                <button class="lkr-btn" type="button" id="ls-sync-take-repo"><span data-icon="download"></span><span>Usar a do repositório</span></button>
+                <button class="lkr-btn" type="button" id="ls-sync-keep-local"><span data-icon="check"></span><span>Manter a deste navegador</span></button>
+              </div>
               <div class="ls-pop__actions">
                 <button class="lkr-btn lkr-btn--primary ls-pop__main" type="button" id="ls-sync-now"><span data-icon="github"></span><span>Sincronizar agora</span></button>
                 <div class="ls-pop__row">
@@ -106,6 +111,7 @@
                 </div>
                 <button class="lkr-btn lkr-btn--ghost ls-pop__undo" type="button" id="ls-sync-undo" hidden><span data-icon="undo"></span><span id="ls-sync-undo-label">Desfazer última restauração</span></button>
               </div>
+              <p class="ls-pop__scope">Vai para o Git: marcações, observações e itens personalizados. Fica só nesta máquina: filtros, histórico de sync e desfazer.</p>
             </div>
           </div>
 

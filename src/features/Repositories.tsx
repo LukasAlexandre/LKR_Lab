@@ -17,6 +17,7 @@ const RepositoryRow = memo(function RepositoryRow({ project, report }: { project
       <button className="text-button" onClick={() => workspace.selectProject(project.id)}>{project.name}</button>
       <small>{project.repository || "Origin não informado"}</small>
       <small className="mono">{project.localPath}</small>
+      {project.pathAvailable === false && <Badge tone="warn">Pasta não encontrada nesta máquina</Badge>}
       <SourceStatus source={source} label="Git" />
       {git?.commits[0] && <small>{git.commits[0].hash} · {git.commits[0].subject}</small>}
     </div>

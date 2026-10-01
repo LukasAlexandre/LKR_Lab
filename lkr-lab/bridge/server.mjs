@@ -119,6 +119,8 @@ export function createLabServer({ backup = createGitBackup({ repoRoot: REPO_ROOT
     const url = new URL(req.url, "http://" + req.headers.host);
     if (!url.pathname.startsWith("/api/")) {
       if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, "Method not allowed", { Allow: "GET, HEAD" });
+      // Uma origem só: o cache local do navegador é separado por endereço.
+      if (url.hostname === "localhost") return send(res, 308, "", { Location: "http://" + HOST + ":" + port + url.pathname + url.search });
       return serveStatic(req, res, url.pathname);
     }
 
