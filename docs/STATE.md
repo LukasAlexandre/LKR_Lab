@@ -70,7 +70,7 @@ PC trabalho: git clone / git pull → npm run lab → abre http://127.0.0.1:4317
 
 O bridge redireciona `localhost` para `127.0.0.1`: o cache do navegador é separado por endereço e assim existe um só.
 
-Desktop: o `hub.db` fica no app data e não viaja. Os caminhos de uma máquina nunca são aplicados em outra; quando um projeto aponta para uma pasta que não existe aqui, a interface mostra "Pasta não encontrada nesta máquina". A exportação portátil do workspace (projetos sem `local_path`, prompts, knowledge e preferências `portable`) é o próximo bloco: o caminho será religado por máquina (localizar, clonar ou remover a referência).
+Desktop: o `hub.db` fica no app data e não viaja. **Identidade do projeto != caminho local**: o cadastro (`projects`) guarda só dados portáteis; a pasta é um vínculo desta máquina (`project_bindings`, migration 003). Fonte de verdade: dados portáteis → `data/workspace.json` (formato em `lkr-lab/core/lkr-workspace.js`, validado de novo em `hub-core::portable`); vínculos → SQLite local; processos/portas/Git → detecção em tempo real; caches reconstruíveis. Cada projeto está `available`, `missing` (vínculo sem pasta) ou `unbound` (nunca localizado aqui); nesses dois últimos nenhuma operação local roda e a interface oferece "Localizar" (`bind_project`, que exige o mesmo remote — HTTPS e SSH equivalem — ou confirmação explícita quando o projeto não tem repositório). `apply_portable` atualiza o SQLite sem tocar nos vínculos. Ainda não há: chamada do desktop ao bridge (os comandos `export_portable`/`apply_portable` existem, falta ligá-los ao sync), preferências portáteis do desktop e relocação automática.
 
 ## Migrações
 

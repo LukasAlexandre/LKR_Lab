@@ -5,6 +5,7 @@ pub mod git;
 pub mod github;
 pub mod launchers;
 pub mod models;
+pub mod portable;
 pub mod ports;
 pub mod projects;
 pub mod snapshot;

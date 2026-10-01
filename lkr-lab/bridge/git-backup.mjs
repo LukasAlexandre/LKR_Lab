@@ -13,9 +13,12 @@ import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
+await import("../core/lkr-portable.js");
+await import("../core/lkr-workspace.js");
 await import("../lab-setup/catalog.js");
 await import("../lab-setup/store.js");
 const labSetup = globalThis.LKR.labSetup;
+const workspace = globalThis.LKR.workspace;
 
 /**
  * Módulos com backup no Git. Cada novo módulo do LKR LAB (inventário,
@@ -35,7 +38,17 @@ export const MODULES = {
       return { ok: true, state: persistable, hash: labSetup.stateHash(persistable), summary: result.summary };
     },
   },
+  // Workspace do app desktop: projetos (sem caminho local), prompts, knowledge e preferências portáveis.
+  workspace: {
+    label: "Workspace",
+    file: "data/workspace.json",
+    schemaVersion: workspace.SCHEMA_VERSION,
+    source: workspace.SOURCE,
+    prepare: (state) => workspace.validate(state),
+  },
 };
+
+const MODULE_FILES = new Set(Object.values(MODULES).map((m) => m.file));
 
 const MAX_OUTPUT = 4 * 1024 * 1024;
 const TIMEOUT_LOCAL_MS = 20_000;
@@ -57,7 +70,7 @@ export const MESSAGES = {
   NETWORK: "Não foi possível conectar ao GitHub. Verifique a internet e tente de novo.",
   AUTH: "O Git não conseguiu autenticar no GitHub. Rode “git push” no terminal para renovar a credencial.",
   IDENTITY: "O Git não sabe quem é o autor do commit. Configure user.name e user.email.",
-  INVALID_PAYLOAD: "Os dados enviados não são um estado válido do Lab Setup.",
+  INVALID_PAYLOAD: "Os dados enviados não são um estado válido deste módulo.",
   INVALID_BACKUP: "O arquivo de backup do repositório está inválido.",
   NO_BACKUP: "Ainda não existe backup deste módulo no repositório.",
   BUSY: "Outra operação Git do LKR LAB está em andamento.",
@@ -204,9 +217,9 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
   }
 
   function moduleOf(id) {
-    const mod = MODULES[id];
-    if (!mod) throw new BackupError("INVALID_PAYLOAD", { status: 400, message: "Módulo desconhecido." });
-    return mod;
+    // hasOwn: "constructor", "__proto__" etc. não são módulos.
+    if (typeof id !== "string" || !Object.hasOwn(MODULES, id)) throw new BackupError("INVALID_PAYLOAD", { status: 400, message: "Módulo desconhecido." });
+    return MODULES[id];
   }
 
   /** Confirma repositório, branch e remote. Lança erro quando falta algo obrigatório. */
@@ -389,7 +402,8 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
 
       // Commits locais pendentes com outros arquivos: não publicar nada.
       const pendingBefore = await unpushedFiles();
-      pendingBefore.delete(mod.file);
+      // Commits só com arquivos de dados do LKR LAB (este ou outro módulo) podem seguir juntos.
+      for (const file of MODULE_FILES) pendingBefore.delete(file);
       if (pendingBefore.size) throw new BackupError("UNRELATED_UNPUSHED", { detail: [...pendingBefore].slice(0, 10).join(", ") });
 
       const date = now();
@@ -449,7 +463,7 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
       await fetchRemote(info.branch);
       const counts = await divergence(info.branch);
       if (!counts) throw new BackupError("NO_REMOTE_BRANCH");
-      if (counts.behind === 0) return { success: true, updated: false, commits: 0, labStateChanged: false, branch: info.branch, message: "O repositório local já está atualizado." };
+      if (counts.behind === 0) return { success: true, updated: false, commits: 0, stateChanged: false, labStateChanged: false, branch: info.branch, message: "O repositório local já está atualizado." };
       if (counts.ahead > 0) throw new BackupError("DIVERGED");
       if (await fileStatus(mod)) throw new BackupError("LOCAL_CHANGES", { message: "O arquivo " + mod.file + " tem alterações locais não commitadas. Nada foi alterado." });
 
@@ -461,7 +475,8 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
         success: true,
         updated: true,
         commits: counts.behind,
-        labStateChanged: changed,
+        stateChanged: changed,
+        labStateChanged: changed, // nome antigo, mantido para o Lab Setup
         branch: info.branch,
         commit: newHead.slice(0, 7),
         message: counts.behind + (counts.behind === 1 ? " commit trazido do GitHub." : " commits trazidos do GitHub."),

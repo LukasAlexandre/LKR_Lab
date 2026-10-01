@@ -86,7 +86,7 @@ fn start(state: &TerminalState, id: String, path: &Path, rows: u16, cols: u16, o
 pub async fn terminal_start(state: State<'_, super::AppState>, terminals: State<'_, TerminalState>, project_id: String, id: String, rows: u16, cols: u16, output: Channel<TerminalEvent>) -> HubResult<()> {
     let project = super::db(&state)?.project(&project_id)?;
     let terminals = TerminalState(terminals.0.clone());
-    tauri::async_runtime::spawn_blocking(move || start(&terminals, id, Path::new(&project.local_path), rows, cols, output)).await.map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || start(&terminals, id, &hub_core::projects::local_dir(&project)?, rows, cols, output)).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
 pub async fn terminal_write(terminals: State<'_, TerminalState>, id: String, data: String) -> HubResult<()> {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import "../core/lkr-portable.js";
 import "./catalog.js";
 import "./store.js";
 

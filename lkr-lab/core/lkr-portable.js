@@ -32,6 +32,42 @@
   const isoOrNull = (value) => (typeof value === "string" && value.length <= 40 && !Number.isNaN(Date.parse(value)) ? value : null);
   const shortText = (value) => (typeof value === "string" ? value.slice(0, SHORT_TEXT) : null);
 
+  // ---------------------------------------------------- hash de conteúdo
+
+  /** JSON com chaves ordenadas: mesma entrada, mesma string. */
+  function stableStringify(value) {
+    if (value === null || typeof value !== "object") return JSON.stringify(value === undefined ? null : value);
+    if (Array.isArray(value)) return "[" + value.map(stableStringify).join(",") + "]";
+    return (
+      "{" +
+      Object.keys(value)
+        .filter((key) => value[key] !== undefined)
+        .sort()
+        .map((key) => JSON.stringify(key) + ":" + stableStringify(value[key]))
+        .join(",") +
+      "}"
+    );
+  }
+
+  // cyrb53 em 64 bits: detecção de mudança, não criptografia.
+  function hashString(str) {
+    let h1 = 0xdeadbeef;
+    let h2 = 0x41c6ce57;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str.charCodeAt(i);
+      h1 = Math.imul(h1 ^ ch, 2654435761);
+      h2 = Math.imul(h2 ^ ch, 1597334677);
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+    return (h2 >>> 0).toString(16).padStart(8, "0") + (h1 >>> 0).toString(16).padStart(8, "0");
+  }
+
+  /** Hash usado como base da reconciliação: "h" + 16 hex. */
+  const contentHash = (value) => "h" + hashString(stableStringify(value));
+
   /**
    * Situação do cache local em relação ao arquivo portátil.
    *
@@ -149,5 +185,5 @@
     return null; // bridge fora do ar ou erro do Git: não há o que reconciliar agora
   }
 
-  return { META_SCHEMA, reconcile, normalizeMeta, createMetaStore, fileFromResponse };
+  return { META_SCHEMA, stableStringify, hashString, contentHash, reconcile, normalizeMeta, createMetaStore, fileFromResponse };
 });

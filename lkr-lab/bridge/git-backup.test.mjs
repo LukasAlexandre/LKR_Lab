@@ -371,6 +371,59 @@ describe("estado portátil entre máquinas (Git real)", () => {
   }, T);
 });
 
+describe("git-backup: módulo workspace", () => {
+  const WS_FILE = "data/workspace.json";
+  const workspaceState = (extra = {}) => ({
+    version: 1,
+    projects: [{ id: "p1", name: "LKR_Lab", description: "", repository: "https://github.com/org/lkr", stack: [], tags: [], ports: [], commands: [], createdAt: "", updatedAt: "" }],
+    prompts: [],
+    knowledge: [],
+    preferences: {},
+    ...extra,
+  });
+
+  it("publica só data/workspace.json, sem caminho local, e lê de volta", async () => {
+    const ctx = await setup();
+    const input = workspaceState();
+    input.projects[0].localPath = "C:\\Users\\segredo\\Dev\\lkr";
+    const result = await ctx.backup.sync("workspace", { schemaVersion: 1, state: input });
+    expect(result).toMatchObject({ success: true, pushed: true, file: WS_FILE });
+    const files = git(ctx.base, "--git-dir", ctx.remote, "log", "-1", "--name-only", "--format=", "main").split(/\n+/).filter(Boolean);
+    expect(files).toEqual([WS_FILE]);
+    const published = git(ctx.base, "--git-dir", ctx.remote, "show", "main:" + WS_FILE);
+    expect(published).not.toMatch(/localPath|segredo/);
+    expect(JSON.parse(published)).toMatchObject({ module: "workspace", source: "lkr-lab", schemaVersion: 1 });
+    const read = await ctx.backup.readState("workspace");
+    expect(read.synced).toBe(true);
+    expect(read.backup.state.projects[0].id).toBe("p1");
+    expect(await exists(path.join(ctx.work, FILE))).toBe(false);
+  }, T);
+
+  it("rejeita workspace inválido ou com credencial sem escrever nada", async () => {
+    const ctx = await setup();
+    const withToken = workspaceState({ prompts: [{ id: "q", title: "T", category: "", projectId: null, body: "ghp_" + "a".repeat(36) }] });
+    expect((await rejects(ctx.backup.sync("workspace", { schemaVersion: 1, state: withToken }))).code).toBe("INVALID_PAYLOAD");
+    expect((await rejects(ctx.backup.sync("workspace", { schemaVersion: 1, state: { version: 9 } }))).code).toBe("INVALID_PAYLOAD");
+    expect((await rejects(ctx.backup.sync("workspace", { schemaVersion: 2, state: workspaceState() }))).code).toBe("INVALID_PAYLOAD");
+    expect(await exists(path.join(ctx.work, "data"))).toBe(false);
+  }, T);
+
+  it("workspace inexistente ou corrompido não é adotado", async () => {
+    const ctx = await setup();
+    expect((await rejects(ctx.backup.readState("workspace"))).code).toBe("NO_BACKUP");
+    await fs.mkdir(path.join(ctx.work, "data"));
+    await fs.writeFile(path.join(ctx.work, WS_FILE), "{quebrado");
+    expect((await rejects(ctx.backup.readState("workspace"))).code).toBe("INVALID_BACKUP");
+  }, T);
+
+  it("módulo desconhecido (inclusive nomes do prototype) é recusado", async () => {
+    const ctx = await setup();
+    for (const id of ["constructor", "__proto__", "../x", "nope"]) {
+      expect((await rejects(ctx.backup.readState(id))).code).toBe("INVALID_PAYLOAD");
+    }
+  }, T);
+});
+
 describe("bridge HTTP", () => {
   function request(port, { method = "GET", path: pathname, headers = {}, body }) {
     return new Promise((resolve, reject) => {

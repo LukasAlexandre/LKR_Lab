@@ -187,7 +187,7 @@ export function ProjectForm({
             Pasta local
             <div className="input-action">
               <input
-                required
+                required={!project}
                 value={form.localPath}
                 placeholder="C:\Projetos\meu-projeto"
                 onChange={(e) => patch({ localPath: e.target.value })}

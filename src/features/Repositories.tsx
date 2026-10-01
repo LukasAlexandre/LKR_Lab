@@ -3,6 +3,7 @@ import { ExternalLink, FolderOpen, GitBranch, Terminal } from "lucide-react";
 import { api } from "../shared/api";
 import { Badge, Empty, Panel, Refresh } from "../shared/ui";
 import { SourceStatus } from "../components/SourceStatus";
+import { LocationNotice } from "../components/LocationNotice";
 import { useActiveProjectId, useResource, workspace } from "../state/workspace";
 import type { Project } from "../shared/types";
 
@@ -16,9 +17,9 @@ const RepositoryRow = memo(function RepositoryRow({ project, report }: { project
     <div>
       <button className="text-button" onClick={() => workspace.selectProject(project.id)}>{project.name}</button>
       <small>{project.repository || "Origin não informado"}</small>
-      <small className="mono">{project.localPath}</small>
-      {project.pathAvailable === false && <Badge tone="warn">Pasta não encontrada nesta máquina</Badge>}
-      <SourceStatus source={source} label="Git" />
+      {project.localPath && <small className="mono">{project.localPath}</small>}
+      <LocationNotice project={project} report={report} />
+      {project.location === "available" && <SourceStatus source={source} label="Git" />}
       {git?.commits[0] && <small>{git.commits[0].hash} · {git.commits[0].subject}</small>}
     </div>
     <div className="repo-state">

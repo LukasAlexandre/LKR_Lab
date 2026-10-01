@@ -42,6 +42,7 @@ import { AgentProviders } from "./features/AgentProviders";
 import { Knowledge } from "./features/Knowledge";
 import { routes, routeFromHash } from "./app/routing";
 import { WindowTitleBar } from "./shell/WindowTitleBar";
+import { LocationNotice } from "./components/LocationNotice";
 export default function App() {
   const [route, setRoute] = useState(routeFromHash);
   const selectedId = useActiveProjectId();
@@ -418,10 +419,10 @@ export default function App() {
                   action={<Badge>Projeto ativo</Badge>}
                 >
                   <p>{selected.description}</p>
-                  <div className="path-box mono">{selected.localPath}</div>
-                  {selected.pathAvailable === false && (
-                    <Badge tone="warn">Pasta não encontrada nesta máquina</Badge>
+                  {selected.localPath && (
+                    <div className="path-box mono">{selected.localPath}</div>
                   )}
+                  <LocationNotice project={selected} report={report} />
                   <Launchers
                     id={selected.id}
                     launch={launch}
@@ -633,7 +634,10 @@ export default function App() {
                     Abrir ferramentas no diretório de{" "}
                     <strong>{selected.name}</strong>.
                   </p>
-                  <div className="path-box mono">{selected.localPath}</div>
+                  {selected.localPath && (
+                    <div className="path-box mono">{selected.localPath}</div>
+                  )}
+                  <LocationNotice project={selected} report={report} />
                   <Launchers
                     id={selected.id}
                     launch={launch}

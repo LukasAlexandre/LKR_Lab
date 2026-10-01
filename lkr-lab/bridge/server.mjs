@@ -12,6 +12,9 @@
  *  - toda rota /api exige o cabeçalho X-LKR-Lab, que outra origem não consegue
  *    enviar sem preflight CORS (e o bridge não responde a CORS);
  *  - POST exige Content-Type application/json e Origin igual à do bridge.
+ *
+ * Clientes: as páginas do LKR LAB (mesma origem) e o app desktop, cujo backend
+ * Rust chama só as rotas fixas de estado/sync do módulo "workspace".
  */
 import http from "node:http";
 import { promises as fs } from "node:fs";
@@ -41,6 +44,7 @@ function send(res, status, body, headers = {}) {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cross-Origin-Resource-Policy": "same-origin",
+    "Content-Length": Buffer.byteLength(body),
     ...headers,
   });
   res.end(body);
@@ -136,11 +140,20 @@ export function createLabServer({ backup = createGitBackup({ repoRoot: REPO_ROOT
       }
     }
 
-    const route = req.method + " " + url.pathname;
+    // Rotas por módulo (lab-setup, workspace…): o id só escolhe uma entrada fixa de MODULES.
+    const moduleRoute = /^\/api\/(state|sync|update)\/([a-z][a-z-]{0,39})$/.exec(url.pathname);
+    const route = moduleRoute ? req.method + " /api/" + moduleRoute[1] + "/:module" : req.method + " " + url.pathname;
+    const moduleId = moduleRoute ? moduleRoute[2] : url.searchParams.get("module") || "lab-setup";
     try {
       switch (route) {
         case "GET /api/git/status":
-          return sendJson(res, 200, await backup.status({ fetch: url.searchParams.get("fetch") === "1" }));
+          return sendJson(res, 200, await backup.status({ fetch: url.searchParams.get("fetch") === "1", module: moduleId }));
+        case "GET /api/state/:module":
+          return sendJson(res, 200, { success: true, ...(await backup.readState(moduleId)) });
+        case "POST /api/sync/:module":
+          return sendJson(res, 200, await backup.sync(moduleId, await readJsonBody(req)));
+        case "POST /api/update/:module":
+          return sendJson(res, 200, await backup.update(moduleId));
         case "GET /api/lab-state":
           return sendJson(res, 200, { success: true, ...(await backup.readState("lab-setup")) });
         case "POST /api/lab-sync":

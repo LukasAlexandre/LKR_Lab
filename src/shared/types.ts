@@ -22,8 +22,13 @@ export interface Project extends ProjectInput {
   slug: string;
   createdAt: string;
   updatedAt: string;
-  /** Observação desta máquina (list_projects): a pasta existe aqui? Nunca é salva. */
-  pathAvailable?: boolean;
+  /** Observação desta máquina (list_projects), nunca salva: pasta existe, sumiu ou nunca foi vinculada. */
+  location?: "available" | "missing" | "unbound";
+}
+export interface BindResult {
+  bound: boolean;
+  needsConfirmation: boolean;
+  message: string;
 }
 export interface Discovery {
   name: string;

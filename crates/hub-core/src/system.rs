@@ -157,16 +157,28 @@ fn process_snapshot() -> Vec<ProcessSample> {
     *cache = Some((Instant::now(), samples.clone()));
     samples
 }
+/// Projeto dono de um cwd: a pasta vinculada mais específica que o contém.
+/// Projeto sem vínculo nesta máquina ("" casaria com tudo) nunca é dono de nada.
+pub fn owner_of<'a>(
+    cwd: &std::path::Path,
+    projects: &'a [crate::models::Project],
+) -> Option<&'a crate::models::Project> {
+    projects
+        .iter()
+        .filter(|project| {
+            !project.local_path.is_empty()
+                && cwd.starts_with(std::path::Path::new(&project.local_path))
+        })
+        .max_by_key(|project| project.local_path.len())
+}
 pub fn processes(projects: &[crate::models::Project]) -> Vec<ProcessInfo> {
     let mut result: Vec<_> = process_snapshot()
         .into_iter()
         .map(|mut sample| {
-            let project = sample.cwd.as_ref().and_then(|cwd| {
-                projects
-                    .iter()
-                    .filter(|project| cwd.starts_with(&project.local_path))
-                    .max_by_key(|project| project.local_path.len())
-            });
+            let project = sample
+                .cwd
+                .as_deref()
+                .and_then(|cwd| owner_of(cwd, projects));
             sample.info.project_id = project.map(|p| p.id.clone());
             sample.info.confidence = if project.is_some() { "cwd" } else { "unknown" }.into();
             sample.info

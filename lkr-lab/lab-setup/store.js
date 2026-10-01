@@ -21,6 +21,7 @@
  * voltem caso o item retorne.
  *
  * Sem dependência de DOM: `storage` e `now` são injetados, o que permite testes.
+ * Depende de ../core/lkr-portable.js (hash de conteúdo).
  */
 (function (root, factory) {
   const api = factory();
@@ -197,36 +198,9 @@
     return { version: state.version, createdAt: state.createdAt, updatedAt: state.updatedAt, items, custom: state.custom || [] };
   }
 
-  /** JSON com chaves ordenadas: mesma entrada, mesma string. */
-  function stableStringify(value) {
-    if (value === null || typeof value !== "object") return JSON.stringify(value === undefined ? null : value);
-    if (Array.isArray(value)) return "[" + value.map(stableStringify).join(",") + "]";
-    return (
-      "{" +
-      Object.keys(value)
-        .filter((key) => value[key] !== undefined)
-        .sort()
-        .map((key) => JSON.stringify(key) + ":" + stableStringify(value[key]))
-        .join(",") +
-      "}"
-    );
-  }
-
-  // cyrb53 em 64 bits: detecção de mudança, não criptografia.
-  function hashString(str) {
-    let h1 = 0xdeadbeef;
-    let h2 = 0x41c6ce57;
-    for (let i = 0; i < str.length; i++) {
-      const ch = str.charCodeAt(i);
-      h1 = Math.imul(h1 ^ ch, 2654435761);
-      h2 = Math.imul(h2 ^ ch, 1597334677);
-    }
-    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-    h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-    h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-    return (h2 >>> 0).toString(16).padStart(8, "0") + (h1 >>> 0).toString(16).padStart(8, "0");
-  }
+  // Hash compartilhado com os outros módulos (core/lkr-portable.js, carregado antes deste arquivo).
+  const portable = () => globalThis.LKR.portable;
+  const stableStringify = (value) => portable().stableStringify(value);
 
   /**
    * Hash do conteúdo que importa: marcações, datas de conclusão, observações e
@@ -239,7 +213,7 @@
       if (!e.completed && !e.notes) continue;
       items[id] = { completed: e.completed, completedAt: e.completedAt, notes: e.notes };
     }
-    return "h" + hashString(stableStringify({ version: state.version, items, custom: state.custom || [] }));
+    return portable().contentHash({ version: state.version, items, custom: state.custom || [] });
   }
 
   /** Nada produzido pelo usuário: nenhuma marcação, observação ou item personalizado. */

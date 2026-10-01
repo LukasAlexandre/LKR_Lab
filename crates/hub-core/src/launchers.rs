@@ -6,7 +6,7 @@ fn spawn(mut cmd: Command) -> HubResult<()> {
     Ok(())
 }
 pub fn launch(p: &Project, action: &str) -> HubResult<()> {
-    let path = crate::projects::canonical(&p.local_path)?;
+    let path = crate::projects::local_dir(p)?;
     match action {
         "folder" => {
             #[cfg(windows)]

@@ -1,7 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use hub_core::{database::Database, models::*, HubResult};
 use serde::Serialize;
-use std::{path::Path, sync::Mutex};
+use std::sync::Mutex;
 use tauri::{Manager, State};
 struct AppState(Mutex<Database>);
 #[derive(Serialize)]
@@ -80,9 +80,11 @@ async fn workspace_state(state: State<'_, AppState>) -> HubResult<WorkspaceState
 #[tauri::command]
 async fn git_state(state: State<'_, AppState>, id: String) -> HubResult<hub_core::git::GitState> {
     let p = db(&state)?.project(&id)?;
-    tauri::async_runtime::spawn_blocking(move || hub_core::git::inspect(Path::new(&p.local_path)))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        hub_core::git::inspect(&hub_core::projects::local_dir(&p)?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn github_state(
@@ -92,7 +94,7 @@ async fn github_state(
     use hub_core::github::GitHostingProvider;
     let p = db(&state)?.project(&id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        hub_core::github::GitHubProvider.inspect(Path::new(&p.local_path))
+        hub_core::github::GitHubProvider.inspect(&hub_core::projects::local_dir(&p)?)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -124,6 +126,26 @@ fn launch_project(state: State<AppState>, id: String, action: String) -> HubResu
     hub_core::launchers::launch(&db(&state)?.project(&id)?, &action)
 }
 #[tauri::command]
+fn bind_project(
+    state: State<AppState>,
+    id: String,
+    path: String,
+    confirmed: bool,
+) -> HubResult<BindResult> {
+    db(&state)?.bind(&id, &path, confirmed)
+}
+#[tauri::command]
+fn export_portable(state: State<AppState>) -> HubResult<hub_core::portable::PortableWorkspace> {
+    db(&state)?.export_portable()
+}
+#[tauri::command]
+fn apply_portable(
+    state: State<AppState>,
+    workspace: hub_core::portable::PortableWorkspace,
+) -> HubResult<hub_core::portable::ApplySummary> {
+    db(&state)?.apply_portable(&workspace)
+}
+#[tauri::command]
 fn open_localhost(port: u16) -> HubResult<()> {
     hub_core::launchers::open_url(&format!("http://127.0.0.1:{port}"))
 }
@@ -132,7 +154,7 @@ async fn generate_context(state: State<'_, AppState>, id: String) -> HubResult<S
     let p = db(&state)?.project(&id)?;
     let text = tauri::async_runtime::spawn_blocking(move || hub_core::snapshot::generate(&p))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())??;
     db(&state)?.activity(&id, "Contexto de desenvolvimento gerado")?;
     Ok(text)
 }
@@ -141,7 +163,7 @@ async fn save_context(state: State<'_, AppState>, id: String) -> HubResult<bool>
     let p = db(&state)?.project(&id)?;
     let text = tauri::async_runtime::spawn_blocking(move || hub_core::snapshot::generate(&p))
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())??;
     if let Some(file) = rfd::AsyncFileDialog::new()
         .set_file_name("development-context.md")
         .add_filter("Markdown", &["md"])
@@ -180,7 +202,7 @@ fn list_activities(state: State<AppState>) -> HubResult<Vec<Activity>> {
 fn agent_context(state: State<AppState>, id: String) -> HubResult<hub_core::agents::AgentContext> {
     use hub_core::agents::AgentProvider;
     let p = db(&state)?.project(&id)?;
-    Ok(hub_core::agents::ClaudeProvider.context(Path::new(&p.local_path)))
+    Ok(hub_core::agents::ClaudeProvider.context(&hub_core::projects::local_dir(&p)?))
 }
 #[tauri::command]
 fn agent_providers() -> Vec<hub_core::agents::AgentProviderStatus> {
@@ -192,9 +214,11 @@ async fn list_worktrees(
     id: String,
 ) -> HubResult<Vec<hub_core::git::Worktree>> {
     let p = db(&state)?.project(&id)?;
-    tauri::async_runtime::spawn_blocking(move || hub_core::git::worktrees(Path::new(&p.local_path)))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        hub_core::git::worktrees(&hub_core::projects::local_dir(&p)?)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn create_worktree(
@@ -205,7 +229,7 @@ async fn create_worktree(
 ) -> HubResult<()> {
     let project = db(&state)?.project(&id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        hub_core::git::create_worktree(Path::new(&project.local_path), &path, &branch)
+        hub_core::git::create_worktree(&hub_core::projects::local_dir(&project)?, &path, &branch)
     })
     .await
     .map_err(|error| error.to_string())??;
@@ -221,7 +245,7 @@ async fn remove_worktree(
 ) -> HubResult<()> {
     let project = db(&state)?.project(&id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        hub_core::git::remove_worktree(Path::new(&project.local_path), &path, confirmed)
+        hub_core::git::remove_worktree(&hub_core::projects::local_dir(&project)?, &path, confirmed)
     })
     .await
     .map_err(|error| error.to_string())??;
@@ -237,7 +261,7 @@ async fn launch_worktree(
 ) -> HubResult<()> {
     let mut project = db(&state)?.project(&id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let path = hub_core::git::worktree_path(Path::new(&project.local_path), &path)?;
+        let path = hub_core::git::worktree_path(&hub_core::projects::local_dir(&project)?, &path)?;
         project.local_path = path.to_string_lossy().into();
         hub_core::launchers::launch(&project, &action)
     })
@@ -267,6 +291,9 @@ fn main() {
             list_processes,
             kill_process,
             launch_project,
+            bind_project,
+            export_portable,
+            apply_portable,
             open_localhost,
             generate_context,
             save_context,

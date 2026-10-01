@@ -1,7 +1,7 @@
 use hub_core::{
     database::Database,
     git,
-    models::{ProjectInput, ProjectPort, Prompt},
+    models::{Location, ProjectInput, ProjectPort, Prompt},
     ports::validate_kill,
     projects,
 };
@@ -76,16 +76,16 @@ fn missing_local_path_is_observed_not_persisted() {
     std::fs::create_dir(&folder).unwrap();
     let mut db = Database::open(&tmp.path().join("test.db")).unwrap();
     let saved = db.save(None, input(&folder)).unwrap();
-    assert!(projects::entry(saved.clone()).path_available);
+    assert_eq!(projects::entry(saved.clone()).location, Location::Available);
 
     // Mesma situação de um cadastro vindo de outra máquina: o caminho não existe aqui.
     std::fs::remove_dir(&folder).unwrap();
     let listed = db.projects().unwrap().into_iter().next().unwrap();
     let entry = projects::entry(listed);
-    assert!(!entry.path_available);
+    assert_eq!(entry.location, Location::Missing);
     assert_eq!(entry.project.local_path, saved.local_path);
     let json = serde_json::to_value(&entry).unwrap();
-    assert_eq!(json["pathAvailable"], false);
+    assert_eq!(json["location"], "missing");
     assert_eq!(json["id"], saved.id.as_str());
 
     // A observação nunca vai para o banco.
@@ -93,7 +93,8 @@ fn missing_local_path_is_observed_not_persisted() {
         .conn
         .query_row("SELECT data FROM projects", [], |r| r.get(0))
         .unwrap();
-    assert!(!stored.contains("pathAvailable"));
+    assert!(!stored.contains("location"));
+    assert!(!stored.contains("localPath"));
     assert!(!projects::path_available("relativo/projeto"));
 }
 #[test]
@@ -282,7 +283,7 @@ fn snapshot_does_not_read_env_contents() {
     std::fs::write(tmp.path().join(".env"), "JWT_SECRET=sentinel-never-include").unwrap();
     let mut db = Database::open(&tmp.path().join("hub.db")).unwrap();
     let p = db.save(None, input(tmp.path())).unwrap();
-    let snapshot = hub_core::snapshot::generate(&p);
+    let snapshot = hub_core::snapshot::generate(&p).unwrap();
     assert!(!snapshot.contains("sentinel-never-include"));
     assert!(snapshot.contains(".env: true"));
     assert!(snapshot.contains("NOT VERIFIED"));

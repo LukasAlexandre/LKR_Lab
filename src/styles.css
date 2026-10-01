@@ -1679,3 +1679,5 @@ summary {
 .window-restore-icon {
   transform: scaleX(-1);
 }
+
+.location-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; }

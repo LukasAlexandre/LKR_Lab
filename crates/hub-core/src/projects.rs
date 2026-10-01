@@ -1,6 +1,6 @@
 use crate::{
     commands,
-    models::{Project, ProjectEntry, ProjectInput},
+    models::{Location, Project, ProjectEntry, ProjectInput},
     HubResult,
 };
 use serde::Serialize;
@@ -35,11 +35,31 @@ pub fn path_available(path: &str) -> bool {
     let path = Path::new(path);
     path.is_absolute() && path.is_dir()
 }
+pub fn location(project: &Project) -> Location {
+    if project.local_path.is_empty() {
+        Location::Unbound
+    } else if path_available(&project.local_path) {
+        Location::Available
+    } else {
+        Location::Missing
+    }
+}
 pub fn entry(project: Project) -> ProjectEntry {
-    let path_available = path_available(&project.local_path);
-    ProjectEntry {
-        project,
-        path_available,
+    let location = location(&project);
+    ProjectEntry { project, location }
+}
+/// Única porta para a pasta do projeto: nunca devolve caminho vazio ou inexistente.
+pub fn local_dir(project: &Project) -> HubResult<PathBuf> {
+    match location(project) {
+        Location::Available => Ok(PathBuf::from(&project.local_path)),
+        Location::Missing => Err(format!(
+            "A pasta vinculada a {} não existe nesta máquina ({}). Use “Localizar”.",
+            project.name, project.local_path
+        )),
+        Location::Unbound => Err(format!(
+            "{} faz parte do workspace, mas ainda não foi localizado nesta máquina. Use “Localizar”.",
+            project.name
+        )),
     }
 }
 pub fn validate(mut p: ProjectInput) -> HubResult<ProjectInput> {
@@ -49,7 +69,10 @@ pub fn validate(mut p: ProjectInput) -> HubResult<ProjectInput> {
     if p.name.is_empty() || p.name.len() > 100 || p.description.len() > 4000 {
         return Err("Nome obrigatório (até 100 caracteres); descrição até 4000.".into());
     }
-    p.local_path = canonical(&p.local_path)?.to_string_lossy().to_string();
+    // Vazio só é aceito ao editar (Database::save exige pasta no cadastro novo).
+    if !p.local_path.is_empty() {
+        p.local_path = canonical(&p.local_path)?.to_string_lossy().to_string();
+    }
     if !p.repository.is_empty() && !valid_repository(&p.repository) {
         return Err("Use URL HTTPS de repositório, sem credenciais ou parâmetros.".into());
     }
