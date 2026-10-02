@@ -47,7 +47,7 @@ Definir a página **Worktrees** do Project Control Center: a gestão visual dos 
 
 ## Próximo concept
 
-**Concept 09 — Planejamento** (aprovado, ver [CONCEPT-09](CONCEPT-09.md)). É o último concept do roadmap.
+**Concept 09 — Planejamento** (em refinamento, ver [CONCEPT-09](CONCEPT-09.md)). É o último concept do roadmap.
 
 ## Fora de escopo
 

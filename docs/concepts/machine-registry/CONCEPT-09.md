@@ -1,6 +1,6 @@
 # Concept 09 — Planejamento
 
-**Status:** APROVADO (direção visual)
+**Status:** EM REFINAMENTO (direção visual criada, ainda não aprovada)
 **Sessão DDAE:** [SESSION-001](../../ddae/sessions/SESSION-001-machine-context-workspace-foundation.md)
 **Imagem canônica:** [concept-09-planning.webp](concept-09-planning.webp)
 **Anterior:** [Concept 08](CONCEPT-08.md)
@@ -47,9 +47,22 @@ Definir a página **Planejamento** do Project Control Center: a área para organ
 - **Área:** os valores possíveis do filtro de área não estão definidos.
 - **Responsável:** o concept mostra um avatar por item. Não está definido o modelo de usuários, já que o produto é local-first e hoje de um só usuário.
 
-## Fim do roadmap de concepts
+## Estado atual — em refinamento
 
-Com este concept, os 9 concepts do roadmap estão aprovados. A SESSION-001 permanece **ATIVA**; os próximos passos são o fechamento/validação dos concepts (consolidar as decisões em aberto) e a decisão de como e em que ordem implementar.
+Este é o último concept do roadmap e o único ainda **não aprovado**: 8 de 9 concepts estão aprovados. A SESSION-001 permanece **ATIVA**.
+
+O concept define a camada onde o trabalho percorre: Ideia / necessidade → Planejamento → Session DDAE → Worktree → Execução → Conclusão.
+
+A direção visual está criada, mas ainda há inconsistências semânticas a corrigir antes da aprovação:
+
+- resumo numérico inconsistente;
+- falta explícita do grupo **Planejado**;
+- associação excessiva de itens à SESSION-001;
+- vínculos DDAE precisam respeitar SESSION-001/002/003/004;
+- a continuidade precisa mostrar a SESSION-001 no Concept 09;
+- o progresso deve refletir o estado definido na arquitetura.
+
+Próximo passo: aprovar o Concept 09; depois, fechamento/validação dos concepts e decisão de como e em que ordem implementar.
 
 ## Fora de escopo
 

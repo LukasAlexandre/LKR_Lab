@@ -12,7 +12,7 @@ A feature começa pela identidade da workstation e evolui para:
 
 Machine Registry → Machine Health → Projects → Project Control Center → DDAE → Worktrees → Planning
 
-Esta sessão está na fase de **concepts e registro**: os 9 concepts estão aprovados. Nenhuma implementação foi iniciada.
+Esta sessão está na fase de **concepts e registro**: 8 de 9 concepts estão aprovados e o Concept 09 — Planejamento está em refinamento. Nenhuma implementação foi iniciada.
 
 ## Blocos
 
@@ -27,7 +27,9 @@ Esta sessão está na fase de **concepts e registro**: os 9 concepts estão apro
 | 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
 | 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
-| 10 | Concept 09 — Planejamento | CONCLUÍDO (visual APROVADO) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
+| 10 | Concept 09 — Planejamento | EM ANDAMENTO (visual EM REFINAMENTO) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
+
+**Bloco atual:** 10 — Concept 09 — Planejamento, em refinamento (pendências em [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md)). Progresso conceitual: 8 de 9 concepts aprovados.
 
 ### Bloco 01 — Product Architecture (CONCLUÍDO)
 
@@ -52,7 +54,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 | 06 | DDAE / Sessões | APROVADO |
 | 07 | DDAE / Detalhe da Sessão | APROVADO |
 | 08 | Worktrees | APROVADO |
-| 09 | Planejamento | APROVADO |
+| 09 | Planejamento | EM REFINAMENTO |
 
 ## Decisões de arquitetura registradas
 
