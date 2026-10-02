@@ -1,8 +1,9 @@
 import { memo } from "react";
-import { PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
+import { Lock, Monitor, PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
 import { routes } from "../app/routing";
-export const Sidebar = memo(function Sidebar({ route, sidebarCompact, toggle, projectCount }: {
- route: string; sidebarCompact: boolean; toggle: () => void; projectCount: number;
+/** `locked`: computador não cadastrado. Os módulos aparecem, mas não são links. */
+export const Sidebar = memo(function Sidebar({ route, sidebarCompact, toggle, projectCount, locked = false }: {
+ route: string; sidebarCompact: boolean; toggle: () => void; projectCount: number; locked?: boolean;
 }) {
  return (<aside className="sidebar" aria-label="Navegação do workspace">
         <div className="brand">
@@ -33,18 +34,36 @@ export const Sidebar = memo(function Sidebar({ route, sidebarCompact, toggle, pr
           {routes.map(({ id, title, icon: Icon, group }) => (
             <div key={id}>
               {group && <div className="nav-group">{group}</div>}
-              <a
-                href={`#${id}`}
-                className={`nav-item ${route === id ? "active" : ""}`}
-                aria-current={route === id ? "page" : undefined}
-                title={sidebarCompact ? title : undefined}
-              >
-                <Icon size={17} />
-                <span className="nav-label">{title}</span>
-                {id === "projects" && projectCount > 0 && (
-                  <span className="nav-count">{projectCount}</span>
-                )}
-              </a>
+              {locked && id === "ports" && (
+                <span className="nav-item active" aria-current="page" title={sidebarCompact ? "Configuração inicial" : undefined}>
+                  <Monitor size={17} />
+                  <span className="nav-label">Configuração inicial</span>
+                </span>
+              )}
+              {locked ? (
+                <span
+                  className="nav-item locked"
+                  aria-disabled="true"
+                  title={`${title} · disponível após cadastrar este computador`}
+                >
+                  <Icon size={17} />
+                  <span className="nav-label">{title}</span>
+                  <Lock size={13} className="nav-lock" aria-label="Bloqueado" />
+                </span>
+              ) : (
+                <a
+                  href={`#${id}`}
+                  className={`nav-item ${route === id ? "active" : ""}`}
+                  aria-current={route === id ? "page" : undefined}
+                  title={sidebarCompact ? title : undefined}
+                >
+                  <Icon size={17} />
+                  <span className="nav-label">{title}</span>
+                  {id === "projects" && projectCount > 0 && (
+                    <span className="nav-count">{projectCount}</span>
+                  )}
+                </a>
+              )}
             </div>
           ))}
         </nav>

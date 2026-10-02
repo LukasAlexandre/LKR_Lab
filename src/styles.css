@@ -1759,3 +1759,83 @@ summary {
 .log-src-cargo { color: #e3a96a; }
 .log-src-vite { color: #b48cf2; }
 .log-src-tauri { color: var(--accent); }
+
+/* ---- Machine Registry · Concept 01 (Configure este computador) ---- */
+.dot.amber { background: var(--warning); }
+.nav-item.locked { cursor: not-allowed; color: #7f93a9; }
+.nav-item.locked:hover { background: transparent; color: #7f93a9; }
+.nav-lock { margin-left: auto; color: #5f7790; flex-shrink: 0; }
+.sidebar-compact .nav-lock { display: none; }
+.search-trigger:disabled, .project-context:disabled { opacity: 0.55; cursor: not-allowed; }
+.machine-splash { min-height: 100vh; display: grid; place-items: center; color: var(--muted); font-size: 12px; background: var(--surface-0); }
+.machine-setup h1 { font-size: 26px; }
+.machine-setup .page-heading p { font-size: 13px; margin-top: 6px; }
+.machine-lock-notice {
+  display: flex; gap: 14px; align-items: center;
+  border: 1px solid #2e6fb0; background: #0f2a45; border-radius: var(--radius-md);
+  padding: 14px 18px; margin-bottom: 18px; color: #8fc3f2;
+}
+.machine-lock-notice svg { flex-shrink: 0; color: #59adf7; }
+.machine-lock-notice strong { display: block; color: var(--text-strong); font-size: 12px; margin-bottom: 3px; }
+.machine-lock-notice span { font-size: 11px; }
+.machine-panel { display: grid; grid-template-columns: minmax(0, 1.75fr) minmax(300px, 1fr); gap: 0; padding: 0; margin-bottom: 16px; }
+.machine-detected { padding: 22px; border-right: 1px solid var(--border); min-width: 0; }
+.machine-title { display: flex; align-items: center; gap: 12px; color: var(--accent); }
+.machine-title h2 { font-size: 21px; color: var(--text-strong); margin: 0; }
+.machine-sub { color: #9fb2c7; font-size: 13px; margin: 8px 0 16px; }
+.machine-suggested, .machine-fact {
+  display: flex; gap: 12px; align-items: flex-start;
+  background: var(--surface-1); border: 1px solid #1d3047; border-radius: var(--radius-md); padding: 13px 14px; min-width: 0;
+}
+.machine-suggested { margin-bottom: 10px; align-items: center; }
+.machine-suggested small, .machine-fact small { display: flex; gap: 8px; align-items: center; font-size: 10px; color: var(--muted); }
+.machine-suggested strong { display: block; font-size: 15px; color: var(--text-strong); margin: 4px 0 3px; }
+.machine-suggested > div > span, .machine-fact > div > span { display: block; font-size: 10px; color: #7f93a9; margin-top: 3px; overflow-wrap: anywhere; }
+.machine-fact-icon { color: var(--accent); flex-shrink: 0; display: inline-grid; place-items: center; }
+.machine-fact-icon.large { width: 46px; height: 46px; border-radius: var(--radius-md); background: #13263b; }
+.machine-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.machine-fact > div { min-width: 0; }
+.machine-fact strong { display: block; font-size: 12px; color: var(--text-strong); margin-top: 5px; overflow-wrap: anywhere; }
+.machine-fact strong.unavailable { color: #6d8299; font-weight: 500; }
+.machine-skeleton { display: block; height: 12px; width: 70%; margin-top: 7px; border-radius: 3px; background: linear-gradient(90deg, #15273a, #1d3550, #15273a); background-size: 200% 100%; animation: machine-shimmer 1.4s ease-in-out infinite; }
+@keyframes machine-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.machine-form { padding: 22px; display: flex; flex-direction: column; min-width: 0; }
+.machine-form-title { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 18px; color: var(--accent); }
+.machine-form-title h3 { margin: 0 0 4px; font-size: 14px; color: var(--text-strong); }
+.machine-form-title p { margin: 0; font-size: 11px; color: var(--muted); }
+.machine-form label { color: #c3d3e3; font-size: 12px; margin-bottom: 14px; }
+.machine-form .input-icon { margin-top: 7px; gap: 8px; background: #0b1827; }
+.machine-form .input-icon input, .machine-form .input-icon select { margin: 0; border: 0; background: transparent; }
+.machine-form .select-icon { position: relative; }
+.machine-form .select-icon select { width: 100%; appearance: none; padding-right: 32px; cursor: pointer; }
+.select-chevron { position: absolute; right: 11px; pointer-events: none; }
+.machine-form .optional { color: var(--muted); font-size: 11px; }
+.field-hint, .field-error, .field-counter { display: block; font-size: 10px; margin-top: 6px; color: var(--muted); }
+.field-error { color: var(--danger); }
+.field-counter { text-align: right; }
+.machine-form .error { margin-bottom: 12px; font-size: 11px; }
+.machine-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; margin-top: auto; }
+.machine-actions .button { padding: 11px 12px; font-size: 12px; }
+.machine-bottom { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-bottom: 20px; }
+.machine-section-title { display: flex; gap: 12px; align-items: flex-start; color: var(--accent); margin-bottom: 14px; }
+.machine-section-title h3 { margin: 0 0 4px; font-size: 14px; color: var(--text-strong); }
+.machine-section-title p { margin: 0; font-size: 11px; color: var(--muted); }
+.machine-unlocks { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.machine-unlock { display: flex; gap: 10px; align-items: center; padding: 13px; border: 1px solid #1d3047; background: var(--surface-1); border-radius: var(--radius-md); font-size: 11px; color: #c3d3e3; min-width: 0; }
+.machine-unlock svg { color: var(--accent); flex-shrink: 0; }
+.machine-steps { list-style: none; counter-reset: step; margin: 0; padding: 0; display: grid; gap: 14px; }
+.machine-steps li { counter-increment: step; display: grid; grid-template-columns: 34px 1fr; column-gap: 12px; }
+.machine-steps li::before { content: counter(step); grid-row: span 2; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; border: 1px solid #2e6fb0; background: #0f2a45; color: #8fc3f2; font-size: 13px; font-weight: 600; }
+.machine-steps strong { font-size: 12px; color: var(--text-strong); }
+.machine-steps span { font-size: 11px; color: var(--muted); }
+.this-machine { margin-bottom: 14px; }
+@media (max-width: 1280px) {
+  .machine-facts, .machine-unlocks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1000px) {
+  .machine-panel, .machine-bottom { grid-template-columns: minmax(0, 1fr); }
+  .machine-detected { border-right: 0; border-bottom: 1px solid var(--border); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .machine-skeleton { animation: none; }
+}

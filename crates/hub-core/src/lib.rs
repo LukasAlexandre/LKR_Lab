@@ -7,6 +7,7 @@ pub mod database;
 pub mod git;
 pub mod github;
 pub mod launchers;
+pub mod machine;
 pub mod models;
 pub mod portable;
 pub mod ports;

@@ -28,6 +28,7 @@ Regra de ouro: o que é **intenção/configuração desejada** (B) fica separado
 | `lk.preferences` (schema 1) | `src/shared/preferences.ts` | App, Ports, Prompts, Knowledge, workspace | localStorage do WebView | campo a campo: `PREFERENCE_SCOPE` |
 | `hub.db` (projetos, prompts, knowledge, atividades) | `hub-core` (Rust) | renderer via IPC | `%APPDATA%/br.com.lktechnologies.devhub` | C hoje (inclui `local_path`); projetos/prompts/knowledge são candidatos a B |
 | `pathAvailable` | `hub_core::projects::entry` | Repositórios, detalhe do projeto | calculado em `list_projects` | C — nunca persistido |
+| `machine` (`machine_id`, nome, uso, descrição, snapshot detectado) | `hub_core::machine` (cadastro e detecção) | gate global, Configurações | `hub.db`, migration 005 | C — identidade desta instalação; nunca entra no workspace portátil |
 
 Preferências do desktop (`PREFERENCE_SCOPE`):
 

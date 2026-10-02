@@ -42,6 +42,27 @@ Esta sessão está na fase de **concepts e registro**: 8 de 9 concepts estão ap
 
 Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras canônicas, fronteira máquina × portátil e requisito de refresh de 6h em [CONCEPT-01](../../concepts/machine-registry/CONCEPT-01.md).
 
+## Desenvolvimento
+
+| # | Bloco | Status | Branch |
+|---|-------|--------|--------|
+| D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
+
+### Bloco D01 — Machine Registry Foundation (CONCLUÍDO)
+
+Implementação do Concept 01. Concept 02 em diante não foram implementados; o Dashboard atual segue como está.
+
+- **Identidade:** `machine_id` UUID v4 gerado pelo LKR LAB no cadastro e persistido no `hub.db` (migration aditiva `005_machine.sql`, tabela de linha única `machine`). Hostname, IP, interfaces e hardware são atributos do snapshot; mudar qualquer um deles atualiza o snapshot e nunca cria outra máquina.
+- **Fonte de verdade:** SQLite local (estado desta máquina, classe C de [STATE.md](../../STATE.md)); nada entra em `data/workspace.json`.
+- **Dados do usuário:** nome deste computador, uso/local (Casa, Trabalho, Outro) e descrição opcional (até 120 caracteres). O hostname é só sugestão.
+- **Detecção passiva** (`hub-core::machine`): sysinfo (sistema, CPU, RAM, discos, interfaces/IPv4, uptime), registro do Windows (DisplayVersion, build, VRAM) e adaptadores de vídeo presentes (`EnumDisplayDevicesW`); IPv4/interface ativa pela tabela de rotas (UDP `connect`, sem enviar pacotes). Nenhum programa é executado; sem MAC, serial, chaves ou variáveis de ambiente. Atributo indisponível fica ausente e não bloqueia o cadastro.
+- **Validade de 6h:** ao abrir o app (leitura instantânea do cadastro e, em seguida, detecção só se expirada), ao voltar o foco/visibilidade da janela (inclui retorno de suspensão), consulta leve a cada 15 min com o app aberto (só detecta se expirado) e "Atualizar detecção"/"Atualizar agora" (força).
+- **Gate global:** no backend, todo comando do app que não seja `machine_status`, `machine_refresh` ou `machine_register` é recusado com `MACHINE_NOT_REGISTERED` antes do cadastro; no frontend, o App (rotas, atalhos, paleta, carregamentos) não é montado até o cadastro, então hash/deep-link não alcançam módulos.
+- **Web:** prévia da tela de cadastro, sem detecção nem dados simulados; cadastro só no desktop.
+- **Depois do cadastro:** redireciona ao Dashboard; nome da máquina na barra superior; painel "Este computador" em Configurações com "Atualizar agora".
+- **Testes:** `crates/hub-core/tests/machine.rs` (identidade, persistência, 6h, refresh manual, mudança de IP e de hardware, dados indisponíveis, gate, validação, isolamento do workspace portátil, migration 005 contra banco v4 legado) e `src/shared/machine.test.ts`.
+- **Limitações:** não há edição do nome/uso/descrição depois do cadastro; GPU só no Windows; sem histórico de snapshots.
+
 ## Roadmap de concepts
 
 | # | Concept | Status |
@@ -85,7 +106,7 @@ ATIVO, CONGELADO, PARADO, FINALIZADO. São **metadata operacional do LKR LAB**; 
 
 ## Fora de escopo desta sessão (por ora)
 
-Machine Registry, alterações em Dashboard/sidebar, páginas React, migrations, tabelas, SQLite, APIs, bridge, DDAE visual, Worktrees, Planning, geração de imagens e implementação dos concepts já aprovados.
+Além do bloco D01: alterações em Dashboard/sidebar, páginas React, migrations, tabelas, SQLite, APIs, bridge, DDAE visual, Worktrees, Planning, geração de imagens e implementação dos concepts já aprovados.
 
 ## Convenção
 

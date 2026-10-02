@@ -18,6 +18,51 @@ fn db<'a>(state: &'a State<'_, AppState>) -> HubResult<std::sync::MutexGuard<'a,
         .lock()
         .map_err(|_| "Banco temporariamente indisponível".into())
 }
+/// Machine Registry: o gate global e a detecção pendente antes do cadastro.
+struct MachineState(hub_core::machine::Registry);
+#[tauri::command]
+fn machine_status(app: tauri::AppHandle) -> HubResult<hub_core::machine::MachineStatus> {
+    let state = app.state::<AppState>();
+    app.state::<MachineState>()
+        .0
+        .status(&state.0, hub_core::machine::now_ms())
+}
+/// Ao abrir, ao voltar à janela e em "Atualizar detecção" (`force`). Só detecta de novo
+/// se o snapshot tiver 6h ou mais, ou se `force`.
+#[tauri::command]
+async fn machine_refresh(
+    app: tauri::AppHandle,
+    force: bool,
+) -> HubResult<hub_core::machine::MachineStatus> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        app.state::<MachineState>().0.refresh(
+            &state.0,
+            &hub_core::machine::SystemDetector,
+            hub_core::machine::now_ms(),
+            force,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn machine_register(
+    app: tauri::AppHandle,
+    input: hub_core::machine::MachineInput,
+) -> HubResult<hub_core::machine::MachineStatus> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        app.state::<MachineState>().0.register(
+            &state.0,
+            &hub_core::machine::SystemDetector,
+            input,
+            hub_core::machine::now_ms(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 #[tauri::command]
 fn list_projects(state: State<AppState>) -> HubResult<Vec<ProjectEntry>> {
     let projects = db(&state)?.projects()?;
@@ -418,12 +463,35 @@ async fn launch_worktree(
     .await
     .map_err(|error| error.to_string())?
 }
+/// Gate global no backend: antes do cadastro do computador, todo comando que não
+/// seja de cadastro é recusado aqui, seja qual for a tela ou o atalho que o chamou.
+/// Comandos de plugin (controles da janela) não passam por este handler.
+fn gated<R: tauri::Runtime>(
+    handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static,
+) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        let allowed = invoke
+            .message
+            .webview_ref()
+            .state::<MachineState>()
+            .0
+            .allows(invoke.message.command());
+        if !allowed {
+            invoke.resolver.reject(hub_core::machine::NOT_REGISTERED);
+            return true;
+        }
+        handler(invoke)
+    }
+}
 fn main() {
     let result = tauri::Builder::default()
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let database = Database::open(&dir.join("hub.db")).map_err(std::io::Error::other)?;
+            let registry =
+                hub_core::machine::Registry::load(&database).map_err(std::io::Error::other)?;
+            app.manage(MachineState(registry));
             app.manage(AppState(Mutex::new(database)));
             app.manage(SyncRuntime::default());
             let handle = app.handle().clone();
@@ -433,7 +501,10 @@ fn main() {
             app.manage(RuntimeState(hub_core::supervisor::Supervisor::new(sink)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(gated(tauri::generate_handler![
+            machine_status,
+            machine_refresh,
+            machine_register,
             list_projects,
             save_project,
             delete_project,
@@ -472,7 +543,7 @@ fn main() {
             create_worktree,
             remove_worktree,
             launch_worktree
-        ])
+        ]))
         .build(tauri::generate_context!());
     match result {
         Ok(app) => app.run(|handle, event| {

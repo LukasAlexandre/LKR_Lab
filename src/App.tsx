@@ -45,7 +45,10 @@ import { WindowTitleBar } from "./shell/WindowTitleBar";
 import { LocationNotice } from "./components/LocationNotice";
 import { SyncIndicator } from "./components/SyncIndicator";
 import { ProjectRuntime, RuntimeDesktopOnly } from "./features/ProjectRuntime";
+import { ThisMachine } from "./features/ThisMachine";
+import { useMachine } from "./state/machine";
 export default function App() {
+  const machine = useMachine().status?.machine;
   const [route, setRoute] = useState(routeFromHash);
   const selectedId = useActiveProjectId();
   const setSelectedId = workspace.selectProject;
@@ -325,9 +328,9 @@ export default function App() {
             </span>
             <ChevronRight size={14} />
           </button>
-          <div className="top-status">
+          <div className="top-status" title={machine ? "Computador cadastrado neste LKR LAB" : undefined}>
             <span className={`dot ${desktop ? "green" : ""}`} />
-            {desktop ? "Desktop local" : "Prévia web"}
+            {desktop ? (machine?.name ?? "Desktop local") : "Prévia web"}
           </div>
           <SyncIndicator />
           <ActivityCenter />
@@ -671,6 +674,7 @@ export default function App() {
             </Panel>
           )}
           {route === "knowledge" && <Knowledge />}
+          {route === "settings" && <ThisMachine />}
           {route === "settings" && (
             <div className="two-columns">
               <Panel title="Aplicativo">

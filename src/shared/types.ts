@@ -298,3 +298,43 @@ export interface LogChunk {
 export type RuntimeEvent =
   | { kind: "state"; projectId: string; runId: string; state: RunState; pid: number | null; exitCode: number | null }
   | { kind: "output"; projectId: string; runId: string; seq: number };
+/** Machine Registry (hub-core::machine). Estado desta máquina: nunca é portátil. */
+export type MachineUsage = "home" | "work" | "other";
+export interface MachineSnapshot {
+  hostname: string | null;
+  osName: string | null;
+  osVersion: string | null;
+  osBuild: string | null;
+  cpuModel: string | null;
+  cpuCores: number | null;
+  cpuThreads: number | null;
+  memoryTotal: number | null;
+  gpus: { name: string; memory: number | null }[];
+  storage: { mount: string; kind: "ssd" | "hdd" | "unknown"; total: number; removable: boolean }[];
+  networkInterfaces: { name: string; ipv4: string[] }[];
+  activeInterface: string | null;
+  localIpv4: string | null;
+  uptime: number | null;
+  detectedAt: number;
+}
+export interface Machine {
+  machineId: string;
+  name: string;
+  usage: MachineUsage;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  lastDetectedAt: number | null;
+}
+export interface MachineInput {
+  name: string;
+  usage: MachineUsage;
+  description: string;
+}
+export interface MachineStatus {
+  registered: boolean;
+  machine: Machine | null;
+  snapshot: MachineSnapshot | null;
+  stale: boolean;
+  ttlMs: number;
+}
