@@ -1,0 +1,90 @@
+# SESSION-001 — Machine Context & Project Workspace Foundation
+
+**PT:** Cadastro de Máquina e Fundação do Workspace
+**Tipo:** Feature
+**Status:** ACTIVE / ATIVA
+
+## Objetivo
+
+Transformar o LKR LAB em um assistente de desenvolvimento consciente da máquina e do projeto em que está operando.
+
+A feature começa pela identidade da workstation e evolui para:
+
+Machine Registry → Machine Health → Projects → Project Control Center → DDAE → Worktrees → Planning
+
+Esta sessão está na fase de **concepts e registro**: os 9 concepts estão aprovados. Nenhuma implementação foi iniciada.
+
+## Blocos
+
+| # | Bloco | Status | Referência |
+|---|-------|--------|------------|
+| 01 | Product Architecture | CONCLUÍDO | abaixo |
+| 02 | Concept 01 — Primeiro acesso / Computador não cadastrado | CONCLUÍDO (visual APROVADO) | [CONCEPT-01](../../concepts/machine-registry/CONCEPT-01.md), [imagem](../../concepts/machine-registry/concept-01-first-access.webp) |
+| 03 | Concept 02 — Machine Health Dashboard | CONCLUÍDO (visual APROVADO) | [CONCEPT-02](../../concepts/machine-registry/CONCEPT-02.md), [imagem](../../concepts/machine-registry/concept-02-machine-health.webp) |
+| 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
+| 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
+| 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
+| 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
+| 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
+| 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
+| 10 | Concept 09 — Planejamento | CONCLUÍDO (visual APROVADO) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
+
+### Bloco 01 — Product Architecture (CONCLUÍDO)
+
+- Computador definido como raiz de contexto.
+- Gate obrigatório antes de liberar a aplicação.
+- Arquitetura Machine → Projects → Project → DDAE / Worktrees / Planning / Runtime.
+- Definição inicial dos próximos concepts.
+
+### Bloco 02 — Concept 01 (CONCLUÍDO)
+
+Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras canônicas, fronteira máquina × portátil e requisito de refresh de 6h em [CONCEPT-01](../../concepts/machine-registry/CONCEPT-01.md).
+
+## Roadmap de concepts
+
+| # | Concept | Status |
+|---|---------|--------|
+| 01 | Primeiro acesso / Computador não cadastrado | APROVADO |
+| 02 | Dashboard da Máquina / Machine Health | APROVADO |
+| 03 | Projetos | APROVADO |
+| 04 | Cadastro de Projeto | APROVADO |
+| 05 | Project Control Center | APROVADO |
+| 06 | DDAE / Sessões | APROVADO |
+| 07 | DDAE / Detalhe da Sessão | APROVADO |
+| 08 | Worktrees | APROVADO |
+| 09 | Planejamento | APROVADO |
+
+## Decisões de arquitetura registradas
+
+- **Hierarquia:** MACHINE → PROJECTS → PROJECT → DDAE / WORKTREES / PLANNING / RUNTIME.
+- **Machine ID:** estável e persistente por máquina. IP, hostname e hardware são atributos, nunca identidade (nem isoladamente nem como identidade primária).
+- **Nome amigável:** definido/confirmado pelo usuário, não inferido do hardware.
+- **Fronteira de estado:** estado da máquina nunca é sincronizado; nome amigável, identidade lógica, descrição e organização são portáveis. Ver [STATE.md](../../STATE.md) e [ADR-004](../../adr/ADR-004-portable-state.md). Nenhum sync novo nesta sessão.
+- **Refresh do snapshot da máquina:** na inicialização; a cada 6h com o app aberto; "Atualizar agora" (futuro); novo refresh ao retornar de suspensão/hibernação com snapshot expirado; sem polling pesado.
+
+## Requisitos de produto para fases futuras (não implementar agora)
+
+### Estados das sessões DDAE
+
+| Estado | Direção visual inicial |
+|--------|------------------------|
+| ACTIVE / ATIVA | mais viva; glow/sombra; pulsação discreta |
+| FROZEN / CONGELADA | fria; estática; sem pulsação |
+| STOPPED / PARADA | neutra; pouco destaque |
+| FINISHED / FINALIZADA | resolvida; estática; sem sensação de atividade |
+
+### Estados de Worktrees
+
+ATIVO, CONGELADO, PARADO, FINALIZADO. São **metadata operacional do LKR LAB**; o Git não possui esses conceitos nativamente e eles não devem ser apresentados como se possuísse.
+
+### Planejamento
+
+Área do projeto para organizar o que está planejado para o sistema. Inicialmente: lista, backlog, tarefas, ideias e próximos passos. Futuramente: item planejado → criar Session DDAE → Session ativa → conclusão → item concluído.
+
+## Fora de escopo desta sessão (por ora)
+
+Machine Registry, alterações em Dashboard/sidebar, páginas React, migrations, tabelas, SQLite, APIs, bridge, DDAE visual, Worktrees, Planning, geração de imagens e implementação dos concepts já aprovados.
+
+## Convenção
+
+Não havia estrutura DDAE no repositório. Esta é a primeira sessão e define a convenção mínima: `docs/ddae/sessions/SESSION-NNN-<slug>.md`. Concepts ficam em `docs/concepts/<tema>/`. Convenção sujeita a validação.
