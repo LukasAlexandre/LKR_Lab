@@ -60,7 +60,7 @@ pub fn now_ms() -> i64 {
 #[serde(rename_all = "camelCase", default)]
 pub struct GpuInfo {
     pub name: String,
-    /// Memória dedicada em bytes, quando o driver informa.
+    /// Memória de vídeo DEDICADA em bytes, quando o driver informa (nunca a compartilhada).
     pub memory: Option<u64>,
 }
 
@@ -417,18 +417,9 @@ fn text(value: Option<String>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// Coleta passiva. Cada atributo é independente: um que falha fica ausente.
-pub fn detect_system(now: i64) -> MachineSnapshot {
-    use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, RefreshKind, System};
-    let system = System::new_with_specifics(
-        RefreshKind::nothing()
-            .with_cpu(CpuRefreshKind::nothing())
-            .with_memory(MemoryRefreshKind::nothing().with_ram()),
-    );
-    let cpus = system.cpus();
-    let os = os_details();
-    let networks = Networks::new_with_refreshed_list();
-    let mut network_interfaces: Vec<NetworkInterface> = networks
+/// Interfaces com IPv4 (sem loopback), em ordem de nome. Usado pelo inventário e pela telemetria.
+pub(crate) fn network_interfaces(networks: &sysinfo::Networks) -> Vec<NetworkInterface> {
+    let mut interfaces: Vec<NetworkInterface> = networks
         .iter()
         .filter_map(|(name, data)| {
             let ipv4: Vec<String> = data
@@ -445,25 +436,48 @@ pub fn detect_system(now: i64) -> MachineSnapshot {
             })
         })
         .collect();
-    network_interfaces.sort_by(|a, b| a.name.cmp(&b.name));
-    let local_ipv4 = route_ipv4().map(|ip| ip.to_string());
-    let active_interface = local_ipv4.as_ref().and_then(|ip| {
-        network_interfaces
+    interfaces.sort_by(|a, b| a.name.cmp(&b.name));
+    interfaces
+}
+
+/// (IPv4 de saída, interface que o possui), pela tabela de rotas.
+pub(crate) fn active_route(interfaces: &[NetworkInterface]) -> (Option<String>, Option<String>) {
+    let ip = route_ipv4().map(|ip| ip.to_string());
+    let name = ip.as_ref().and_then(|ip| {
+        interfaces
             .iter()
             .find(|i| i.ipv4.contains(ip))
             .map(|i| i.name.clone())
     });
+    (ip, name)
+}
+
+pub(crate) fn disk_kind(disk: &sysinfo::Disk) -> &'static str {
+    match disk.kind() {
+        sysinfo::DiskKind::SSD => "ssd",
+        sysinfo::DiskKind::HDD => "hdd",
+        _ => "unknown",
+    }
+}
+
+/// Coleta passiva. Cada atributo é independente: um que falha fica ausente.
+pub fn detect_system(now: i64) -> MachineSnapshot {
+    use sysinfo::{CpuRefreshKind, Disks, MemoryRefreshKind, Networks, RefreshKind, System};
+    let system = System::new_with_specifics(
+        RefreshKind::nothing()
+            .with_cpu(CpuRefreshKind::nothing())
+            .with_memory(MemoryRefreshKind::nothing().with_ram()),
+    );
+    let cpus = system.cpus();
+    let os = os_details();
+    let network_interfaces = network_interfaces(&Networks::new_with_refreshed_list());
+    let (local_ipv4, active_interface) = active_route(&network_interfaces);
     let mut storage: Vec<StorageInfo> = Disks::new_with_refreshed_list()
         .iter()
         .filter(|d| d.total_space() > 0)
         .map(|d| StorageInfo {
             mount: d.mount_point().to_string_lossy().into(),
-            kind: match d.kind() {
-                sysinfo::DiskKind::SSD => "ssd",
-                sysinfo::DiskKind::HDD => "hdd",
-                _ => "unknown",
-            }
-            .into(),
+            kind: disk_kind(d).into(),
             total: d.total_space(),
             removable: d.is_removable(),
         })
@@ -478,7 +492,14 @@ pub fn detect_system(now: i64) -> MachineSnapshot {
         cpu_cores: System::physical_core_count().map(|n| n as u32),
         cpu_threads: (!cpus.is_empty()).then_some(cpus.len() as u32),
         memory_total: Some(system.total_memory()).filter(|m| *m > 0),
-        gpus: gpus(),
+        // Adaptadores presentes agora, com a memória DEDICADA (a compartilhada não entra).
+        gpus: crate::sensors::gpu_adapters()
+            .into_iter()
+            .map(|a| GpuInfo {
+                name: a.name,
+                memory: a.dedicated,
+            })
+            .collect(),
         storage,
         network_interfaces,
         active_interface,
@@ -503,8 +524,9 @@ fn route_ipv4() -> Option<Ipv4Addr> {
 /// (versão, build). No Windows: DisplayVersion (ex.: 24H2) e CurrentBuild.UBR.
 #[cfg(windows)]
 fn os_details() -> (Option<String>, Option<String>) {
-    let Some(key) = registry::Key::local_machine(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
-    else {
+    let Some(key) = crate::sensors::registry::Key::local_machine(
+        r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+    ) else {
         return (
             text(sysinfo::System::os_version()),
             text(sysinfo::System::kernel_version()),
@@ -528,151 +550,4 @@ fn os_details() -> (Option<String>, Option<String>) {
         text(sysinfo::System::os_version()),
         text(sysinfo::System::kernel_version()),
     )
-}
-
-/// Adaptadores de vídeo presentes agora (não os drivers que já existiram no registro).
-#[cfg(windows)]
-fn gpus() -> Vec<GpuInfo> {
-    use windows_sys::Win32::Graphics::Gdi::{
-        EnumDisplayDevicesW, DISPLAY_DEVICEW, DISPLAY_DEVICE_MIRRORING_DRIVER,
-    };
-    let mut found: Vec<GpuInfo> = Vec::new();
-    for index in 0..32 {
-        // SAFETY: DISPLAY_DEVICEW é POD; cb informa o tamanho esperado pela API.
-        let mut device: DISPLAY_DEVICEW = unsafe { std::mem::zeroed() };
-        device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
-        // SAFETY: ponteiro nulo = adaptadores; `device` vive até o fim da chamada.
-        if unsafe { EnumDisplayDevicesW(std::ptr::null(), index, &mut device, 0) } == 0 {
-            break;
-        }
-        if device.StateFlags & DISPLAY_DEVICE_MIRRORING_DRIVER != 0 {
-            continue;
-        }
-        let name = registry::wide_to_string(&device.DeviceString);
-        let virtual_adapter =
-            name.starts_with("Microsoft Basic") || name.starts_with("Microsoft Remote Display");
-        if name.is_empty() || virtual_adapter || found.iter().any(|g| g.name == name) {
-            continue;
-        }
-        // DeviceKey: \Registry\Machine\System\CurrentControlSet\Control\Video\{GUID}\0000
-        let key = registry::wide_to_string(&device.DeviceKey);
-        let memory = key
-            .get(r"\Registry\Machine\".len()..)
-            .filter(|_| key.to_ascii_lowercase().starts_with(r"\registry\machine\"))
-            .and_then(registry::Key::local_machine)
-            .and_then(|k| {
-                k.number("HardwareInformation.qwMemorySize")
-                    .or_else(|| k.number("HardwareInformation.MemorySize"))
-            })
-            .filter(|m| *m > 0);
-        found.push(GpuInfo { name, memory });
-    }
-    found
-}
-
-#[cfg(not(windows))]
-fn gpus() -> Vec<GpuInfo> {
-    Vec::new()
-}
-
-/// Leitura do registro do Windows, só de valores (HKLM, KEY_READ).
-#[cfg(windows)]
-mod registry {
-    use windows_sys::Win32::{
-        Foundation::ERROR_SUCCESS,
-        System::Registry::{
-            RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ,
-            REG_BINARY, REG_DWORD, REG_EXPAND_SZ, REG_QWORD, REG_SZ,
-        },
-    };
-
-    fn wide(text: &str) -> Vec<u16> {
-        text.encode_utf16().chain(Some(0)).collect()
-    }
-
-    pub fn wide_to_string(buffer: &[u16]) -> String {
-        let end = buffer.iter().position(|c| *c == 0).unwrap_or(buffer.len());
-        String::from_utf16_lossy(&buffer[..end]).trim().to_string()
-    }
-
-    pub struct Key(HKEY);
-
-    impl Drop for Key {
-        fn drop(&mut self) {
-            // SAFETY: a chave foi aberta por RegOpenKeyExW e é fechada uma única vez.
-            unsafe { RegCloseKey(self.0) };
-        }
-    }
-
-    impl Key {
-        pub fn local_machine(path: &str) -> Option<Key> {
-            let path = wide(path);
-            let mut handle: HKEY = std::ptr::null_mut();
-            // SAFETY: `path` termina em NUL e `handle` recebe a chave aberta.
-            let status = unsafe {
-                RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.as_ptr(), 0, KEY_READ, &mut handle)
-            };
-            (status == ERROR_SUCCESS).then_some(Key(handle))
-        }
-
-        fn raw(&self, name: &str) -> Option<(u32, Vec<u8>)> {
-            let name = wide(name);
-            let mut kind = 0u32;
-            let mut size = 0u32;
-            // SAFETY: primeira chamada só consulta tipo e tamanho (sem buffer).
-            let status = unsafe {
-                RegQueryValueExW(
-                    self.0,
-                    name.as_ptr(),
-                    std::ptr::null(),
-                    &mut kind,
-                    std::ptr::null_mut(),
-                    &mut size,
-                )
-            };
-            if status != ERROR_SUCCESS || size == 0 || size > 64 * 1024 {
-                return None;
-            }
-            let mut data = vec![0u8; size as usize];
-            // SAFETY: `data` tem exatamente `size` bytes.
-            let status = unsafe {
-                RegQueryValueExW(
-                    self.0,
-                    name.as_ptr(),
-                    std::ptr::null(),
-                    &mut kind,
-                    data.as_mut_ptr(),
-                    &mut size,
-                )
-            };
-            if status != ERROR_SUCCESS {
-                return None;
-            }
-            data.truncate(size as usize);
-            Some((kind, data))
-        }
-
-        pub fn string(&self, name: &str) -> Option<String> {
-            let (kind, data) = self.raw(name)?;
-            if kind != REG_SZ && kind != REG_EXPAND_SZ {
-                return None;
-            }
-            let units: Vec<u16> = data
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                .collect();
-            Some(wide_to_string(&units))
-        }
-
-        pub fn number(&self, name: &str) -> Option<u64> {
-            let (kind, data) = self.raw(name)?;
-            match (kind, data.len()) {
-                (REG_DWORD | REG_BINARY, 4) => {
-                    Some(u32::from_le_bytes(data[..4].try_into().ok()?) as u64)
-                }
-                (REG_QWORD | REG_BINARY, 8) => Some(u64::from_le_bytes(data[..8].try_into().ok()?)),
-                _ => None,
-            }
-        }
-    }
 }

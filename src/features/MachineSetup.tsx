@@ -91,7 +91,7 @@ function Facts({ snapshot, busy, now }: { snapshot: MachineSnapshot | null; busy
       <Fact icon={<Monitor size={19} />} label="Sistema" value={s?.osName ?? null} detail={s && osDetail(s)} busy={busy} />
       <Fact icon={<Cpu size={19} />} label="CPU" value={s?.cpuModel ?? null} detail={s && cpuDetail(s)} busy={busy} />
       <Fact icon={<MemoryStick size={19} />} label="Memória" value={formatMemory(s?.memoryTotal)} detail={s?.memoryTotal ? "RAM instalada" : null} busy={busy} />
-      <Fact icon={<HardDrive size={19} />} label="GPU" value={gpu ? gpu.name + extraGpus : null} detail={gpu?.memory ? `${formatBytes(gpu.memory)} VRAM` : null} busy={busy} />
+      <Fact icon={<HardDrive size={19} />} label="GPU" value={gpu ? gpu.name + extraGpus : null} detail={gpu?.memory ? `${formatBytes(gpu.memory)} dedicada` : null} busy={busy} />
       <Fact icon={<Network size={19} />} label="IP local" value={s?.localIpv4 ?? null} detail={s?.localIpv4 ? "Rede local" : null} busy={busy} />
       <Fact icon={<MonitorSmartphone size={19} />} label="Interface ativa" value={s?.activeInterface ?? null} detail={s && s.networkInterfaces.length > 1 ? `${s.networkInterfaces.length} interfaces com IPv4` : null} busy={busy} />
       <Fact icon={<Clock size={19} />} label="Última detecção" value={s ? detectionAge(s.detectedAt, now) : null} detail={s ? formatDateTime(s.detectedAt) : null} busy={busy} />

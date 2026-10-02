@@ -12,7 +12,7 @@ A feature começa pela identidade da workstation e evolui para:
 
 Machine Registry → Machine Health → Projects → Project Control Center → DDAE → Worktrees → Planning
 
-Esta sessão está na fase de **concepts e registro**: 8 de 9 concepts estão aprovados e o Concept 09 — Planejamento está em refinamento. Nenhuma implementação foi iniciada.
+Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão aprovados e o Concept 09 — Planejamento está em refinamento. Implementados até agora: Concept 01 (D01) e Concept 02 (D02).
 
 ## Blocos
 
@@ -20,7 +20,7 @@ Esta sessão está na fase de **concepts e registro**: 8 de 9 concepts estão ap
 |---|-------|--------|------------|
 | 01 | Product Architecture | CONCLUÍDO | abaixo |
 | 02 | Concept 01 — Primeiro acesso / Computador não cadastrado | CONCLUÍDO (visual APROVADO) | [CONCEPT-01](../../concepts/machine-registry/CONCEPT-01.md), [imagem](../../concepts/machine-registry/concept-01-first-access.webp) |
-| 03 | Concept 02 — Machine Health Dashboard | CONCLUÍDO (visual APROVADO) | [CONCEPT-02](../../concepts/machine-registry/CONCEPT-02.md), [imagem](../../concepts/machine-registry/concept-02-machine-health.webp) |
+| 03 | Concept 02 — Machine Health Dashboard | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — ver D02) | [CONCEPT-02](../../concepts/machine-registry/CONCEPT-02.md), [imagem](../../concepts/machine-registry/concept-02-machine-health.webp) |
 | 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
 | 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
 | 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
@@ -47,10 +47,11 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 | # | Bloco | Status | Branch |
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
+| D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
 
 ### Bloco D01 — Machine Registry Foundation (CONCLUÍDO)
 
-Implementação do Concept 01. Concept 02 em diante não foram implementados; o Dashboard atual segue como está.
+Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como estava; o Concept 02 foi implementado depois, no D02.)
 
 - **Identidade:** `machine_id` UUID v4 gerado pelo LKR LAB no cadastro e persistido no `hub.db` (migration aditiva `005_machine.sql`, tabela de linha única `machine`). Hostname, IP, interfaces e hardware são atributos do snapshot; mudar qualquer um deles atualiza o snapshot e nunca cria outra máquina.
 - **Fonte de verdade:** SQLite local (estado desta máquina, classe C de [STATE.md](../../STATE.md)); nada entra em `data/workspace.json`.
@@ -64,12 +65,28 @@ Implementação do Concept 01. Concept 02 em diante não foram implementados; o 
 - **Edição da metadata (fechamento do bloco):** em Configurações › Este computador, "Editar" abre edição inline de nome, uso/local e descrição ("Cancelar" / "Salvar alterações"). Comando `machine_update` (só `MachineInput`, mesmas regras do cadastro, bloqueado pelo gate antes do cadastro) altera apenas `name`, `usage`, `description` e `updated_at`; `machine_id`, `created_at`, snapshot e `last_detected_at` são preservados e nenhuma detecção é disparada. "Atualizar agora" continua separado e não toca a metadata. O nome na barra superior muda ao salvar; uma leitura iniciada antes da edição não traz o nome antigo de volta. Sem migration.
 - **Limitações:** GPU só no Windows; sem histórico de snapshots.
 
+### Bloco D02 — Machine Health (CONCLUÍDO)
+
+**IMPLEMENTAÇÃO DO CONCEPT 02 CONCLUÍDA.** O visual já havia sido aprovado; este bloco registra a implementação, validada no desktop real. A SESSION-001 continua ATIVA.
+
+- **Inventário × Telemetria separados:** o inventário (identidade, metadata, hardware relativamente estático, refresh de 6h do D01) não mudou de papel. A telemetria dinâmica vive em `hub-core::telemetry`, `health` e `sensors`.
+- **Sampler único:** um `Service` por app (estado gerenciado pelo Tauri), com thread própria. O Dashboard renova um lease curto (`machine_telemetry_watch`); sem renovação, ou com a janela oculta/minimizada, o sampler desacelera e coleta menos. Navegar entre telas não cria sampler novo. Evento `machine://telemetry`; `machine_telemetry` devolve o estado atual e o buffer das sparklines; `machine_telemetry_refresh` ("Atualizar agora") força amostra completa. Os comandos seguem atrás do gate de máquina cadastrada.
+- **Capabilities explícitas:** cada métrica carrega disponibilidade. Indisponível nunca vira zero: a UI mostra "—".
+- **Métricas:** CPU (uso e frequência), RAM, discos (uso por volume; Disk I/O pelo **disco físico mais ativo**, nunca média dos discos), rede, GPU no Windows (utilização, memória **dedicada** e **compartilhada** como dimensões separadas, sem campo único de "VRAM total"), temperaturas dos sensores suportados e processos.
+- **Temperaturas:** GPU pela API do Windows; NVMe pelo próprio dispositivo, classificados só quando o dispositivo informa limites (sem thresholds arbitrários); `0 °C` não é leitura válida (GPU integrada sem sensor = indisponível). Temperatura de CPU Package **não está disponível** na máquina validada; o sensor ACPI TZ00 aparece como "Sensor térmico do sistema (ACPI TZ00)", sem limite, **não participa da saúde** (sem semântica de CPU comprovada) e nunca é exibido como CPU.
+- **Processos:** top por CPU, RAM, GPU e Disk I/O. GPU muito pequena aparece como `<0,1%`; memória de GPU indisponível aparece como "—".
+- **Machine Health determinístico:** Saudável / Atenção / Crítico. Limiares com janela sustentada: CPU 90%/95% (60 s/180 s), RAM 90%/95% (30 s/60 s), espaço livre 10%/5%, temperatura de GPU 85/95 °C (30 s). Métrica indisponível, ACPI sem semântica e NVMe sem limite do dispositivo são **neutros** e não influenciam a saúde. Alertas derivam da mesma avaliação.
+- **Web:** continua na prévia da tela de cadastro, sem telemetria nem valores simulados.
+- **Validação:** testes Rust em `crates/hub-core/tests/telemetry.rs` e testes de apresentação em `src/shared/telemetry.test.ts`; validação funcional no desktop real e cargas controladas para CPU e Disk I/O por processo. Overhead do processo Rust baixo (≈0,15% de CPU com o Dashboard ativo; ≈0,08% em outra tela). Contagem de threads estável após navegação repetida.
+- **Limitações:** telemetria de GPU, discos e sensores só no Windows; sem CPU Package; sem histórico persistido (apenas buffer em memória para as sparklines).
+- **Dívidas técnicas pequenas:** o CSS legado do antigo Dashboard (`src/features/Dashboard.tsx` foi removido) segue sem uso em `src/styles.css`; remover em tarefa isolada para evitar regressão visual. Intermitência pré-existente em `crates/hub-core/tests/stacks_exec.rs` (testes `tauri_*`), não relacionada a esta feature.
+
 ## Roadmap de concepts
 
 | # | Concept | Status |
 |---|---------|--------|
 | 01 | Primeiro acesso / Computador não cadastrado | APROVADO |
-| 02 | Dashboard da Máquina / Machine Health | APROVADO |
+| 02 | Dashboard da Máquina / Machine Health | APROVADO / IMPLEMENTADO |
 | 03 | Projetos | APROVADO |
 | 04 | Cadastro de Projeto | APROVADO |
 | 05 | Project Control Center | APROVADO |
@@ -107,7 +124,7 @@ ATIVO, CONGELADO, PARADO, FINALIZADO. São **metadata operacional do LKR LAB**; 
 
 ## Fora de escopo desta sessão (por ora)
 
-Além do bloco D01: alterações em Dashboard/sidebar, páginas React, migrations, tabelas, SQLite, APIs, bridge, DDAE visual, Worktrees, Planning, geração de imagens e implementação dos concepts já aprovados.
+Além dos blocos D01 e D02: alterações no restante do Dashboard/sidebar, páginas React, migrations, tabelas, SQLite, APIs, bridge, DDAE visual, Worktrees, Planning, geração de imagens e implementação dos concepts já aprovados.
 
 ## Convenção
 

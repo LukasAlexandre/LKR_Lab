@@ -75,6 +75,25 @@ fn machine_update(
         .0
         .update(&state.0, input, hub_core::machine::now_ms())
 }
+/// Machine Telemetry: um único sampler por app (hub_core::telemetry::Service).
+struct TelemetryState(hub_core::telemetry::Service);
+/// Estado atual e o buffer curto das sparklines (para quem abre o Dashboard agora).
+#[tauri::command]
+fn machine_telemetry(app: tauri::AppHandle) -> hub_core::telemetry::TelemetryState {
+    app.state::<TelemetryState>().0.snapshot()
+}
+/// O Dashboard renova o interesse enquanto está na tela; sem renovação, o sampler desacelera.
+#[tauri::command]
+fn machine_telemetry_watch(app: tauri::AppHandle) {
+    app.state::<TelemetryState>()
+        .0
+        .watch(hub_core::machine::now_ms());
+}
+/// "Atualizar agora": amostra completa imediata (a do inventário é `machine_refresh`).
+#[tauri::command]
+fn machine_telemetry_refresh(app: tauri::AppHandle) {
+    app.state::<TelemetryState>().0.poke();
+}
 #[tauri::command]
 fn list_projects(state: State<AppState>) -> HubResult<Vec<ProjectEntry>> {
     let projects = db(&state)?.projects()?;
@@ -511,6 +530,18 @@ fn main() {
                 let _ = handle.emit("runtime://event", event);
             });
             app.manage(RuntimeState(hub_core::supervisor::Supervisor::new(sink)));
+            let emitter = app.handle().clone();
+            let window = app.handle().clone();
+            app.manage(TelemetryState(hub_core::telemetry::Service::start(
+                std::sync::Arc::new(move |telemetry| {
+                    let _ = emitter.emit(hub_core::telemetry::EVENT, telemetry);
+                }),
+                std::sync::Arc::new(move || {
+                    window.get_webview_window("main").is_some_and(|w| {
+                        w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false)
+                    })
+                }),
+            )));
             Ok(())
         })
         .invoke_handler(gated(tauri::generate_handler![
@@ -518,6 +549,9 @@ fn main() {
             machine_refresh,
             machine_register,
             machine_update,
+            machine_telemetry,
+            machine_telemetry_watch,
+            machine_telemetry_refresh,
             list_projects,
             save_project,
             delete_project,
@@ -563,6 +597,7 @@ fn main() {
             // Sair do app encerra as árvores gerenciadas: nada fica órfão.
             if let tauri::RunEvent::Exit = event {
                 handle.state::<RuntimeState>().0.stop_all();
+                handle.state::<TelemetryState>().0.stop();
             }
         }),
         Err(error) => {

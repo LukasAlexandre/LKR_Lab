@@ -35,7 +35,7 @@ import {
 import { Ports, Processes } from "./features/Ports";
 import { Prompts } from "./features/Prompts";
 import { Repositories } from "./features/Repositories";
-import { Dashboard } from "./features/Dashboard";
+import { MachineHealth } from "./features/MachineHealth";
 import { GitSummary } from "./features/GitSummary";
 import { Worktrees } from "./features/Worktrees";
 import { AgentProviders } from "./features/AgentProviders";
@@ -47,8 +47,11 @@ import { SyncIndicator } from "./components/SyncIndicator";
 import { ProjectRuntime, RuntimeDesktopOnly } from "./features/ProjectRuntime";
 import { ThisMachine } from "./features/ThisMachine";
 import { useMachine } from "./state/machine";
+import { useTelemetry } from "./state/telemetry";
+import { HEALTH_LABEL } from "./shared/telemetry";
 export default function App() {
   const machine = useMachine().status?.machine;
+  const health = useTelemetry().latest?.health.status;
   const [route, setRoute] = useState(routeFromHash);
   const selectedId = useActiveProjectId();
   const setSelectedId = workspace.selectProject;
@@ -139,10 +142,6 @@ export default function App() {
   }, [projects]);
   const launch = (id: string, action: string) => {
     void api("launch_project", { id, action }).catch(report);
-  };
-  const openProject = (id: string) => {
-    setSelectedId(id);
-    navigate("projects");
   };
   async function context() {
     if (!selected) return;
@@ -328,8 +327,8 @@ export default function App() {
             </span>
             <ChevronRight size={14} />
           </button>
-          <div className="top-status" title={machine ? "Computador cadastrado neste LKR LAB" : undefined}>
-            <span className={`dot ${desktop ? "green" : ""}`} />
+          <div className="top-status" title={machine ? `Este computador${health ? ` · ${HEALTH_LABEL[health]}` : ""}` : undefined}>
+            <span className={`dot ${!desktop ? "" : health === "critical" ? "danger" : health === "attention" ? "amber" : "green"}`} />
             {desktop ? (machine?.name ?? "Desktop local") : "Prévia web"}
           </div>
           <SyncIndicator />
@@ -337,18 +336,16 @@ export default function App() {
           <div className="avatar">LK</div>
         </header>
         <main>
+          {/* O Dashboard é a visão da máquina (Concept 02) e tem cabeçalho próprio. */}
+          {route !== "dashboard" && (<>
           <div className="page-heading">
             <div>
               <div className="eyebrow">DEVELOPMENT CONTROL CENTER</div>
               <h1>{pageTitle}</h1>
-              <p>
-                {route === "dashboard"
-                  ? "Seu ambiente de desenvolvimento, em um só lugar."
-                  : "Contexto local. Ações explícitas. Informação verificável."}
-              </p>
+              <p>Contexto local. Ações explícitas. Informação verificável.</p>
             </div>
             <div className="heading-actions">
-              {route !== "dashboard" && projectSelect}
+              {projectSelect}
               <Refresh onClick={() => void refresh()} busy={busy} />
               <button className="button primary" onClick={() => setForm("new")}>
                 <Plus size={16} />
@@ -384,6 +381,7 @@ export default function App() {
               </div>
             </section>
           )}
+          </>)}
           {!desktop && (
             <div className="preview-banner">
               <CircleHelp size={16} />
@@ -406,7 +404,7 @@ export default function App() {
               </button>
             </div>
           )}
-          {route === "dashboard" && <Dashboard navigate={navigate} openProject={openProject} launch={launch} add={() => setForm("new")} confirmKill={confirmKill} report={report} gitPanel={gitPanel} agentPanel={agentPanel} />}
+          {route === "dashboard" && <MachineHealth />}
           {route === "projects" && (
             <>
               <Projects

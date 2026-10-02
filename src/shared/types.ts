@@ -338,3 +338,92 @@ export interface MachineStatus {
   stale: boolean;
   ttlMs: number;
 }
+/** Machine Telemetry / Health (hub-core::telemetry, hub-core::health). Estado dinâmico, nunca persistido. */
+export type Availability = "available" | "unavailable";
+export type HealthStatus = "healthy" | "attention" | "critical";
+export type SensorLevel = "normal" | "attention" | "critical" | "unrated" | "unavailable";
+export interface TelemetryCapabilities {
+  cpuUsage: Availability;
+  cpuClock: Availability;
+  memoryUsage: Availability;
+  gpuUsage: Availability;
+  gpuMemory: Availability;
+  gpuProcessUsage: Availability;
+  cpuPackageTemperature: Availability;
+  gpuTemperature: Availability;
+  storageTemperature: Availability;
+  thermalZoneTemperature: Availability;
+  motherboardTemperature: Availability;
+  diskIo: Availability;
+  diskActivity: Availability;
+  networkRate: Availability;
+  processDiskIo: Availability;
+  storagePhysicalHealth: Availability;
+}
+export interface ProcessEntry {
+  pid: number;
+  name: string;
+  cpu: number;
+  memory: number;
+  gpu: number | null;
+  diskRead: number;
+  diskWrite: number;
+}
+export type ProcessMetric = "cpu" | "memory" | "gpu" | "disk";
+export interface TemperatureReading {
+  id: string;
+  label: string;
+  source: "cpu" | "gpu" | "storage" | "thermalZone" | "motherboard";
+  celsius: number | null;
+  warning: number | null;
+  critical: number | null;
+  level: SensorLevel;
+}
+export interface MachineAlert {
+  severity: HealthStatus;
+  source: string;
+  title: string;
+  detail: string;
+}
+export interface Telemetry {
+  timestamp: number;
+  active: boolean;
+  cpu: { usage: number; clockMhz: number | null };
+  memory: { total: number; used: number; available: number; percent: number; swapTotal: number; swapUsed: number };
+  gpus: {
+    name: string;
+    usage: number | null;
+    dedicatedUsed: number | null;
+    dedicatedTotal: number | null;
+    sharedUsed: number | null;
+    sharedTotal: number | null;
+    temperature: number | null;
+    capabilities: { usage: Availability; dedicatedMemory: Availability; sharedMemory: Availability; temperature: Availability };
+  }[];
+  diskIo: { readPerSec: number; writePerSec: number; activity: number | null; busiestDisk: string | null };
+  volumes: { mount: string; kind: string; total: number; available: number; removable: boolean }[];
+  network: { interface: string | null; ipv4: string | null; downloadBps: number; uploadBps: number };
+  temperatures: TemperatureReading[];
+  processes: { cpu: ProcessEntry[]; memory: ProcessEntry[]; gpu: ProcessEntry[]; disk: ProcessEntry[]; total: number } | null;
+  uptime: number;
+  bootTime: number;
+  capabilities: TelemetryCapabilities;
+  health: {
+    status: HealthStatus;
+    alerts: MachineAlert[];
+    checks: { id: string; label: string; ok: boolean }[];
+  };
+}
+export interface TelemetryPoint {
+  at: number;
+  cpu: number;
+  memory: number;
+  disk: number | null;
+  gpu: number | null;
+  downloadBps: number;
+  uploadBps: number;
+}
+export interface TelemetryState {
+  latest: Telemetry | null;
+  history: TelemetryPoint[];
+}

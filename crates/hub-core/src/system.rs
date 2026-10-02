@@ -124,6 +124,53 @@ fn snapshot_cache() -> &'static ProcessCache {
 pub fn invalidate_process_cache() {
     *snapshot_cache().lock().unwrap_or_else(|e| e.into_inner()) = None;
 }
+/// O único inventário de processos do app. O vínculo processo → projeto (cwd/exe) e a
+/// telemetria (CPU/memória/E-S) refrescam o mesmo `System`, cada um só com os campos de
+/// que precisa; CPU e E-S por processo são deltas entre refreshes da telemetria.
+fn process_system() -> &'static Mutex<System> {
+    static SYSTEM: OnceLock<Mutex<System>> = OnceLock::new();
+    SYSTEM.get_or_init(|| Mutex::new(System::new()))
+}
+/// Consumo bruto de um processo desde o refresh de telemetria anterior.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProcessUsage {
+    pub pid: u32,
+    pub name: String,
+    /// % de UM núcleo (sysinfo); a telemetria normaliza pelo total de threads.
+    pub cpu: f32,
+    pub memory: u64,
+    pub read_bytes: u64,
+    pub written_bytes: u64,
+}
+/// Refresh de telemetria: só nome, CPU, memória e E/S (sem cwd, exe ou linha de comando).
+pub fn process_usage() -> Vec<ProcessUsage> {
+    let mut system = process_system()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_cpu()
+            .with_memory()
+            .with_disk_usage(),
+    );
+    system
+        .processes()
+        .iter()
+        .map(|(pid, process)| {
+            let io = process.disk_usage();
+            ProcessUsage {
+                pid: pid.as_u32(),
+                name: process.name().to_string_lossy().into(),
+                cpu: process.cpu_usage(),
+                memory: process.memory(),
+                read_bytes: io.read_bytes,
+                written_bytes: io.written_bytes,
+            }
+        })
+        .collect()
+}
 fn process_snapshot() -> Vec<ProcessSample> {
     let mut cache = snapshot_cache()
         .lock()
@@ -133,7 +180,9 @@ fn process_snapshot() -> Vec<ProcessSample> {
             return samples.clone();
         }
     }
-    let mut system = System::new();
+    let mut system = process_system()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     system.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,
