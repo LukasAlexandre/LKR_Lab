@@ -61,7 +61,8 @@ Implementação do Concept 01. Concept 02 em diante não foram implementados; o 
 - **Web:** prévia da tela de cadastro, sem detecção nem dados simulados; cadastro só no desktop.
 - **Depois do cadastro:** redireciona ao Dashboard; nome da máquina na barra superior; painel "Este computador" em Configurações com "Atualizar agora".
 - **Testes:** `crates/hub-core/tests/machine.rs` (identidade, persistência, 6h, refresh manual, mudança de IP e de hardware, dados indisponíveis, gate, validação, isolamento do workspace portátil, migration 005 contra banco v4 legado) e `src/shared/machine.test.ts`.
-- **Limitações:** não há edição do nome/uso/descrição depois do cadastro; GPU só no Windows; sem histórico de snapshots.
+- **Edição da metadata (fechamento do bloco):** em Configurações › Este computador, "Editar" abre edição inline de nome, uso/local e descrição ("Cancelar" / "Salvar alterações"). Comando `machine_update` (só `MachineInput`, mesmas regras do cadastro, bloqueado pelo gate antes do cadastro) altera apenas `name`, `usage`, `description` e `updated_at`; `machine_id`, `created_at`, snapshot e `last_detected_at` são preservados e nenhuma detecção é disparada. "Atualizar agora" continua separado e não toca a metadata. O nome na barra superior muda ao salvar; uma leitura iniciada antes da edição não traz o nome antigo de volta. Sem migration.
+- **Limitações:** GPU só no Windows; sem histórico de snapshots.
 
 ## Roadmap de concepts
 

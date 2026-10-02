@@ -63,6 +63,18 @@ async fn machine_register(
     .await
     .map_err(|e| e.to_string())?
 }
+/// Edita nome, uso e descrição. Só aceita `MachineInput`: identidade e snapshot
+/// não vêm da interface.
+#[tauri::command]
+fn machine_update(
+    app: tauri::AppHandle,
+    input: hub_core::machine::MachineInput,
+) -> HubResult<hub_core::machine::MachineStatus> {
+    let state = app.state::<AppState>();
+    app.state::<MachineState>()
+        .0
+        .update(&state.0, input, hub_core::machine::now_ms())
+}
 #[tauri::command]
 fn list_projects(state: State<AppState>) -> HubResult<Vec<ProjectEntry>> {
     let projects = db(&state)?.projects()?;
@@ -505,6 +517,7 @@ fn main() {
             machine_status,
             machine_refresh,
             machine_register,
+            machine_update,
             list_projects,
             save_project,
             delete_project,

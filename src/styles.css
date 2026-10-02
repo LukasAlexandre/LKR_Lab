@@ -1839,3 +1839,14 @@ summary {
 @media (prefers-reduced-motion: reduce) {
   .machine-skeleton { animation: none; }
 }
+.this-machine-actions { display: flex; gap: 8px; }
+.this-machine-form { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 0 16px; padding: 4px 0 6px; }
+.this-machine-form .span-2 { grid-column: 1 / -1; }
+.this-machine-form select { width: 100%; }
+.this-machine-form .optional { color: var(--muted); }
+.this-machine-form .error { margin-bottom: 12px; font-size: 11px; }
+.this-machine-form-actions { display: flex; gap: 10px; align-items: center; justify-content: flex-end; }
+.this-machine-form-actions .muted { margin-right: auto; font-size: 10px; }
+.this-machine-saved { display: flex; gap: 6px; align-items: center; color: var(--success); font-size: 11px; margin: 8px 0 0; }
+.this-machine-detected { margin-top: 10px; }
+@media (max-width: 800px) { .this-machine-form { grid-template-columns: minmax(0, 1fr); } }

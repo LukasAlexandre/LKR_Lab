@@ -262,6 +262,30 @@ impl Database {
         }
         Ok(())
     }
+
+    /// Edita só a metadata do usuário. machine_id, created_at, snapshot e
+    /// last_detected_at ficam como estão; `input` já deve estar validado.
+    pub fn update_machine_metadata(&self, input: &MachineInput) -> HubResult<Machine> {
+        let changed = self
+            .conn
+            .execute(
+                "UPDATE machine SET name=?1,usage=?2,description=?3,updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=1",
+                params![input.name, input.usage, input.description],
+            )
+            .map_err(|e| e.to_string())?;
+        if changed == 0 {
+            return Err("Computador ainda não cadastrado.".into());
+        }
+        self.conn
+            .execute(
+                "INSERT INTO activities(action) VALUES('Cadastro do computador atualizado')",
+                [],
+            )
+            .map_err(|e| e.to_string())?;
+        self.machine()?
+            .map(|record| record.machine)
+            .ok_or_else(|| "Cadastro do computador não encontrado.".into())
+    }
 }
 
 /// Estado do registro em execução: o gate (cadastrado ou não) e, antes do cadastro,
@@ -366,6 +390,21 @@ impl Registry {
         locked(db)?.register_machine(&input, &snapshot)?;
         self.registered.store(true, Ordering::SeqCst);
         *self.pending.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        self.status(db, now)
+    }
+
+    /// "Salvar alterações" em Este computador: mesmas regras do cadastro, sem detectar.
+    pub fn update(
+        &self,
+        db: &Mutex<Database>,
+        input: MachineInput,
+        now: i64,
+    ) -> HubResult<MachineStatus> {
+        if !self.is_registered() {
+            return Err("Computador ainda não cadastrado.".into());
+        }
+        let input = validate(input)?;
+        locked(db)?.update_machine_metadata(&input)?;
         self.status(db, now)
     }
 }

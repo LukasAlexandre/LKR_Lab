@@ -546,3 +546,161 @@ fn databases_newer_than_005_are_refused() {
         .unwrap();
     assert!(Database::open(&path).is_err());
 }
+
+// ---- edição da metadata (nome / uso / descrição) ----
+
+fn row(db: &Mutex<Database>) -> (String, String, Option<String>, Option<i64>, String) {
+    db.lock()
+        .unwrap()
+        .conn
+        .query_row(
+            "SELECT machine_id,created_at,snapshot,last_detected_at,updated_at FROM machine WHERE id=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .unwrap()
+}
+
+/// Cadastrada em T0 e com updated_at antigo, para a edição ter o que mudar.
+fn registered(path: &Path, fake: &Fake) -> (Mutex<Database>, Registry) {
+    let (db, registry) = open(path);
+    registry.register(&db, fake, input("PC Casa"), T0).unwrap();
+    db.lock()
+        .unwrap()
+        .conn
+        .execute(
+            "UPDATE machine SET updated_at='2026-01-01T00:00:00.000Z'",
+            [],
+        )
+        .unwrap();
+    (db, registry)
+}
+
+#[test]
+fn metadata_update_changes_only_name_usage_description_and_updated_at() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = Fake::new(workstation());
+    let (db, registry) = registered(&tmp.path().join("hub.db"), &fake);
+    let (id, created, snapshot, detected, updated) = row(&db);
+
+    let status = registry
+        .update(
+            &db,
+            MachineInput {
+                name: "  PC Casa Teste  ".into(),
+                usage: "work".into(),
+                description: "  Notebook de testes  ".into(),
+            },
+            T0 + HOUR,
+        )
+        .unwrap();
+    let machine = status.machine.unwrap();
+    assert_eq!(machine.name, "PC Casa Teste", "nome com trim");
+    assert_eq!(machine.usage, "work");
+    assert_eq!(machine.description, "Notebook de testes");
+
+    let (id2, created2, snapshot2, detected2, updated2) = row(&db);
+    assert_eq!(id2, id, "machine_id preservado");
+    assert_eq!(created2, created, "created_at preservado");
+    assert_eq!(snapshot2, snapshot, "snapshot preservado");
+    assert_eq!(detected2, detected, "last_detected_at preservado");
+    assert_ne!(updated2, updated, "updated_at alterado");
+    assert_eq!(machine_rows(&db), 1);
+    // Salvar metadata não é detectar.
+    assert_eq!(fake.calls.get(), 1);
+}
+
+#[test]
+fn metadata_update_reuses_registration_rules_and_never_writes_invalid_input() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = Fake::new(workstation());
+    let (db, registry) = registered(&tmp.path().join("hub.db"), &fake);
+    let before = row(&db);
+    for bad in [
+        input(""),
+        input("   "),
+        MachineInput {
+            usage: "garagem".into(),
+            ..input("PC")
+        },
+        MachineInput {
+            description: "d".repeat(121),
+            ..input("PC")
+        },
+    ] {
+        assert!(registry.update(&db, bad.clone(), T0).is_err(), "{bad:?}");
+    }
+    assert_eq!(row(&db), before, "nada gravado");
+    let machine = registry.status(&db, T0).unwrap().machine.unwrap();
+    assert_eq!(machine.name, "PC Casa");
+    // Descrição no limite é aceita; vazia também (é opcional).
+    let ok = MachineInput {
+        description: "d".repeat(120),
+        ..input("PC Casa")
+    };
+    assert!(registry.update(&db, ok, T0).is_ok());
+    assert!(registry.update(&db, input("PC Casa"), T0).is_ok());
+}
+
+#[test]
+fn metadata_update_requires_a_registered_machine_and_is_gated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (db, registry) = open(&tmp.path().join("hub.db"));
+    assert!(!registry.allows("machine_update"));
+    assert!(registry.update(&db, input("PC Casa"), T0).is_err());
+    assert_eq!(machine_rows(&db), 0, "edição não cria máquina");
+}
+
+#[test]
+fn technical_refresh_after_edit_keeps_metadata() {
+    let tmp = tempfile::tempdir().unwrap();
+    let fake = Fake::new(workstation());
+    let (db, registry) = registered(&tmp.path().join("hub.db"), &fake);
+    registry
+        .update(
+            &db,
+            MachineInput {
+                name: "PC Casa Teste".into(),
+                usage: "other".into(),
+                description: "editado".into(),
+            },
+            T0,
+        )
+        .unwrap();
+    let updated = row(&db).4;
+    fake.set(|s| {
+        s.local_ipv4 = Some("10.0.0.9".into());
+        s.hostname = Some("OUTRO".into());
+    });
+    let status = registry.refresh(&db, &fake, T0 + 2 * HOUR, true).unwrap();
+    let machine = status.machine.unwrap();
+    assert_eq!(machine.name, "PC Casa Teste");
+    assert_eq!(machine.usage, "other");
+    assert_eq!(machine.description, "editado");
+    assert_eq!(machine.last_detected_at, Some(T0 + 2 * HOUR));
+    assert_eq!(
+        status.snapshot.unwrap().local_ipv4.as_deref(),
+        Some("10.0.0.9")
+    );
+    assert_eq!(row(&db).4, updated, "refresh técnico não toca updated_at");
+}
+
+#[test]
+fn metadata_survives_reopening_the_app() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("hub.db");
+    let fake = Fake::new(workstation());
+    let id = {
+        let (db, registry) = registered(&path, &fake);
+        registry
+            .update(&db, input("PC Casa Teste"), T0)
+            .unwrap()
+            .machine
+            .unwrap()
+            .machine_id
+    };
+    let (db, registry) = open(&path);
+    let machine = registry.status(&db, T0).unwrap().machine.unwrap();
+    assert_eq!(machine.name, "PC Casa Teste");
+    assert_eq!(machine.machine_id, id);
+}

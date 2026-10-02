@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, desktop, errorText } from "../shared/api";
-import { MACHINE_CHECK_INTERVAL_MS } from "../shared/machine";
+import { MACHINE_CHECK_INTERVAL_MS, keepMetadata } from "../shared/machine";
 import type { MachineInput, MachineStatus } from "../shared/types";
 
 /**
@@ -23,6 +23,8 @@ export interface MachineRegistry {
   refreshing: boolean;
   refresh(force: boolean): Promise<void>;
   register(input: MachineInput): Promise<boolean>;
+  /** Salva nome / uso / descrição. Não detecta; rejeita com a mensagem do backend. */
+  update(input: MachineInput): Promise<void>;
 }
 
 /** Gate global + política de validade (6h no backend). Montado acima do App. */
@@ -32,15 +34,18 @@ export function useMachineRegistry(): MachineRegistry {
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const inflight = useRef<Promise<void> | null>(null);
+  // Edições já salvas: leituras iniciadas antes de uma delas não trazem a metadata antiga de volta.
+  const writes = useRef(0);
 
   const refresh = useCallback((force: boolean) => {
     if (!desktop) return Promise.resolve();
     // Uma coleta por vez; "Atualizar detecção" espera a que já está rodando.
     if (inflight.current) return inflight.current;
     setRefreshing(true);
+    const started = writes.current;
     const run = api<MachineStatus>("machine_refresh", { force })
       .then((next) => {
-        setStatus(next);
+        setStatus((current) => (started === writes.current ? next : keepMetadata(current, next)));
         setError(null);
       })
       .catch((e: unknown) => setError(errorText(e)))
@@ -64,6 +69,12 @@ export function useMachineRegistry(): MachineRegistry {
     } finally {
       setSaving(false);
     }
+  }, []);
+
+  const update = useCallback(async (input: MachineInput) => {
+    const next = await api<MachineStatus>("machine_update", { input });
+    writes.current += 1;
+    setStatus(next);
   }, []);
 
   useEffect(() => {
@@ -105,7 +116,7 @@ export function useMachineRegistry(): MachineRegistry {
             : refreshing || !status.snapshot
               ? "detecting"
               : "ready";
-  return { phase, status, error, refreshing, refresh, register };
+  return { phase, status, error, refreshing, refresh, register, update };
 }
 
 export const MachineContext = createContext<MachineRegistry | null>(null);

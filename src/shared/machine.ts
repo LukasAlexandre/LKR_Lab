@@ -1,4 +1,4 @@
-import type { MachineSnapshot, MachineUsage } from "./types";
+import type { Machine, MachineInput, MachineSnapshot, MachineStatus, MachineUsage } from "./types";
 
 /** Limites espelhados de hub-core::machine (o backend valida de novo). */
 export const MACHINE_NAME_MAX = 60;
@@ -69,4 +69,81 @@ export function validateMachineName(name: string): string | null {
   if (!value) return "Informe um nome para este computador.";
   if (value.length > MACHINE_NAME_MAX) return `Use até ${MACHINE_NAME_MAX} caracteres.`;
   return null;
+}
+
+// ---- edição da metadata em "Este computador" ----
+
+/** O que o usuário edita depois do cadastro. Identidade e snapshot não entram aqui. */
+export type MachineDraft = MachineInput;
+
+export const draftFrom = (machine: Machine): MachineDraft => ({
+  name: machine.name,
+  usage: machine.usage,
+  description: machine.description,
+});
+
+export function draftError(draft: MachineDraft): string | null {
+  const nameError = validateMachineName(draft.name);
+  if (nameError) return nameError;
+  if (!USAGE_OPTIONS.some((option) => option.value === draft.usage)) return "Escolha o uso / local deste computador.";
+  if (draft.description.trim().length > MACHINE_DESCRIPTION_MAX)
+    return `A descrição aceita até ${MACHINE_DESCRIPTION_MAX} caracteres.`;
+  return null;
+}
+
+/** Só os três campos editáveis, com trim (o backend valida de novo). */
+export const draftInput = (draft: MachineDraft): MachineInput => ({
+  name: draft.name.trim(),
+  usage: draft.usage,
+  description: draft.description.trim(),
+});
+
+export const draftChanged = (machine: Machine, draft: MachineDraft) => {
+  const next = draftInput(draft);
+  return next.name !== machine.name || next.usage !== machine.usage || next.description !== machine.description;
+};
+
+/** idle → editing → saving → success | error. Cancelar descarta o rascunho sem salvar. */
+export type MachineEdit =
+  | { mode: "idle" | "success"; draft: null; error: null }
+  | { mode: "editing" | "saving" | "error"; draft: MachineDraft; error: string | null };
+export type MachineEditAction =
+  | { type: "edit"; machine: Machine }
+  | { type: "change"; patch: Partial<MachineDraft> }
+  | { type: "cancel" }
+  | { type: "save" }
+  | { type: "saved" }
+  | { type: "failed"; error: string }
+  | { type: "settle" };
+export const EDIT_IDLE: MachineEdit = { mode: "idle", draft: null, error: null };
+
+export function machineEdit(state: MachineEdit, action: MachineEditAction): MachineEdit {
+  switch (action.type) {
+    case "edit":
+      return { mode: "editing", draft: draftFrom(action.machine), error: null };
+    case "change":
+      return state.draft && state.mode !== "saving"
+        ? { mode: "editing", draft: { ...state.draft, ...action.patch }, error: null }
+        : state;
+    case "cancel":
+      return state.mode === "saving" ? state : EDIT_IDLE;
+    case "save":
+      return state.draft && state.mode !== "saving" ? { mode: "saving", draft: state.draft, error: null } : state;
+    case "saved":
+      return { mode: "success", draft: null, error: null };
+    case "failed":
+      return state.draft ? { mode: "error", draft: state.draft, error: action.error } : state;
+    case "settle":
+      return state.mode === "success" ? EDIT_IDLE : state;
+  }
+}
+
+/**
+ * Resposta de uma leitura/detecção que começou ANTES de uma edição: os dados técnicos
+ * valem, mas a metadata atual (já salva) não pode voltar ao valor antigo.
+ */
+export function keepMetadata(current: MachineStatus | null, next: MachineStatus): MachineStatus {
+  if (!current?.machine || !next.machine) return next;
+  const { name, usage, description, updatedAt } = current.machine;
+  return { ...next, machine: { ...next.machine, name, usage, description, updatedAt } };
 }
