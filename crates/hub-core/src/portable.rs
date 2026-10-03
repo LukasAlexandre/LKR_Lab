@@ -7,6 +7,7 @@
 //! `lkr-lab/core/lkr-workspace.js` (bridge e desktop). Este módulo valida de
 //! novo antes de aplicar no SQLite: o arquivo vem do Git e não é confiável.
 use crate::{
+    locator::RepositoryLocator,
     models::{KnowledgeEntry, Project, ProjectCommand, ProjectPort, Prompt},
     projects::valid_repository,
     HubResult,
@@ -29,6 +30,9 @@ pub struct PortableProject {
     pub description: String,
     #[serde(default)]
     pub repository: String,
+    /// Opcional: ausente em workspaces antigos e quando o projeto não tem remote reconhecível.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locator: Option<RepositoryLocator>,
     #[serde(default)]
     pub stack: Vec<String>,
     #[serde(default)]
@@ -95,6 +99,7 @@ impl From<&Project> for PortableProject {
             name: p.name.clone(),
             description: p.description.clone(),
             repository: p.repository.clone(),
+            locator: p.locator.clone(),
             stack: p.stack.clone(),
             tags: p.tags.clone(),
             ports: p.ports.clone(),
@@ -130,26 +135,12 @@ pub fn same_repository(a: &str, b: &str) -> bool {
     !a.is_empty() && a == remote_identity(b)
 }
 
-/// `host/dono/repo` em minúsculas, sem esquema nem credenciais (seguro para exibir).
+/// `host/dono/repo` canônico; vazio quando não é um remote de rede reconhecível.
+/// Delega à normalização única de `locator` (HTTPS/SSH/scp-like, sem credencial nem `.git`).
 pub fn remote_identity(url: &str) -> String {
-    let mut value = url.trim().to_lowercase();
-    if let Some(rest) = value.strip_prefix("git@") {
-        value = rest.replacen(':', "/", 1);
-    }
-    for prefix in ["https://", "http://", "ssh://", "git://"] {
-        if let Some(rest) = value.strip_prefix(prefix) {
-            value = rest.to_string();
-        }
-    }
-    if let Some((_, rest)) = value.split_once('@') {
-        value = rest.to_string();
-    }
-    let value = value.strip_prefix("www.").unwrap_or(&value).to_string();
-    value
-        .trim_end_matches('/')
-        .trim_end_matches(".git")
-        .trim_end_matches('/')
-        .to_string()
+    crate::locator::normalize_remote(url)
+        .map(|n| n.canonical)
+        .unwrap_or_default()
 }
 
 /// Forma canônica, igual à de lkr-workspace.js: listas por id, textos aparados,
@@ -165,6 +156,10 @@ pub fn normalize(ws: &mut PortableWorkspace) {
     for p in &mut ws.projects {
         p.name = p.name.trim().to_string();
         p.repository = p.repository.trim().to_string();
+        if let Some(l) = &mut p.locator {
+            l.remote = l.remote.trim().to_string();
+            l.path = l.path.trim().trim_matches('/').to_string();
+        }
         clean(&mut p.stack);
         clean(&mut p.tags);
         for port in &mut p.ports {
@@ -292,6 +287,37 @@ fn unique<'a>(ids: impl Iterator<Item = &'a str>, what: &str) -> HubResult<HashS
 }
 
 /// Mesmas regras de lkr-workspace.js (limites em bytes, como no cadastro).
+/// O locator é portátil: remote canônico (`host/dono/repo`) e caminho RELATIVO dentro do repositório.
+/// Nada de caminho absoluto, `..`, barra invertida, credencial ou esquema.
+pub fn valid_locator(l: &RepositoryLocator) -> bool {
+    let mut segments = l.remote.split('/');
+    // ":" só no host (porta); nos demais segmentos não existe.
+    let host_ok = segments
+        .next()
+        .is_some_and(|h| !h.is_empty() && !h.starts_with(['.', '-']));
+    let rest: Vec<&str> = segments.collect();
+    let remote_ok = host_ok
+        && !rest.is_empty()
+        && l.remote.len() <= 400
+        && !l.remote.contains("://")
+        && !l.remote.contains(['@', '\\', '?', '#'])
+        && !l
+            .remote
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace())
+        && rest
+            .iter()
+            .all(|s| !s.is_empty() && *s != "." && *s != ".." && !s.contains(':'));
+    let path_ok = l.path.is_empty()
+        || (l.path.len() <= 500
+            && !is_absolute_path(&l.path)
+            && !l.path.contains(['\\', ':'])
+            && l.path.split('/').all(|s| {
+                !s.is_empty() && s != "." && s != ".." && !s.chars().any(|c| c.is_control())
+            }));
+    remote_ok && path_ok
+}
+
 pub fn validate(ws: &PortableWorkspace) -> HubResult<()> {
     check(ws.version == SCHEMA_VERSION, || {
         format!(
@@ -315,6 +341,11 @@ pub fn validate(ws: &PortableWorkspace) -> HubResult<()> {
             p.repository.is_empty() || valid_repository(&p.repository),
             || format!("projeto {at}: repositório precisa ser HTTPS, sem credenciais"),
         )?;
+        if let Some(l) = &p.locator {
+            check(valid_locator(l), || {
+                format!("projeto {at}: locator inválido (remote canônico e caminho relativo, sem caminho local)")
+            })?;
+        }
         check(
             p.stack.len() <= 30
                 && p.tags.len() <= 30

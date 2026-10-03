@@ -51,6 +51,7 @@ fn project(id: &str, path: &str) -> Project {
         slug: id.into(),
         description: String::new(),
         local_path: path.into(),
+        locator: None,
         repository: String::new(),
         stack: vec![],
         tags: vec![],

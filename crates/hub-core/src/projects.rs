@@ -1,5 +1,4 @@
 use crate::{
-    commands,
     models::{Location, Project, ProjectEntry, ProjectInput},
     HubResult,
 };
@@ -123,69 +122,22 @@ pub struct Discovery {
     pub stack: Vec<String>,
     pub is_git: bool,
 }
+/// Compatível com a API anterior; a detecção é a MESMA da inspeção do cadastro (`inspect`),
+/// que por sua vez usa `runtime::detect`: não existe mais uma segunda regra de stack.
 pub fn discover(path: &str) -> HubResult<Discovery> {
-    let path = canonical(path)?;
-    let mut stack = Vec::new();
-    if path.join("package.json").is_file() {
-        stack.push("Node.js".into());
-        let package = path.join("package.json");
-        if let Ok(text) = std::fs::metadata(&package)
-            .ok()
-            .filter(|m| m.len() < 1_000_000)
-            .ok_or(())
-            .and_then(|_| std::fs::read_to_string(&package).map_err(|_| ()))
-        {
-            if text.len() < 1_000_000 {
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
-                    for (key, label) in [
-                        ("react", "React"),
-                        ("typescript", "TypeScript"),
-                        ("next", "Next.js"),
-                    ] {
-                        if v["dependencies"][key].is_string()
-                            || v["devDependencies"][key].is_string()
-                        {
-                            stack.push(label.into());
-                        }
-                    }
-                }
-            }
-        }
+    let inspection = crate::inspect::inspect_folder(path, &[]);
+    if !inspection.valid {
+        return Err(inspection.error.unwrap_or_else(|| "Pasta inválida.".into()));
     }
-    for (file, label) in [
-        ("Cargo.toml", "Rust"),
-        ("requirements.txt", "Python"),
-        ("pyproject.toml", "Python"),
-        ("docker-compose.yml", "Docker"),
-        ("compose.yaml", "Docker"),
-        ("appsscript.json", "Apps Script"),
-        ("foundry.toml", "Solidity"),
-    ] {
-        if path.join(file).is_file() && !stack.contains(&label.to_string()) {
-            stack.push(label.into());
-        }
-    }
-    let remote =
-        commands::run("git", &["remote", "get-url", "origin"], Some(&path)).unwrap_or_default();
-    let remote = remote
-        .strip_prefix("git@github.com:")
-        .map(|r| format!("https://github.com/{r}"))
-        .unwrap_or(remote);
-    let repository = if valid_repository(&remote) {
-        remote.trim_end_matches(".git").to_string()
-    } else {
-        String::new()
-    };
-    let is_git = commands::run("git", &["rev-parse", "--is-inside-work-tree"], Some(&path)).is_ok();
     Ok(Discovery {
-        local_path: path.to_string_lossy().to_string(),
-        name: path
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string(),
-        repository,
-        stack,
-        is_git,
+        local_path: inspection.folder,
+        name: inspection.suggested_name,
+        repository: inspection.repository,
+        stack: inspection
+            .stack
+            .iter()
+            .map(|s| s.label.to_string())
+            .collect(),
+        is_git: inspection.git.is_some(),
     })
 }

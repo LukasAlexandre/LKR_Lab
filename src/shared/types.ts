@@ -19,6 +19,8 @@ export interface ProjectInput {
 }
 export interface Project extends ProjectInput {
   id: string;
+  /** Identidade portátil do repositório (opcional; projetos antigos não têm). */
+  locator?: RepositoryLocator;
   slug: string;
   createdAt: string;
   updatedAt: string;
@@ -428,4 +430,56 @@ export interface TelemetryPoint {
 export interface TelemetryState {
   latest: Telemetry | null;
   history: TelemetryPoint[];
+}
+/** Identidade do repositório: remote canônico + subpasta dentro do repositório. Nunca caminho local. */
+export interface RepositoryLocator {
+  remote: string;
+  path: string;
+}
+export interface GitInspection {
+  branch: string;
+  detached: boolean;
+  remoteName: string | null;
+  remote: string | null;
+  remotes: string[];
+  clean: boolean;
+  changes: number;
+  subpath: string;
+}
+export type RegistrationStatus = "new" | "already_here" | "known" | "ambiguous" | "invalid";
+export interface MatchedProject {
+  id: string;
+  name: string;
+  location: "available" | "missing" | "unbound";
+  boundPath: string | null;
+  canLocate: boolean;
+  reason: string | null;
+}
+export interface Registration {
+  status: RegistrationStatus;
+  matches: MatchedProject[];
+  message: string;
+}
+export interface ProjectInspection {
+  folder: string;
+  valid: boolean;
+  error: string | null;
+  suggestedName: string;
+  git: GitInspection | null;
+  locator: RepositoryLocator | null;
+  locatorNote: string | null;
+  repository: string;
+  stack: { id: string; label: string; evidence: string }[];
+  packageManager: { name: string; evidence: string } | null;
+  packageManagerNote: string | null;
+  scripts: { name: string; kind: "service" | "task" | "other" }[];
+  importantFiles: string[];
+  structure: { name: string; kind: "dir" | "file" }[];
+  registration: Registration;
+  warnings: string[];
+}
+export interface RegisterResult {
+  registered: boolean;
+  project: Project | null;
+  registration: Registration;
 }

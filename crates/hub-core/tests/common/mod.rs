@@ -17,6 +17,7 @@ pub fn project(id: &str, dir: &Path) -> Project {
         slug: id.into(),
         description: String::new(),
         local_path: dir.to_string_lossy().into(),
+        locator: None,
         repository: String::new(),
         stack: vec![],
         tags: vec![],

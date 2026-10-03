@@ -127,6 +127,56 @@ async fn discover_project(path: String) -> HubResult<hub_core::projects::Discove
         .await
         .map_err(|e| e.to_string())?
 }
+/// Inspeção passiva do cadastro: só leitura de arquivos e Git somente leitura; nada é executado.
+#[tauri::command]
+async fn inspect_project_folder(
+    state: State<'_, AppState>,
+    path: String,
+) -> HubResult<hub_core::inspect::ProjectInspection> {
+    let known = db(&state)?.projects_for_matching()?;
+    tauri::async_runtime::spawn_blocking(move || hub_core::inspect::inspect_folder(&path, &known))
+        .await
+        .map_err(|e| e.to_string())
+}
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RegisterProjectInput {
+    path: String,
+    name: String,
+    #[serde(default)]
+    description: String,
+}
+/// Cadastro: a pasta é reinspecionada AGORA e locator/stack/repositório vêm do backend, nunca da
+/// interface; a decisão final (novo / já conhecido / já cadastrado) é tomada sob a trava do banco.
+#[tauri::command]
+async fn register_project(
+    state: State<'_, AppState>,
+    input: RegisterProjectInput,
+) -> HubResult<hub_core::database::RegisterResult> {
+    let path = input.path.clone();
+    let inspection =
+        tauri::async_runtime::spawn_blocking(move || hub_core::inspect::inspect_folder(&path, &[]))
+            .await
+            .map_err(|e| e.to_string())?;
+    if !inspection.valid {
+        return Err(inspection
+            .error
+            .unwrap_or_else(|| "Pasta inválida.".to_string()));
+    }
+    let request = hub_core::database::RegisterRequest {
+        folder: std::path::PathBuf::from(&inspection.folder),
+        locator: inspection.locator,
+        repository: inspection.repository,
+        stack: inspection
+            .stack
+            .iter()
+            .map(|s| s.label.to_string())
+            .collect(),
+        name: input.name,
+        description: input.description,
+    };
+    db(&state)?.register(request)
+}
 #[tauri::command]
 async fn system_state() -> HubResult<hub_core::system::SystemState> {
     tauri::async_runtime::spawn_blocking(hub_core::system::inspect)
@@ -557,6 +607,8 @@ fn main() {
             delete_project,
             choose_folder,
             discover_project,
+            inspect_project_folder,
+            register_project,
             system_state,
             workspace_state,
             git_state,

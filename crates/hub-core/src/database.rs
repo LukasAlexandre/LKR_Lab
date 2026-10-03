@@ -1,13 +1,39 @@
 use crate::{
+    inspect::{self, Registration, RegistrationStatus},
+    locator::{self, RepositoryLocator},
     models::*,
     portable::{ApplySummary, PortablePreferences, PortableProject, PortableWorkspace},
     sync::SyncMeta,
     HubResult,
 };
 use rusqlite::{params, Connection};
+use serde::Serialize;
 use std::{collections::HashSet, path::Path};
 pub struct Database {
     pub conn: Connection,
+}
+
+/// Pedido de cadastro já inspecionado (a pasta e o locator vêm do backend, não da interface).
+#[derive(Debug, Clone)]
+pub struct RegisterRequest {
+    pub folder: std::path::PathBuf,
+    pub locator: Option<RepositoryLocator>,
+    pub repository: String,
+    pub stack: Vec<String>,
+    pub name: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegisterResult {
+    pub registered: bool,
+    pub project: Option<ProjectEntry>,
+    pub registration: Registration,
+}
+
+fn inspect_same_folder(bound: &str, folder: &Path) -> bool {
+    !bound.is_empty() && inspect::same_folder_path(bound, folder)
 }
 impl Database {
     pub fn open(path: &Path) -> HubResult<Self> {
@@ -84,6 +110,42 @@ impl Database {
             })
             .map_err(|e| e.to_string())?;
         let old = id.map(|id| self.project(id)).transpose()?;
+        // O locator é derivado da PASTA pelo backend (Git só leitura); nunca vem da interface.
+        let folder_locator: Option<RepositoryLocator> = if input.local_path.is_empty() {
+            None
+        } else {
+            locator::locator_of(Path::new(&input.local_path))?.locator
+        };
+        match &old {
+            None => {
+                // Cadastro novo por este caminho: mesma proteção contra duplicata do `register`.
+                let known = self.projects_for_matching()?;
+                let found = inspect::classify_registration(
+                    Path::new(&input.local_path),
+                    folder_locator.as_ref(),
+                    &known,
+                );
+                if found.status != RegistrationStatus::New {
+                    return Err(found.message);
+                }
+            }
+            Some(existing) => {
+                if let (Some(want), Some(have)) = (&existing.locator, &folder_locator) {
+                    if want != have {
+                        return Err(format!(
+                            "A pasta é de outro repositório ou subprojeto ({}); {} espera {}. Nada foi alterado.",
+                            have.display(),
+                            existing.name,
+                            want.display()
+                        ));
+                    }
+                }
+            }
+        }
+        let locator = old
+            .as_ref()
+            .and_then(|p| p.locator.clone())
+            .or(folder_locator);
         let project = Project {
             id: old
                 .as_ref()
@@ -99,6 +161,7 @@ impl Database {
             } else {
                 input.local_path
             },
+            locator,
             repository: input.repository,
             stack: input.stack,
             tags: input.tags,
@@ -237,46 +300,90 @@ impl Database {
         Ok(p.id)
     }
     /// "Localizar": vincula um projeto do workspace a uma pasta desta máquina.
-    /// Com repositório cadastrado, o remote origin da pasta precisa ser o mesmo;
-    /// sem repositório, só vincula com confirmação explícita.
+    ///
+    /// Nunca sobrescreve em silêncio: pasta já vinculada a outro projeto, ou projeto que já tem
+    /// vínculo VÁLIDO em outra pasta, são recusados com explicação (vínculo antigo que não existe
+    /// mais pode ser substituído). A pasta precisa ser o mesmo repositório E o mesmo caminho dentro
+    /// dele (locator); projeto antigo só com `repository` compara o remote; sem nada para
+    /// conferir, só vincula com confirmação explícita.
     pub fn bind(&mut self, id: &str, path: &str, confirmed: bool) -> HubResult<BindResult> {
         let project = self.project(id)?;
-        let local_path = crate::projects::canonical(path)?
-            .to_string_lossy()
-            .to_string();
-        let remote = crate::commands::run(
-            "git",
-            &["remote", "get-url", "origin"],
-            Some(Path::new(&local_path)),
-        )
-        .unwrap_or_default();
-        let found = crate::portable::remote_identity(&remote);
-        if !project.repository.is_empty() {
-            if found.is_empty() {
-                return Err(format!(
-                    "A pasta não tem remote “origin”; {} espera {}. Nada foi vinculado.",
-                    project.name, project.repository
-                ));
-            }
-            if !crate::portable::same_repository(&project.repository, &remote) {
-                return Err(format!(
-                    "A pasta é de outro repositório ({found}); {} espera {}. Nada foi vinculado.",
-                    project.name, project.repository
-                ));
-            }
-        } else if !confirmed {
-            let hint = if found.is_empty() {
-                String::new()
-            } else {
-                format!(" A pasta aponta para {found}.")
-            };
+        let folder = crate::runtime::plain_path(crate::projects::canonical(path)?);
+        let local_path = folder.to_string_lossy().to_string();
+        let known = self.projects()?;
+        if let Some(other) = known
+            .iter()
+            .find(|p| p.id != project.id && inspect_same_folder(&p.local_path, &folder))
+        {
+            return Err(format!(
+                "Esta pasta já está vinculada ao projeto “{}”. Nada foi alterado.",
+                other.name
+            ));
+        }
+        if inspect_same_folder(&project.local_path, &folder) {
             return Ok(BindResult {
-                bound: false,
-                needs_confirmation: true,
-                message: format!("{} não tem repositório cadastrado, então não dá para conferir se esta é a pasta certa.{hint}", project.name),
+                bound: true,
+                needs_confirmation: false,
+                message: format!("{} já está vinculado a esta pasta.", project.name),
             });
         }
+        if crate::projects::location(&project) == Location::Available {
+            return Err(format!(
+                "{} já está vinculado a outra pasta válida nesta máquina ({}); o vínculo não é trocado automaticamente. Nada foi alterado.",
+                project.name, project.local_path
+            ));
+        }
+        let found = locator::locator_of(&folder)?;
+        match (&project.locator, &found.locator) {
+            (Some(want), Some(have)) if want == have => {}
+            (Some(want), Some(have)) => {
+                return Err(format!(
+                    "A pasta é de outro repositório ou subprojeto ({}); {} espera {}. Nada foi vinculado.",
+                    have.display(),
+                    project.name,
+                    want.display()
+                ));
+            }
+            (Some(want), None) => {
+                return Err(format!(
+                    "A pasta não tem um remote Git reconhecível; {} espera {}. Nada foi vinculado.",
+                    project.name,
+                    want.display()
+                ));
+            }
+            (None, have) if !project.repository.is_empty() => {
+                let wanted = locator::normalize_remote(&project.repository).map(|n| n.canonical);
+                match (wanted, have) {
+                    (Some(want), Some(have)) if want == have.remote => {}
+                    (_, Some(have)) => {
+                        return Err(format!(
+                            "A pasta é de outro repositório ({}); {} espera {}. Nada foi vinculado.",
+                            have.remote, project.name, project.repository
+                        ));
+                    }
+                    (_, None) => {
+                        return Err(format!(
+                            "A pasta não tem um remote Git reconhecível; {} espera {}. Nada foi vinculado.",
+                            project.name, project.repository
+                        ));
+                    }
+                }
+            }
+            (None, have) if !confirmed => {
+                let hint = have
+                    .as_ref()
+                    .map(|l| format!(" A pasta aponta para {}.", l.display()))
+                    .unwrap_or_default();
+                return Ok(BindResult {
+                    bound: false,
+                    needs_confirmation: true,
+                    message: format!("{} não tem repositório cadastrado, então não dá para conferir se esta é a pasta certa.{hint}", project.name),
+                });
+            }
+            (None, _) => {}
+        }
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
+        // Vincular é só local: não altera o conteúdo portátil (nem o hash de sync).
         upsert_binding(&tx, id, &local_path)?;
         tx.execute(
             "INSERT INTO activities(project_id,action) VALUES(?1,'Projeto localizado nesta máquina')",
@@ -289,6 +396,76 @@ impl Database {
             needs_confirmation: false,
             message: format!("{} vinculado a {local_path}.", project.name),
         })
+    }
+    /// Cadastra um projeto NOVO a partir de uma pasta já inspecionada. O backend é a autoridade:
+    /// reclassifica contra o que há no banco AGORA (esta chamada roda sob a trava do banco, então
+    /// um cadastro concorrente não passa), e só cria um UUID quando o resultado é `New`.
+    /// Qualquer outro resultado volta sem criar nada, para a interface mostrar o caminho certo
+    /// (Localizar / Abrir) em vez de duplicar.
+    pub fn register(&mut self, request: RegisterRequest) -> HubResult<RegisterResult> {
+        let (name, description) =
+            inspect::validate_registration_fields(&request.name, &request.description)?;
+        let known = self.projects_for_matching()?;
+        let registration =
+            inspect::classify_registration(&request.folder, request.locator.as_ref(), &known);
+        if registration.status != RegistrationStatus::New {
+            return Ok(RegisterResult {
+                registered: false,
+                project: None,
+                registration,
+            });
+        }
+        let now: String = self
+            .conn
+            .query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')", [], |r| {
+                r.get(0)
+            })
+            .map_err(|e| e.to_string())?;
+        let project = Project {
+            id: uuid::Uuid::new_v4().to_string(),
+            slug: crate::projects::slug(&name),
+            name,
+            description,
+            local_path: request.folder.to_string_lossy().to_string(),
+            locator: request.locator,
+            repository: request.repository,
+            stack: request.stack,
+            tags: vec![],
+            ports: vec![],
+            commands: vec![],
+            created_at: now.clone(),
+            updated_at: now,
+        };
+        let tx = self.conn.transaction().map_err(|e| e.to_string())?;
+        upsert_project(&tx, &project)?;
+        upsert_binding(&tx, &project.id, &project.local_path)?;
+        tx.execute(
+            "INSERT INTO activities(project_id,action) VALUES(?1,'Projeto cadastrado nesta máquina')",
+            [&project.id],
+        )
+        .map_err(|e| e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(RegisterResult {
+            registered: true,
+            project: Some(crate::projects::entry(project)),
+            registration,
+        })
+    }
+    /// Projetos para classificar um cadastro: os criados antes do locator ganham, SÓ EM MEMÓRIA,
+    /// o da pasta vinculada (Git só leitura). Nada é gravado: o conteúdo portátil (e o hash de
+    /// sync) só muda por ação explícita do usuário.
+    pub fn projects_for_matching(&self) -> HubResult<Vec<Project>> {
+        let mut known = self.projects()?;
+        for project in &mut known {
+            if project.locator.is_none()
+                && crate::projects::location(project) == Location::Available
+            {
+                if let Ok(found) = locator::locator_of(Path::new(&project.local_path)) {
+                    project.locator = found.locator;
+                }
+            }
+        }
+        Ok(known)
     }
     /// Dados portáteis do SQLite: projetos sem caminho, prompts e knowledge.
     pub fn export_portable(&self) -> HubResult<PortableWorkspace> {
@@ -399,6 +576,7 @@ impl Database {
                 slug: crate::projects::slug(&p.name),
                 description: p.description.clone(),
                 local_path: String::new(),
+                locator: p.locator.clone(),
                 repository: p.repository.clone(),
                 stack: p.stack.clone(),
                 tags: p.tags.clone(),

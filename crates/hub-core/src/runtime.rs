@@ -399,7 +399,7 @@ fn parse_scripts(package: &serde_json::Value) -> Vec<Script> {
 
 type Fingerprint = Vec<Option<(u64, SystemTime)>>;
 type DetectionCache = Mutex<HashMap<PathBuf, (Instant, Fingerprint, Detection)>>;
-const WATCHED: [&str; 28] = [
+const WATCHED: [&str; 29] = [
     "package.json",
     "package-lock.json",
     "pnpm-lock.yaml",
@@ -423,6 +423,7 @@ const WATCHED: [&str; 28] = [
     "tauri.conf.json",
     "src-tauri/tauri.conf.json",
     "vite.config.ts",
+    "tsconfig.json",
     // A CLI local aparece quando as dependências são instaladas.
     "node_modules/.bin/tauri",
     "node_modules/.bin/tauri.cmd",
@@ -700,6 +701,11 @@ fn detect_uncached(root: &Path) -> Detection {
     }
     if has_dep(pkg, "react") {
         add("react", "React", "dependência react".into());
+    }
+    if root.join("tsconfig.json").is_file() {
+        add("typescript", "TypeScript", "tsconfig.json".into());
+    } else if has_dep(pkg, "typescript") {
+        add("typescript", "TypeScript", "dependência typescript".into());
     }
     if let Some(file) = exists_any(
         root,

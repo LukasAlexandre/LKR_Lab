@@ -22,7 +22,7 @@ Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão apro
 | 02 | Concept 01 — Primeiro acesso / Computador não cadastrado | CONCLUÍDO (visual APROVADO) | [CONCEPT-01](../../concepts/machine-registry/CONCEPT-01.md), [imagem](../../concepts/machine-registry/concept-01-first-access.webp) |
 | 03 | Concept 02 — Machine Health Dashboard | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — ver D02) | [CONCEPT-02](../../concepts/machine-registry/CONCEPT-02.md), [imagem](../../concepts/machine-registry/concept-02-machine-health.webp) |
 | 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
-| 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
+| 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — ver D03) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
 | 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
 | 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
@@ -48,7 +48,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
-| D03 | Projects Foundation (Concepts 03–05) | A INICIAR (nenhuma implementação feita) | `feat/session-001-projects-foundation` |
+| D03 | Projects Foundation (Concepts 03–05) | EM ANDAMENTO (Concept 04 implementado; 03 e 05 pendentes) | `feat/session-001-projects-foundation` |
 
 ### Checkpoint — MACHINE FOUNDATION COMPLETE
 
@@ -60,6 +60,21 @@ A camada **MACHINE** está concluída e integrada na `main` por fast-forward (se
 - **Próximo domínio:** PROJECTS. **Próximo concept de implementação:** Concept 03 — Projetos (depois 04 — Cadastro de Projeto e 05 — Project Control Center), na branch `feat/session-001-projects-foundation`.
 
 A SESSION-001 **continua ATIVA**: ela representa a feature maior (Machine Context & Project Workspace Foundation), da qual a camada MACHINE é a primeira etapa. Os status visuais dos concepts não mudaram.
+
+### Bloco D03 — Projects Foundation (EM ANDAMENTO)
+
+Primeira entrega: **identidade de projeto + inspeção passiva + vínculo local**, base do Concept 04 (Cadastro de Projeto). Concepts 03 (Projetos) e 05 (Project Control Center) seguem sem implementação; o 09 segue EM REFINAMENTO.
+
+- **Identidade:** o ID do projeto continua UUID v4 e nunca deriva de caminho, remote, nome, hash, hostname ou Machine ID. Novo campo opcional **Repository Locator** (`remote` canônico + `path` relativo dentro do repositório Git), portável, com `serde(default)`: projetos antigos carregam sem migração SQL.
+- **Remote canônico (`hub-core::locator`):** SSH, scp-like e HTTPS equivalem; `.git` final removido; porta explícita faz parte da identidade; github.com/gitlab.com/bitbucket.org comparam sem diferenciar caixa, demais hosts preservam a caixa. Credenciais nunca entram. Remote principal: `origin`, senão o remote upstream da branch atual, senão o único remote reconhecível, senão nenhum (sem chute).
+- **Monorepo:** mesmo remote com subpastas diferentes são projetos diferentes. Sem remote ou sem Git: locator indisponível e nenhuma deduplicação automática.
+- **Vínculo local:** o caminho continua só em `project_bindings` (nunca no workspace portátil). Vincular não altera o conteúdo portátil nem o hash de sync.
+- **Detecção de existente (backend):** mesma pasta já vinculada → "já cadastrado nesta máquina"; locator igual → "Projeto já conhecido" (Localizar/Associar, nenhum UUID novo); vínculo válido em outra pasta nunca é sobrescrito em silêncio; vínculo ausente permite Localizar; mais de um candidato → nada é decidido sozinho. O cadastro reclassifica sob a trava do banco, então a UI não é a única proteção.
+- **Inspeção passiva única (`hub-core::inspect`):** reaproveita `runtime::detect`; `projects::discover` virou adaptador. Só lê arquivos e roda Git somente leitura (rev-parse, config, symbolic-ref, status/branch) com `core.fsmonitor=false`. Nunca executa scripts, build, compose nem comandos Git que alterem estado.
+- **API Tauri:** `inspect_project_folder`, `register_project` (locator/stack/repositório vêm do backend, não da UI), `bind_project` mais estrito; `discover_project` mantido.
+- **UI (Concept 04):** página "Novo projeto" (`#projects/new`) com Pasta/Nome (50)/Descrição (200) e painel "Inspeção automática"; Reanalisar preserva o que o usuário digitou; estado "Projeto já conhecido" troca Cadastrar por Localizar/Associar; a prévia web não simula inspeção.
+- **Testes:** 27 testes Rust novos em `crates/hub-core/tests/projects_identity.rs` (normalização, remote principal, monorepo, dedupe, corrida, limites, inspeção sem executar código, Git inalterado, portátil sem caminho, projeto antigo sem locator) e 15 testes de lógica pura em `src/shared/projectInspection.test.ts`.
+- **Limites conhecidos:** duas máquinas que cadastram o mesmo repositório antes de sincronizar ainda podem criar UUIDs distintos (cada backend só enxerga o próprio banco); projetos antigos Missing/Unbound ficam sem locator até serem associados por edição; a validação visual da janela desktop (seletor nativo de pasta) ainda precisa ser feita pelo usuário.
 
 ### Bloco D01 — Machine Registry Foundation (CONCLUÍDO)
 
@@ -101,7 +116,7 @@ Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como esta
 | 01 | Primeiro acesso / Computador não cadastrado | APROVADO / IMPLEMENTADO |
 | 02 | Dashboard da Máquina / Machine Health | APROVADO / IMPLEMENTADO |
 | 03 | Projetos | APROVADO |
-| 04 | Cadastro de Projeto | APROVADO |
+| 04 | Cadastro de Projeto | APROVADO / IMPLEMENTADO (validação visual no desktop pendente) |
 | 05 | Project Control Center | APROVADO |
 | 06 | DDAE / Sessões | APROVADO |
 | 07 | DDAE / Detalhe da Sessão | APROVADO |

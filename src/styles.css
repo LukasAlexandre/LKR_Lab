@@ -1961,3 +1961,25 @@ summary {
 .mh-gpus td { padding: 6px 8px; color: #c3d3e3; border-bottom: 1px solid #16273a; }
 .mh-gpus td:first-child { color: var(--text-strong); }
 .mh-temp.level-unrated .mh-bar i { background: #5f7790; }
+
+/* Concept 04 · Novo projeto */
+.new-project .breadcrumb { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; color: var(--muted, #8b98a9); font-size: 12px; }
+.new-project .link-button { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; font: inherit; }
+.new-project .link-button:hover { color: var(--accent); }
+.new-project-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; align-items: start; }
+.new-project-form { display: grid; gap: 14px; }
+.new-project-form label { display: grid; gap: 6px; }
+.new-project .counter { justify-self: end; color: var(--muted, #8b98a9); font-size: 11px; }
+.new-project .field-error { color: #f06b6b; }
+.inspection { display: grid; gap: 12px; }
+.inspection-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.inspection-head h2 { margin: 0; margin-right: auto; font-size: 15px; }
+.inspection-list { display: grid; gap: 10px; margin: 0; }
+.inspection-list > div { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; }
+.inspection-list dt { display: flex; align-items: center; gap: 5px; color: var(--muted, #8b98a9); font-size: 12px; }
+.inspection-list dd { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.inspection-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+@media (max-width: 900px) {
+  .new-project-grid { grid-template-columns: minmax(0, 1fr); }
+  .inspection-list > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}

@@ -40,19 +40,21 @@ import { GitSummary } from "./features/GitSummary";
 import { Worktrees } from "./features/Worktrees";
 import { AgentProviders } from "./features/AgentProviders";
 import { Knowledge } from "./features/Knowledge";
-import { routes, routeFromHash } from "./app/routing";
+import { routes, routeFromHash, isNewProjectHash, NEW_PROJECT_HASH } from "./app/routing";
 import { WindowTitleBar } from "./shell/WindowTitleBar";
 import { LocationNotice } from "./components/LocationNotice";
 import { SyncIndicator } from "./components/SyncIndicator";
 import { ProjectRuntime, RuntimeDesktopOnly } from "./features/ProjectRuntime";
 import { ThisMachine } from "./features/ThisMachine";
 import { useMachine } from "./state/machine";
+import { NewProject } from "./features/NewProject";
 import { useTelemetry } from "./state/telemetry";
 import { HEALTH_LABEL } from "./shared/telemetry";
 export default function App() {
   const machine = useMachine().status?.machine;
   const health = useTelemetry().latest?.health.status;
   const [route, setRoute] = useState(routeFromHash);
+  const [creating, setCreating] = useState(isNewProjectHash);
   const selectedId = useActiveProjectId();
   const setSelectedId = workspace.selectProject;
   const projectsSource = useResource(workspace.projects);
@@ -93,6 +95,16 @@ export default function App() {
     setRoute(id);
     setPalette(false);
   }, []);
+  const openNewProject = useCallback(() => {
+    window.location.hash = NEW_PROJECT_HASH;
+    setRoute("projects");
+    setCreating(true);
+    setPalette(false);
+  }, []);
+  const closeNewProject = useCallback(() => {
+    window.location.hash = "projects";
+    setCreating(false);
+  }, []);
   const closeForm = useCallback(() => setForm(null), []),
     closePalette = useCallback(() => setPalette(false), []),
     closeSnapshot = useCallback(() => setSnapshot(null), []),
@@ -102,7 +114,10 @@ export default function App() {
   useEffect(() => {
     void loadRegistry();
     if (desktop) void refresh();
-    const onHash = () => setRoute(routeFromHash());
+    const onHash = () => {
+      setRoute(routeFromHash());
+      setCreating(isNewProjectHash());
+    };
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -336,6 +351,16 @@ export default function App() {
           <div className="avatar">LK</div>
         </header>
         <main>
+          {creating ? (
+            <NewProject
+              close={closeNewProject}
+              done={(id) => {
+                setSelectedId(id);
+                closeNewProject();
+                setToast("Projeto cadastrado.");
+              }}
+            />
+          ) : (<>
           {/* O Dashboard é a visão da máquina (Concept 02) e tem cabeçalho próprio. */}
           {route !== "dashboard" && (<>
           <div className="page-heading">
@@ -347,7 +372,7 @@ export default function App() {
             <div className="heading-actions">
               {projectSelect}
               <Refresh onClick={() => void refresh()} busy={busy} />
-              <button className="button primary" onClick={() => setForm("new")}>
+              <button className="button primary" onClick={openNewProject}>
                 <Plus size={16} />
                 Novo projeto
               </button>
@@ -411,7 +436,7 @@ export default function App() {
                 projects={projects}
                 open={setSelectedId}
                 launch={launch}
-                add={() => setForm("new")}
+                add={openNewProject}
                 edit={setForm}
                 remove={remove}
               />
@@ -765,6 +790,7 @@ export default function App() {
               </Panel>
             </div>
           )}
+          </>)}
           <footer className="statusbar">
             <span>
               <span className={`dot ${desktop ? "green" : ""}`} />

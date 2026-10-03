@@ -1,3 +1,4 @@
+use crate::locator::RepositoryLocator;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -10,6 +11,10 @@ pub struct Project {
     /// Nunca é gravado no cadastro portátil nem usado como identidade.
     #[serde(default)]
     pub local_path: String,
+    /// Identidade auxiliar portátil (remote canônico + caminho no repositório), derivada da pasta
+    /// pelo backend; ausente em projetos antigos, sem Git ou sem remote. Nunca contém caminho local.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub locator: Option<RepositoryLocator>,
     pub repository: String,
     pub stack: Vec<String>,
     pub tags: Vec<String>,

@@ -111,6 +111,38 @@
     return !/[@?#\\\s\u0000-\u001f\u007f]/.test(url) && /^[A-Za-z0-9.-]+$/.test(host);
   }
 
+  /**
+   * Locator portátil: remote canônico ("host[:porta]/dono/repo") + caminho RELATIVO no repositório.
+   * Nunca caminho absoluto, ".." , "\\", credencial ou esquema (mesmas regras do hub-core/portable.rs).
+   */
+  function locator(raw, where) {
+    if (raw === undefined || raw === null) return undefined;
+    if (!isPlainObject(raw)) fail(where, "locator inválido");
+    const remote = text(raw.remote, where + ".remote", 400, { required: true, trim: true });
+    const path = text(raw.path, where + ".path", 500, { trim: true }).replace(/^\/+|\/+$/g, "");
+    const parts = remote.split("/");
+    const hostOk = parts[0] !== "" && !/^[.-]/.test(parts[0]);
+    const rest = parts.slice(1);
+    const remoteOk =
+      hostOk &&
+      rest.length > 0 &&
+      !remote.includes("://") &&
+      !/[@\\?#\s]/.test(remote) &&
+      // eslint-disable-next-line no-control-regex
+      !/[\u0000-\u001f\u007f]/.test(remote) &&
+      rest.every((s) => s !== "" && s !== "." && s !== ".." && !s.includes(":"));
+    if (!remoteOk) fail(where + ".remote", "use o remote canônico (host/dono/repo), sem esquema, credencial ou caminho local");
+    const pathOk =
+      path === "" ||
+      (!isAbsolutePath(path) &&
+        !/[\\:]/.test(path) &&
+        // eslint-disable-next-line no-control-regex
+        !/[\u0000-\u001f\u007f]/.test(path) &&
+        path.split("/").every((s) => s !== "" && s !== "." && s !== ".."));
+    if (!pathOk) fail(where + ".path", "use um caminho relativo dentro do repositório (sem caminho local)");
+    return { remote, path };
+  }
+
   function project(raw, where) {
     if (!isPlainObject(raw)) fail(where, "projeto inválido");
     const repository = text(raw.repository, where + ".repository", 2048, { trim: true });
@@ -140,11 +172,14 @@
       });
       return { name: text(command.name, at + ".name", LIMITS.commandName, { trim: true }), program, args };
     });
+    const found = locator(raw.locator, where + ".locator");
     return {
       id: id(raw.id, where + ".id"),
       name: text(raw.name, where + ".name", LIMITS.name, { required: true, trim: true }),
       description: text(raw.description, where + ".description", LIMITS.description),
       repository,
+      // Só aparece quando existe: workspaces antigos (sem locator) mantêm a mesma forma canônica.
+      ...(found ? { locator: found } : {}),
       stack: strings(raw.stack, "stack"),
       tags: strings(raw.tags, "tags"),
       ports,
