@@ -84,6 +84,14 @@ Integrado à `main` por fast-forward (`2f9e528`). As branches `feat/session-001-
 - **Estado atual do DDAE:** existe apenas como documentação em `docs/ddae/sessions/*.md`; não há modelo, banco, API nem persistência de sessões ou blocos.
 - **Próximo domínio:** DDAE. **Próximo concept:** 06 — DDAE / Sessões (branch `feat/session-001-ddae-foundation`), com o 07 auditado junto. SESSION-001 continua ATIVA; Concept 09 segue EM REFINAMENTO.
 
+### Checkpoint — DDAE FOUNDATION COMPLETE
+
+Integrado à `main` por fast-forward (`bf3982f`). A branch `feat/session-001-ddae-foundation` foi preservada.
+
+- **Concept 06 — DDAE / Sessões:** IMPLEMENTADO E VALIDADO NO DESKTOP (ver D04). SQLite como fonte de verdade, Session = Feature, uma ATIVA por Project, Blocks, Decisions, contexto determinístico, Ready for AI derivado, Workspace portátil v2 e importação idempotente da SESSION-001.
+- **Próximo domínio:** Concept 07 — Detalhe da Session. **Concept 07: A INICIAR** (branch `feat/session-001-ddae-session-detail`); auditoria em [CONCEPT-07-session-detail-audit.md](../audits/CONCEPT-07-session-detail-audit.md). Nada do Concept 07 foi implementado.
+- SESSION-001 continua ATIVA (9/10, bloco atual Concept 09); Concept 09 segue EM REFINAMENTO.
+
 ### Bloco D04 — DDAE Foundation / Concept 06 (IMPLEMENTADO E VALIDADO NO DESKTOP)
 
 - **Fonte de verdade:** SQLite (migration `006_ddae.sql`, `user_version=6`: `ddae_sessions`, `ddae_blocks`, `ddae_decisions`). Markdown é só documentação/export. SESSION = FEATURE e sempre pertence a um Project.
