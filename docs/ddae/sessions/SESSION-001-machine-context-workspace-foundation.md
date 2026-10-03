@@ -57,9 +57,20 @@ A camada **MACHINE** está concluída e integrada na `main` por fast-forward (se
 - **Concept 01 — Machine Registry:** IMPLEMENTADO (Machine ID persistente, cadastro e edição de metadata, gate frontend/backend, SQLite local, inventário, refresh de 6 h e manual, web preview segura).
 - **Concept 02 — Machine Health:** IMPLEMENTADO (inventário separado da telemetria, capabilities, sampler único, saúde e alertas).
 - **Validação cross-machine:** concluída em uma segunda workstation, que revelou e corrigiu displays virtuais contados como GPUs físicas (ver D02). Refresh operacional do inventário confirmado com 1 GPU física.
-- **Próximo domínio:** PROJECTS. **Próximo concept de implementação:** Concept 03 — Projetos (depois 04 — Cadastro de Projeto e 05 — Project Control Center), na branch `feat/session-001-projects-foundation`.
+- **Próximo domínio:** PROJECTS (concluído no checkpoint seguinte: Concepts 03 e 04); depois, 05 — Project Control Center.
 
 A SESSION-001 **continua ATIVA**: ela representa a feature maior (Machine Context & Project Workspace Foundation), da qual a camada MACHINE é a primeira etapa. Os status visuais dos concepts não mudaram.
+
+### Checkpoint — PROJECTS FOUNDATION COMPLETE
+
+Integrado à `main` por fast-forward (`c2a543b`). A camada PROJECTS (Concepts 03 e 04) está concluída.
+
+- **Concept 03 — Projetos:** IMPLEMENTADO E VALIDADO NO DESKTOP.
+- **Concept 04 — Cadastro de Projeto:** IMPLEMENTADO E VALIDADO NO DESKTOP.
+- **Validação manual:** cadastro, inspeção passiva, prevenção de duplicação, Reanalisar, Cancelar, overview de Projetos com Git/runtime reais, busca e filtros.
+- **Validação automatizada (não exercitada manualmente):** Missing, Unbound, Localizar, binding alternativo, monorepo, falhas parciais.
+- **Divergências cosméticas registradas (sem redesenho):** o Concept 03 prevê busca por tags, filtro de stack, alternância grade/lista e seletor de máquina na topbar (não implementados; tags saíram do cadastro); o Concept 04 prevê Cadastrar/Cancelar no cabeçalho e o resumo "Pronto para cadastrar" com computador.
+- **Próximo domínio:** PROJECT CONTROL CENTER. **Concept 05:** A INICIAR (branch `feat/session-001-project-control-center`). SESSION-001 continua ATIVA; Concept 09 segue EM REFINAMENTO.
 
 ### Bloco D03 — Projects Foundation (EM ANDAMENTO)
 
