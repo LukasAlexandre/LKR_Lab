@@ -48,7 +48,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
-| D03 | Projects Foundation (Concepts 03–05) | EM ANDAMENTO (Concepts 03, 04 e 05 implementados e validados no desktop) | `feat/session-001-projects-foundation` |
+| D03 | Projects Foundation (Concepts 03–05) | CONCLUÍDO (Concepts 03, 04 e 05 implementados e validados no desktop) | `feat/session-001-projects-foundation`, `feat/session-001-project-control-center` |
 
 ### Checkpoint — MACHINE FOUNDATION COMPLETE
 
@@ -71,6 +71,17 @@ Integrado à `main` por fast-forward (`c2a543b`). A camada PROJECTS (Concepts 03
 - **Validação automatizada (não exercitada manualmente):** Missing, Unbound, Localizar, binding alternativo, monorepo, falhas parciais.
 - **Divergências cosméticas registradas (sem redesenho):** o Concept 03 prevê busca por tags, filtro de stack, alternância grade/lista e seletor de máquina na topbar (não implementados; tags saíram do cadastro); o Concept 04 prevê Cadastrar/Cancelar no cabeçalho e o resumo "Pronto para cadastrar" com computador.
 - **Próximo domínio:** PROJECT CONTROL CENTER. **Concept 05:** A INICIAR (branch `feat/session-001-project-control-center`). SESSION-001 continua ATIVA; Concept 09 segue EM REFINAMENTO.
+
+### Checkpoint — PROJECT CONTEXT FOUNDATION COMPLETE
+
+Integrado à `main` por fast-forward (`2f9e528`). As branches `feat/session-001-projects-foundation` e `feat/session-001-project-control-center` foram preservadas.
+
+- **Concept 03 — Projetos:** IMPLEMENTADO E VALIDADO NO DESKTOP.
+- **Concept 04 — Cadastro de Projeto:** IMPLEMENTADO E VALIDADO NO DESKTOP.
+- **Concept 05 — Project Control Center:** IMPLEMENTADO E VALIDADO NO DESKTOP (rota `#project/<id>/<área>`, sidebar "PROJETO ATUAL", Visão geral com dados reais; DDAE e Planejamento são placeholders honestos).
+- **Cobertos só por teste automatizado:** Missing/Unbound no Project Control Center, Localizar, binding alternativo, monorepo, falhas parciais.
+- **Estado atual do DDAE:** existe apenas como documentação em `docs/ddae/sessions/*.md`; não há modelo, banco, API nem persistência de sessões ou blocos.
+- **Próximo domínio:** DDAE. **Próximo concept:** 06 — DDAE / Sessões (branch `feat/session-001-ddae-foundation`), com o 07 auditado junto. SESSION-001 continua ATIVA; Concept 09 segue EM REFINAMENTO.
 
 ### Bloco D03 — Projects Foundation (EM ANDAMENTO)
 
