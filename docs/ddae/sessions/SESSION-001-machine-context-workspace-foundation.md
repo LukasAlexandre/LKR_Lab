@@ -24,7 +24,7 @@ Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão apro
 | 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
 | 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
 | 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
-| 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — validação manual no desktop pendente, ver D04) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
+| 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D04) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
 | 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
 | 10 | Concept 09 — Planejamento | EM ANDAMENTO (visual EM REFINAMENTO) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
@@ -48,7 +48,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
-| D04 | DDAE Foundation (Concept 06) | IMPLEMENTADO; validação manual no desktop pendente | `feat/session-001-ddae-foundation` |
+| D04 | DDAE Foundation (Concept 06) | IMPLEMENTADO E VALIDADO NO DESKTOP | `feat/session-001-ddae-foundation` |
 | D03 | Projects Foundation (Concepts 03–05) | CONCLUÍDO (Concepts 03, 04 e 05 implementados e validados no desktop) | `feat/session-001-projects-foundation`, `feat/session-001-project-control-center` |
 
 ### Checkpoint — MACHINE FOUNDATION COMPLETE
@@ -84,7 +84,7 @@ Integrado à `main` por fast-forward (`2f9e528`). As branches `feat/session-001-
 - **Estado atual do DDAE:** existe apenas como documentação em `docs/ddae/sessions/*.md`; não há modelo, banco, API nem persistência de sessões ou blocos.
 - **Próximo domínio:** DDAE. **Próximo concept:** 06 — DDAE / Sessões (branch `feat/session-001-ddae-foundation`), com o 07 auditado junto. SESSION-001 continua ATIVA; Concept 09 segue EM REFINAMENTO.
 
-### Bloco D04 — DDAE Foundation / Concept 06 (IMPLEMENTADO; validação manual no desktop pendente)
+### Bloco D04 — DDAE Foundation / Concept 06 (IMPLEMENTADO E VALIDADO NO DESKTOP)
 
 - **Fonte de verdade:** SQLite (migration `006_ddae.sql`, `user_version=6`: `ddae_sessions`, `ddae_blocks`, `ddae_decisions`). Markdown é só documentação/export. SESSION = FEATURE e sempre pertence a um Project.
 - **Identidade:** UUID interno estável + `SESSION-NNN` humano, único por Project (nunca reutilizado).
@@ -94,8 +94,13 @@ Integrado à `main` por fast-forward (`2f9e528`). As branches `feat/session-001-
 - **Portabilidade (Workspace v2):** `ddae` entra no `data/workspace.json`; v1 continua legível e vira v2 ao normalizar (mesmo conteúdo = mesmo hash). Validado em Rust (`portable.rs`/`ddae.rs`) e em JS (`lkr-workspace.js`, que descartaria o campo se não o conhecesse); o bridge aceita payload v1–v2. Nunca persiste caminho absoluto, Machine ID, hostname ou IP (texto com caminho local é recusado). O apply do sync substitui o DDAE inteiro numa transação.
 - **SESSION-001 legada:** importada do Markdown da pasta vinculada com UUID determinístico (Project + número), idempotente e igual em qualquer máquina. SESSION-002/003/004 (exemplos do concept) nunca são importadas. Estado real importado: 10 blocos, 9 concluídos, bloco atual = Concept 09 — Planejamento.
 - **UI (`#project/<id>/ddae`):** resumo, busca (SESSION-NNN, título, objetivo), filtros com contadores que fecham com o total, lista e preview master/detail, Nova sessão, ações de ciclo de vida e de bloco. Card DDAE e Próxima ação do Project Control Center usam o backend real (DDAE entra depois de Localizar, conflitos, alterações e erro de runtime).
+- **Contexto da Session e Ready for AI (migration `007_ddae_context.sql`):** a Session ganhou resultado desejado, restrições, critérios de conclusão, notas e referências (caminhos só RELATIVOS ao Project). **Ready for AI é derivado, nunca gravado:** objetivo + resultado desejado + ≥1 bloco + ≥1 critério + (bloco atual OU pendente); Session finalizada = "Contexto disponível". `ddae_generate_context` gera Markdown determinístico (sem LLM, sem data/hora, leitura pura) sem caminho absoluto, Machine ID, hostname, IP, PID ou segredo. `ddae_update_details` define os campos (sem UI até o Concept 07). A SESSION-001 importada **não é "pronta"**: o Markdown histórico não traz resultado desejado nem critérios, e nada é inventado.
 - **Divergências cosméticas (sem redesenho):** menus "⋯" do concept não foram implementados; **Abrir sessão** está desabilitado até o Concept 07 (Detalhe da Sessão); a busca global da topbar não indexa sessões; adicionar blocos só existe na API (sem UI até o 07).
-- **Validação:** testes Rust (31 em `tests/ddae.rs` + sync/portable) e JS (lógica, render da tela, Próxima ação, workspace v2). A tela foi conferida visualmente com o componente real e `invoke` simulado; **a validação manual no app desktop real ainda não foi feita**. Concept 09 segue EM REFINAMENTO.
+- **VALIDADO MANUALMENTE (desktop real, hub.db real deste PC, 03/10/2026):**
+  - *Banco real (leitura somente leitura + API sem escrita):* 1 Project LKR_Lab (locator `github.com/lukasalexandre/lkr_lab`), 1 binding local sem duplicatas; exatamente 1 SESSION-001 (UUID determinístico `9e5dfe47-…`), ativa, 10 blocos, 9 concluídos, atual = Concept 09 — Planejamento, próximo = nenhum, progresso 9/10; nenhuma SESSION-002/003/004; reimportar duas vezes devolve `AlreadyImported` sem duplicar (o marcador de importação é a identidade determinística + a atividade "DDAE: SESSION-001 importada do histórico do projeto"). Ready for AI = falso, faltando resultado desejado e critérios de conclusão. O contexto real é determinístico e não contém caminho local, Machine ID, nome do computador, usuário, IP ou PID.
+  - *Tela, confirmada pelo usuário no app desktop:* LKR_Lab → DDAE / Sessões abre; só a SESSION-001, ATIVA, 9/10, bloco atual Concept 09, sem próximo bloco; busca por SESSION-001; Todas = 1 e Ativa = 1; Congelada/Parada/Finalizada com estado vazio (0); preview da SESSION-001; "Contexto IA: Contexto incompleto — Falta: resultado desejado, critérios de conclusão"; Nova sessão recusou criar uma segunda ACTIVE; a Visão geral do Project Control Center mostrou o card DDAE real; nenhuma SESSION-002/003/004.
+- **COBERTO POR TESTES AUTOMATIZADOS (não exercitado manualmente):** congelar/parar/retomar/finalizar e transições de bloco; estados congelada/parada/finalizada na lista e suas linhas de contexto; criação de sessão e recusa da segunda ativa no backend; invariantes no banco (uma ativa por projeto, um in_progress por sessão, finalizada terminal); workspace v2 (leitura de v1, sync, hash estável, sem caminho absoluto) em Rust e JS; Próxima ação (DDAE depois de Localizar, conflitos, alterações e erro de runtime); Ready for AI e contexto (determinismo, campos ausentes, completo/finalizado, sem dado local); importação idempotente e igual em qualquer máquina. Missing/Unbound no DDAE não foram exercitados manualmente.
+- **Limitações aceitas / não bloqueantes:** "Abrir sessão" desabilitado até o Concept 07; menus "⋯" sem implementação; adicionar blocos e preencher os campos de contexto só existem na API (sem UI); Planejamento segue como placeholder. **Concept 07: APROVADO VISUALMENTE, NÃO IMPLEMENTADO. Concept 09: EM REFINAMENTO. SESSION-001 segue ATIVA.**
 
 ### Bloco D03 — Projects Foundation (EM ANDAMENTO)
 
@@ -181,8 +186,8 @@ Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como esta
 | 03 | Projetos | APROVADO |
 | 04 | Cadastro de Projeto | APROVADO / IMPLEMENTADO (validação visual no desktop pendente) |
 | 05 | Project Control Center | APROVADO |
-| 06 | DDAE / Sessões | APROVADO / IMPLEMENTADO (validação manual no desktop pendente) |
-| 07 | DDAE / Detalhe da Sessão | APROVADO |
+| 06 | DDAE / Sessões | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
+| 07 | DDAE / Detalhe da Sessão | APROVADO VISUALMENTE / NÃO IMPLEMENTADO |
 | 08 | Worktrees | APROVADO |
 | 09 | Planejamento | EM REFINAMENTO |
 
