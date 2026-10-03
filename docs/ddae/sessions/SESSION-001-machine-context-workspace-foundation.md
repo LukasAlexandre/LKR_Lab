@@ -48,6 +48,18 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
+| D03 | Projects Foundation (Concepts 03–05) | A INICIAR (nenhuma implementação feita) | `feat/session-001-projects-foundation` |
+
+### Checkpoint — MACHINE FOUNDATION COMPLETE
+
+A camada **MACHINE** está concluída e integrada na `main` por fast-forward (sem commit de merge). A branch `feat/session-001-machine-registry` foi preservada como marco histórico.
+
+- **Concept 01 — Machine Registry:** IMPLEMENTADO (Machine ID persistente, cadastro e edição de metadata, gate frontend/backend, SQLite local, inventário, refresh de 6 h e manual, web preview segura).
+- **Concept 02 — Machine Health:** IMPLEMENTADO (inventário separado da telemetria, capabilities, sampler único, saúde e alertas).
+- **Validação cross-machine:** concluída em uma segunda workstation, que revelou e corrigiu displays virtuais contados como GPUs físicas (ver D02). Refresh operacional do inventário confirmado com 1 GPU física.
+- **Próximo domínio:** PROJECTS. **Próximo concept de implementação:** Concept 03 — Projetos (depois 04 — Cadastro de Projeto e 05 — Project Control Center), na branch `feat/session-001-projects-foundation`.
+
+A SESSION-001 **continua ATIVA**: ela representa a feature maior (Machine Context & Project Workspace Foundation), da qual a camada MACHINE é a primeira etapa. Os status visuais dos concepts não mudaram.
 
 ### Bloco D01 — Machine Registry Foundation (CONCLUÍDO)
 
@@ -86,7 +98,7 @@ Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como esta
 
 | # | Concept | Status |
 |---|---------|--------|
-| 01 | Primeiro acesso / Computador não cadastrado | APROVADO |
+| 01 | Primeiro acesso / Computador não cadastrado | APROVADO / IMPLEMENTADO |
 | 02 | Dashboard da Máquina / Machine Health | APROVADO / IMPLEMENTADO |
 | 03 | Projetos | APROVADO |
 | 04 | Cadastro de Projeto | APROVADO |
