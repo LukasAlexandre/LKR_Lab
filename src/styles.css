@@ -2204,3 +2204,9 @@ summary {
 @media (max-width: 1100px) {
   .ddae-body { grid-template-columns: minmax(0, 1fr); grid-template-areas: "list" "preview" "next"; }
 }
+.ddae-context { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 0; font-size: 13px; color: var(--text-strong); }
+.ddae-context small { color: var(--muted); font-size: 12px; }
+.ddae-context span { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+.ddae-context.is-ready { color: var(--ddae-done); }
+.ddae-context.is-incomplete { color: var(--warning); }
+.ddae-context.is-available { color: #a6b4c4; }

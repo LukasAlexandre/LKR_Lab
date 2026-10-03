@@ -21,7 +21,7 @@ function view(number: number, status: DdaeSessionStatus, extra: Partial<DdaeSess
     id: `id-${number}`, projectId: "p", number, label: `SESSION-${String(number).padStart(3, "0")}`, title: `Sessão ${number}`, objective: "Objetivo real",
     status, blocks, decisions: [], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
     progress: { completed, total: blocks.length }, currentBlock: blocks.find((b) => b.status === "in_progress") ?? null,
-    nextBlock: blocks.find((b) => b.status === "pending") ?? null, canComplete: blocks.length > 0 && completed === blocks.length, recentDecision: null, ...extra,
+    nextBlock: blocks.find((b) => b.status === "pending") ?? null, canComplete: blocks.length > 0 && completed === blocks.length, recentDecision: null, readyForAi: { state: "incomplete", ready: false, missing: ["desired_outcome", "criteria"] }, ...extra,
   };
 }
 function overview(projectId: string, sessions: DdaeSessionView[], activeId: string | null): DdaeOverview {
@@ -85,6 +85,13 @@ describe("DDAE / Sessões (dados reais)", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>).)*Abrir sessão/s);
     expect(html).toContain("Próxima ação");
     expect(html).toContain("Continuar Concept 09 — Planejamento");
+  });
+  it("Contexto IA: discreto, derivado, diz o que falta (SESSION-001 legada não é inventada)", () => {
+    const html = render(REAL);
+    expect(html).toContain("Contexto IA");
+    expect(html).toContain("Contexto incompleto");
+    expect(html).toContain("Falta: resultado desejado, critérios de conclusão.");
+    expect(html).not.toMatch(/type="checkbox"/);
   });
   it("congelada/parada/finalizada mostram o motivo, o próximo passo e o resultado; só a ativa pulsa", () => {
     const html = render(MIXED);

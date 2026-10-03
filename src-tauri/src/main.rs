@@ -362,6 +362,23 @@ fn ddae_add_decision(
 ) -> HubResult<hub_core::ddae::Session> {
     db(&state)?.ddae_add_decision(&session_id, &title, &body)
 }
+/// Define objetivo, resultado desejado, restrições, critérios, notas e referências da Session.
+#[tauri::command]
+fn ddae_update_details(
+    state: State<AppState>,
+    session_id: String,
+    details: hub_core::ddae::Details,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_update_details(&session_id, details)
+}
+/// Contexto determinístico da Session (Markdown) + Ready for AI derivado. Sem LLM.
+#[tauri::command]
+fn ddae_generate_context(
+    state: State<AppState>,
+    session_id: String,
+) -> HubResult<hub_core::ddae::SessionContext> {
+    db(&state)?.ddae_generate_context(&session_id)
+}
 #[tauri::command]
 fn export_portable(state: State<AppState>) -> HubResult<hub_core::portable::PortableWorkspace> {
     db(&state)?.export_portable()
@@ -763,7 +780,9 @@ fn main() {
             ddae_stop,
             ddae_resume,
             ddae_complete,
-            ddae_add_decision
+            ddae_add_decision,
+            ddae_update_details,
+            ddae_generate_context
         ]))
         .build(tauri::generate_context!());
     match result {

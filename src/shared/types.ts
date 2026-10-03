@@ -552,12 +552,33 @@ export interface DdaeDecision {
   body: string;
   createdAt: string;
 }
+export type DdaeReferenceKind = "project_path" | "url";
+export interface DdaeReference {
+  kind: DdaeReferenceKind;
+  value: string;
+}
+export type DdaeContextState = "ready" | "incomplete" | "available";
+/** Derivado no backend (nunca gravado): a Session tem o necessário para um agente continuá-la? */
+export interface DdaeReadyForAi {
+  state: DdaeContextState;
+  ready: boolean;
+  missing: ("objective" | "desired_outcome" | "blocks" | "criteria" | "actionable_block")[];
+}
+export interface DdaeSessionContext {
+  markdown: string;
+  readyForAi: DdaeReadyForAi;
+}
 export interface DdaeSession {
   id: string;
   projectId: string;
   number: number;
   title: string;
   objective: string;
+  desiredOutcome?: string;
+  constraints?: string[];
+  criteria?: string[];
+  notes?: string[];
+  references?: DdaeReference[];
   status: DdaeSessionStatus;
   pauseReason?: string;
   result?: string;
@@ -575,6 +596,7 @@ export interface DdaeSessionView extends DdaeSession {
   nextBlock: DdaeBlock | null;
   canComplete: boolean;
   recentDecision: DdaeDecision | null;
+  readyForAi: DdaeReadyForAi;
 }
 export interface DdaeCounts {
   total: number;

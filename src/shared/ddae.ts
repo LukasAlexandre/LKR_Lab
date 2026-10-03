@@ -1,5 +1,5 @@
 import { normalizeSearch } from "./search";
-import type { DdaeCounts, DdaeOverview, DdaeSessionStatus, DdaeSessionView } from "./types";
+import type { DdaeCounts, DdaeOverview, DdaeReadyForAi, DdaeSessionStatus, DdaeSessionView } from "./types";
 
 /*
  * Lógica pura do DDAE / Sessões (Concept 06). Só o que o backend já entrega: o estado da Session
@@ -137,4 +137,23 @@ export function deriveDdaeNextAction(overview: DdaeOverview | null | undefined):
     };
   }
   return null;
+}
+
+const MISSING_LABEL: Record<DdaeReadyForAi["missing"][number], string> = {
+  objective: "objetivo",
+  desired_outcome: "resultado desejado",
+  blocks: "blocos",
+  criteria: "critérios de conclusão",
+  actionable_block: "bloco atual ou pendente",
+};
+
+/** Texto discreto do Contexto IA no preview: derivado do backend, sem checkbox manual. */
+export function contextStatus(ready: DdaeReadyForAi): { label: string; tone: "ready" | "incomplete" | "available"; detail: string } {
+  if (ready.state === "ready") return { label: "Pronto", tone: "ready", detail: "A sessão tem o necessário para um agente continuá-la." };
+  if (ready.state === "available") return { label: "Contexto disponível", tone: "available", detail: "Sessão finalizada: o contexto pode ser gerado." };
+  return {
+    label: "Contexto incompleto",
+    tone: "incomplete",
+    detail: ready.missing.length ? `Falta: ${ready.missing.map((m) => MISSING_LABEL[m]).join(", ")}.` : "Faltam informações.",
+  };
 }

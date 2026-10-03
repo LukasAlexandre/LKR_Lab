@@ -59,6 +59,9 @@
     blocks: 500,
     decisions: 500,
     sessions: 10000,
+    outcome: 2000,
+    detailItem: 500,
+    detailItems: 50,
   };
 
   // Padrões de credencial conhecidos: o sync é recusado em vez de publicar.
@@ -258,6 +261,35 @@
 
   const optionalDdaeText = (value, where, max) => ddaeText(value, where, max) || undefined;
 
+  const REFERENCE_KINDS = ["project_path", "url"];
+
+  /** Caminho RELATIVO ao Project: sem raiz, unidade, "..", barra invertida ou controle (igual ao hub-core). */
+  const validProjectPath = (value) =>
+    value !== "" &&
+    bytes(value) <= LIMITS.detailItem &&
+    !isAbsolutePath(value) &&
+    !/[\\:]/.test(value) &&
+    !CONTROL_CHARS.test(value) &&
+    value.split("/").every((seg) => seg !== "" && seg !== "." && seg !== "..");
+
+  function ddaeList(value, where) {
+    return list(value, where, LIMITS.detailItems)
+      .map((item, i) => ddaeText(item, where + "[" + i + "]", LIMITS.detailItem))
+      .filter(Boolean);
+  }
+
+  function ddaeReferences(value, where) {
+    return list(value, where, LIMITS.detailItems).map((ref, i) => {
+      const at = where + "[" + i + "]";
+      if (!isPlainObject(ref)) fail(at, "referência inválida");
+      if (!REFERENCE_KINDS.includes(ref.kind)) fail(at + ".kind", "tipo desconhecido");
+      const refValue = text(ref.value, at + ".value", LIMITS.detailItem, { required: true, trim: true });
+      if (ref.kind === "project_path" && !validProjectPath(refValue)) fail(at + ".value", "use um caminho RELATIVO ao projeto (sem caminho local nem \"..\")");
+      if (ref.kind === "url" && !validRepository(refValue)) fail(at + ".value", "use uma URL https sem credenciais");
+      return { kind: ref.kind, value: refValue };
+    });
+  }
+
   function claimId(seen, value, where) {
     if (seen.has(value)) fail(where, "id duplicado (" + value + ")");
     seen.add(value);
@@ -295,6 +327,11 @@
         createdAt: stamp(decision.createdAt, at + ".createdAt"),
       };
     });
+    const desiredOutcome = ddaeText(raw.desiredOutcome, where + ".desiredOutcome", LIMITS.outcome);
+    const constraints = ddaeList(raw.constraints, where + ".constraints");
+    const criteria = ddaeList(raw.criteria, where + ".criteria");
+    const notes = ddaeList(raw.notes, where + ".notes");
+    const references = ddaeReferences(raw.references, where + ".references");
     const pauseReason = optionalDdaeText(raw.pauseReason, where + ".pauseReason", LIMITS.reason);
     const result = optionalDdaeText(raw.result, where + ".result", LIMITS.result);
     const completedAt = stamp(raw.completedAt, where + ".completedAt") || undefined;
@@ -304,6 +341,12 @@
       number: raw.number,
       title: ddaeText(raw.title, where + ".title", LIMITS.sessionTitle, { required: true }),
       objective: ddaeText(raw.objective, where + ".objective", LIMITS.objective),
+      // Só aparecem quando existem (mesma forma canônica do Rust: skip_serializing_if).
+      ...(desiredOutcome ? { desiredOutcome } : {}),
+      ...(constraints.length ? { constraints } : {}),
+      ...(criteria.length ? { criteria } : {}),
+      ...(notes.length ? { notes } : {}),
+      ...(references.length ? { references } : {}),
       status: raw.status,
       ...(pauseReason ? { pauseReason } : {}),
       ...(result ? { result } : {}),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FILTERS, breakdownText, contextLine, deriveDdaeNextAction, filterCounts, matchesQuery, progressFraction, progressText, statusBadge, summarize, visibleSessions } from "./ddae";
+import { FILTERS, breakdownText, contextLine, contextStatus, deriveDdaeNextAction, filterCounts, matchesQuery, progressFraction, progressText, statusBadge, summarize, visibleSessions } from "./ddae";
 import type { DdaeBlock, DdaeBlockStatus, DdaeOverview, DdaeSessionStatus, DdaeSessionView } from "./types";
 
 const block = (id: string, title: string, status: DdaeBlockStatus): DdaeBlock => ({ id, title, status });
@@ -24,6 +24,7 @@ function session(number: number, status: DdaeSessionStatus, extra: Partial<DdaeS
     nextBlock: blocks.find((b) => b.status === "pending") ?? null,
     canComplete: blocks.length > 0 && completed === blocks.length,
     recentDecision: null,
+    readyForAi: { state: "incomplete", ready: false, missing: ["desired_outcome", "criteria"] },
     ...extra,
   };
 }
@@ -145,5 +146,15 @@ describe("próxima ação do DDAE", () => {
   it("uma sessão congelada com bloco em andamento não gera ação (só a ativa)", () => {
     const frozen = session(1, "frozen", { blocks: [block("d", "X", "in_progress")] });
     expect(deriveDdaeNextAction(overview([frozen], null))).toBeNull();
+  });
+});
+
+describe("Contexto IA (derivado do backend)", () => {
+  it("pronto, incompleto (com o que falta) e disponível", () => {
+    expect(contextStatus({ state: "ready", ready: true, missing: [] })).toMatchObject({ label: "Pronto", tone: "ready" });
+    expect(contextStatus({ state: "available", ready: false, missing: [] })).toMatchObject({ label: "Contexto disponível", tone: "available" });
+    const incomplete = contextStatus({ state: "incomplete", ready: false, missing: ["desired_outcome", "criteria"] });
+    expect(incomplete.label).toBe("Contexto incompleto");
+    expect(incomplete.detail).toBe("Falta: resultado desejado, critérios de conclusão.");
   });
 });

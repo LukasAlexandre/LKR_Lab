@@ -101,6 +101,22 @@ pub struct Decision {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceKind {
+    /// Caminho RELATIVO ao Project (nunca absoluto).
+    ProjectPath,
+    /// URL https sem credenciais.
+    Url,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reference {
+    pub kind: ReferenceKind,
+    pub value: String,
+}
+
 /// A Session como é guardada E como viaja no workspace portátil (o mesmo formato).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,6 +127,18 @@ pub struct Session {
     pub title: String,
     #[serde(default)]
     pub objective: String,
+    /// Resultado desejado (o que deve existir ao final). Vazio = não informado.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub desired_outcome: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<String>,
+    /// Critérios de conclusão.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub criteria: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<Reference>,
     pub status: SessionStatus,
     /// Por que a Session está congelada/parada (some quando volta a `active`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -189,6 +217,8 @@ pub struct SessionView {
     pub next_block: Option<Block>,
     pub can_complete: bool,
     pub recent_decision: Option<Decision>,
+    /// Derivado (nunca gravado): a Session tem o necessário para um agente continuá-la?
+    pub ready_for_ai: ReadyForAi,
 }
 
 impl From<Session> for SessionView {
@@ -200,6 +230,7 @@ impl From<Session> for SessionView {
             next_block: session.next_block().cloned(),
             can_complete: session.can_complete(),
             recent_decision: session.decisions.last().cloned(),
+            ready_for_ai: ready_for_ai(&session),
             session,
         }
     }
@@ -255,6 +286,158 @@ pub enum LegacyImport {
     AlreadyImported,
     /// Não importada para não violar uma regra (número em uso por outra Session ou 2ª ativa).
     Skipped,
+}
+
+// ------------------------------------------------------------------ Ready for AI
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextState {
+    /// Tem o necessário para um agente continuar.
+    Ready,
+    /// Faltam campos (veja `missing`).
+    Incomplete,
+    /// Sessão finalizada: o contexto continua gerável, mas não há o que "continuar".
+    Available,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadyForAi {
+    pub state: ContextState,
+    pub ready: bool,
+    /// Campos ausentes, por código estável: objective, desired_outcome, blocks, criteria,
+    /// actionable_block.
+    pub missing: Vec<&'static str>,
+}
+
+/// Ready for AI é DERIVADO (nenhum boolean é gravado). Canônico: objetivo, resultado desejado,
+/// ≥1 bloco, ≥1 critério de conclusão e (bloco atual OU bloco pendente). Fatos que o histórico
+/// não traz ficam ausentes: nada é completado por inferência.
+pub fn ready_for_ai(s: &Session) -> ReadyForAi {
+    let mut missing = Vec::new();
+    if s.objective.trim().is_empty() {
+        missing.push("objective");
+    }
+    if s.desired_outcome.trim().is_empty() {
+        missing.push("desired_outcome");
+    }
+    if s.blocks.is_empty() {
+        missing.push("blocks");
+    }
+    if s.criteria.is_empty() {
+        missing.push("criteria");
+    }
+    let completed = s.status == SessionStatus::Completed;
+    if !completed && !s.blocks.is_empty() && s.current_block().is_none() && s.next_block().is_none()
+    {
+        missing.push("actionable_block");
+    }
+    let state = if completed {
+        ContextState::Available
+    } else if missing.is_empty() {
+        ContextState::Ready
+    } else {
+        ContextState::Incomplete
+    };
+    ReadyForAi {
+        state,
+        ready: state == ContextState::Ready,
+        missing,
+    }
+}
+
+// ------------------------------------------------------------------ detalhes (campos de contexto)
+
+pub const MAX_OUTCOME: usize = 2_000;
+pub const MAX_ITEM: usize = 500;
+pub const MAX_ITEMS: usize = 50;
+
+/// O que o usuário pode definir além do título: objetivo, resultado desejado, restrições,
+/// critérios de conclusão, notas e referências.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Details {
+    #[serde(default)]
+    pub objective: String,
+    #[serde(default)]
+    pub desired_outcome: String,
+    #[serde(default)]
+    pub constraints: Vec<String>,
+    #[serde(default)]
+    pub criteria: Vec<String>,
+    #[serde(default)]
+    pub notes: Vec<String>,
+    #[serde(default)]
+    pub references: Vec<Reference>,
+}
+
+fn check_list(field: &str, items: &[String]) -> HubResult<Vec<String>> {
+    if items.len() > MAX_ITEMS {
+        return Err(format!("{field}: máximo de {MAX_ITEMS} itens."));
+    }
+    items
+        .iter()
+        .map(|i| check_text(field, i, MAX_ITEM, false))
+        .filter(|r| r.as_ref().map_or(true, |v| !v.is_empty()))
+        .collect()
+}
+
+/// Caminho relativo ao Project: sem raiz, unidade, `..`, barra invertida ou caracteres de controle.
+fn valid_project_path(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_ITEM
+        && !crate::portable::is_absolute_path(value)
+        && !value.contains(['\\', ':'])
+        && !value.chars().any(|c| c.is_control())
+        && value
+            .split('/')
+            .all(|seg| !seg.is_empty() && seg != "." && seg != "..")
+}
+
+fn check_references(items: &[Reference]) -> HubResult<Vec<Reference>> {
+    if items.len() > MAX_ITEMS {
+        return Err(format!("Referências: máximo de {MAX_ITEMS} itens."));
+    }
+    items
+        .iter()
+        .map(|r| {
+            let value = r.value.trim().to_string();
+            let ok = match r.kind {
+                ReferenceKind::ProjectPath => valid_project_path(&value),
+                ReferenceKind::Url => {
+                    value.len() <= MAX_ITEM && crate::projects::valid_repository(&value)
+                }
+            };
+            if ok {
+                Ok(Reference {
+                    kind: r.kind,
+                    value,
+                })
+            } else {
+                Err(match r.kind {
+                    ReferenceKind::ProjectPath => format!(
+                        "Referência “{value}”: use um caminho RELATIVO ao projeto (sem caminho local nem “..”)."
+                    ),
+                    ReferenceKind::Url => {
+                        format!("Referência “{value}”: use uma URL https sem credenciais.")
+                    }
+                })
+            }
+        })
+        .collect()
+}
+
+/// Valida e aplica a forma canônica (aparada, sem itens vazios).
+pub fn check_details(d: &Details) -> HubResult<Details> {
+    Ok(Details {
+        objective: check_text("Objetivo", &d.objective, MAX_OBJECTIVE, false)?,
+        desired_outcome: check_text("Resultado desejado", &d.desired_outcome, MAX_OUTCOME, false)?,
+        constraints: check_list("Restrições", &d.constraints)?,
+        criteria: check_list("Critérios de conclusão", &d.criteria)?,
+        notes: check_list("Notas", &d.notes)?,
+        references: check_references(&d.references)?,
+    })
 }
 
 // ------------------------------------------------------------------ validação de texto
@@ -351,6 +534,15 @@ pub fn validate_portable(sessions: &[Session], project_ids: &HashSet<&str>) -> H
         }
         check_text("título", &s.title, MAX_TITLE, true).map_err(map)?;
         check_text("objetivo", &s.objective, MAX_OBJECTIVE, false).map_err(map)?;
+        check_details(&Details {
+            objective: s.objective.clone(),
+            desired_outcome: s.desired_outcome.clone(),
+            constraints: s.constraints.clone(),
+            criteria: s.criteria.clone(),
+            notes: s.notes.clone(),
+            references: s.references.clone(),
+        })
+        .map_err(map)?;
         opt_text("motivo", s.pause_reason.as_deref(), MAX_REASON).map_err(map)?;
         opt_text("resultado", s.result.as_deref(), MAX_RESULT).map_err(map)?;
         if s.created_at.len() > MAX_TIMESTAMP
@@ -416,6 +608,18 @@ pub fn normalize(sessions: &mut [Session]) {
     for s in sessions.iter_mut() {
         s.title = s.title.trim().to_string();
         s.objective = s.objective.trim().to_string();
+        s.desired_outcome = s.desired_outcome.trim().to_string();
+        for list in [&mut s.constraints, &mut s.criteria, &mut s.notes] {
+            *list = list
+                .iter()
+                .map(|i| i.trim().to_string())
+                .filter(|i| !i.is_empty())
+                .collect();
+        }
+        for r in &mut s.references {
+            r.value = r.value.trim().to_string();
+        }
+        s.references.retain(|r| !r.value.is_empty());
         trim_opt(&mut s.pause_reason);
         trim_opt(&mut s.result);
         trim_opt(&mut s.completed_at);
@@ -486,67 +690,54 @@ fn load_decisions(conn: &Connection, session_id: &str) -> HubResult<Vec<Decision
     Ok(rows)
 }
 
-type SessionRow = (
-    String,
-    String,
-    u32,
-    String,
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    String,
-    String,
-    Option<String>,
-);
+const SESSION_COLUMNS: &str = "id,project_id,number,title,objective,desired_outcome,constraints,criteria,notes,refs,status,pause_reason,result,created_at,updated_at,completed_at";
 
-const SESSION_COLUMNS: &str = "id,project_id,number,title,objective,status,pause_reason,result,created_at,updated_at,completed_at";
-
-fn row_to_tuple(r: &rusqlite::Row) -> rusqlite::Result<SessionRow> {
-    Ok((
-        r.get(0)?,
-        r.get(1)?,
-        r.get(2)?,
-        r.get(3)?,
-        r.get(4)?,
-        r.get(5)?,
-        r.get(6)?,
-        r.get(7)?,
-        r.get(8)?,
-        r.get(9)?,
-        r.get(10)?,
-    ))
+fn json_column<T: serde::de::DeserializeOwned>(
+    r: &rusqlite::Row,
+    index: usize,
+) -> rusqlite::Result<T> {
+    let text: String = r.get(index)?;
+    serde_json::from_str(&text).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(e))
+    })
 }
 
-fn assemble(conn: &Connection, row: SessionRow) -> HubResult<Session> {
-    let (
-        id,
-        project_id,
-        number,
-        title,
-        objective,
-        status,
-        pause_reason,
-        result,
-        created_at,
-        updated_at,
-        completed_at,
-    ) = row;
+/// Uma linha de `ddae_sessions` (sem blocks nem decisions, que `assemble` carrega).
+fn row_to_session(r: &rusqlite::Row) -> rusqlite::Result<Session> {
+    let status: String = r.get(10)?;
+    let status = SessionStatus::parse(&status).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(
+            10,
+            rusqlite::types::Type::Text,
+            Box::<dyn std::error::Error + Send + Sync>::from(e),
+        )
+    })?;
     Ok(Session {
-        blocks: load_blocks(conn, &id)?,
-        decisions: load_decisions(conn, &id)?,
-        id,
-        project_id,
-        number,
-        title,
-        objective,
-        status: SessionStatus::parse(&status)?,
-        pause_reason,
-        result,
-        created_at,
-        updated_at,
-        completed_at,
+        id: r.get(0)?,
+        project_id: r.get(1)?,
+        number: r.get(2)?,
+        title: r.get(3)?,
+        objective: r.get(4)?,
+        desired_outcome: r.get(5)?,
+        constraints: json_column(r, 6)?,
+        criteria: json_column(r, 7)?,
+        notes: json_column(r, 8)?,
+        references: json_column(r, 9)?,
+        status,
+        pause_reason: r.get(11)?,
+        result: r.get(12)?,
+        blocks: vec![],
+        decisions: vec![],
+        created_at: r.get(13)?,
+        updated_at: r.get(14)?,
+        completed_at: r.get(15)?,
     })
+}
+
+fn assemble(conn: &Connection, mut session: Session) -> HubResult<Session> {
+    session.blocks = load_blocks(conn, &session.id)?;
+    session.decisions = load_decisions(conn, &session.id)?;
+    Ok(session)
 }
 
 fn load_session(conn: &Connection, id: &str) -> HubResult<Session> {
@@ -554,7 +745,7 @@ fn load_session(conn: &Connection, id: &str) -> HubResult<Session> {
         .query_row(
             &format!("SELECT {SESSION_COLUMNS} FROM ddae_sessions WHERE id=?1"),
             [id],
-            row_to_tuple,
+            row_to_session,
         )
         .optional()
         .map_err(|e| e.to_string())?
@@ -573,9 +764,9 @@ fn load_sessions(conn: &Connection, project_id: Option<&str>) -> HubResult<Vec<S
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
     let rows = if let Some(id) = project_id {
-        stmt.query_map([id], row_to_tuple)
+        stmt.query_map([id], row_to_session)
     } else {
-        stmt.query_map([], row_to_tuple)
+        stmt.query_map([], row_to_session)
     }
     .map_err(|e| e.to_string())?
     .collect::<Result<Vec<_>, _>>()
@@ -583,16 +774,25 @@ fn load_sessions(conn: &Connection, project_id: Option<&str>) -> HubResult<Vec<S
     rows.into_iter().map(|r| assemble(conn, r)).collect()
 }
 
+fn json_text<T: Serialize>(value: &T) -> HubResult<String> {
+    serde_json::to_string(value).map_err(|e| e.to_string())
+}
+
 fn insert_session(tx: &Transaction, s: &Session) -> HubResult<()> {
     tx.execute(
-        "INSERT INTO ddae_sessions(id,project_id,number,title,objective,status,pause_reason,result,created_at,updated_at,completed_at) \
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        "INSERT INTO ddae_sessions(id,project_id,number,title,objective,desired_outcome,constraints,criteria,notes,refs,status,pause_reason,result,created_at,updated_at,completed_at) \
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
         params![
             s.id,
             s.project_id,
             s.number,
             s.title,
             s.objective,
+            s.desired_outcome,
+            json_text(&s.constraints)?,
+            json_text(&s.criteria)?,
+            json_text(&s.notes)?,
+            json_text(&s.references)?,
             s.status.as_str(),
             s.pause_reason,
             s.result,
@@ -744,6 +944,11 @@ impl Database {
             created_at: stamp.clone(),
             updated_at: stamp,
             completed_at: None,
+            desired_outcome: String::new(),
+            constraints: vec![],
+            criteria: vec![],
+            notes: vec![],
+            references: vec![],
         };
         insert_session(&tx, &session)?;
         activity(
@@ -782,6 +987,44 @@ impl Database {
         let reloaded = load_session(&tx, session_id)?;
         tx.commit().map_err(|e| e.to_string())?;
         Ok(reloaded)
+    }
+
+    /// Define objetivo, resultado desejado, restrições, critérios, notas e referências.
+    /// Substitui esses campos (não toca em título, estado, blocos nem decisões).
+    pub fn ddae_update_details(
+        &mut self,
+        session_id: &str,
+        details: Details,
+    ) -> HubResult<Session> {
+        let details = check_details(&details)?;
+        self.ddae_mutate(session_id, |tx, s| {
+            tx.execute(
+                "UPDATE ddae_sessions SET objective=?2,desired_outcome=?3,constraints=?4,criteria=?5,notes=?6,refs=?7 WHERE id=?1",
+                params![
+                    s.id,
+                    details.objective,
+                    details.desired_outcome,
+                    json_text(&details.constraints)?,
+                    json_text(&details.criteria)?,
+                    json_text(&details.notes)?,
+                    json_text(&details.references)?
+                ],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok("teve os detalhes atualizados".into())
+        })
+    }
+
+    /// Contexto DETERMINÍSTICO da Session (Markdown): só dados reais da Session e o nome do Project.
+    /// Sem LLM, sem timestamps, sem caminho absoluto, Machine ID, hostname, IP, PID ou segredo.
+    pub fn ddae_generate_context(&self, session_id: &str) -> HubResult<SessionContext> {
+        let session = load_session(&self.conn, session_id)?;
+        let project = self.project(&session.project_id)?;
+        let markdown = render_context(&project.name, &session)?;
+        Ok(SessionContext {
+            ready_for_ai: ready_for_ai(&session),
+            markdown,
+        })
     }
 
     /// Acrescenta um Block `pending` ao fim da ordem.
@@ -1034,6 +1277,11 @@ impl Database {
             created_at: created,
             updated_at: stamp,
             completed_at: None,
+            desired_outcome: String::new(),
+            constraints: vec![],
+            criteria: vec![],
+            notes: vec![],
+            references: vec![],
         };
         insert_session(&tx, &session)?;
         activity(
@@ -1046,6 +1294,145 @@ impl Database {
         )?;
         tx.commit().map_err(|e| e.to_string())?;
         Ok(LegacyImport::Imported)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionContext {
+    pub markdown: String,
+    pub ready_for_ai: ReadyForAi,
+}
+
+const NOT_INFORMED: &str = "_Não informado._";
+
+fn list_section(out: &mut String, title: &str, items: &[String]) {
+    out.push_str(&format!("## {title}\n\n"));
+    if items.is_empty() {
+        out.push_str(NOT_INFORMED);
+        out.push('\n');
+    } else {
+        for item in items {
+            out.push_str(&format!("- {item}\n"));
+        }
+    }
+    out.push('\n');
+}
+
+fn text_section(out: &mut String, title: &str, text: &str) {
+    out.push_str(&format!(
+        "## {title}\n\n{}\n\n",
+        if text.is_empty() { NOT_INFORMED } else { text }
+    ));
+}
+
+const MISSING_LABEL: [(&str, &str); 5] = [
+    ("objective", "objetivo"),
+    ("desired_outcome", "resultado desejado"),
+    ("blocks", "blocos"),
+    ("criteria", "critérios de conclusão"),
+    ("actionable_block", "bloco atual ou pendente"),
+];
+
+/// Markdown estável: a mesma Session produz exatamente os mesmos bytes.
+fn render_context(project_name: &str, s: &Session) -> HubResult<String> {
+    let ready = ready_for_ai(s);
+    let state = match ready.state {
+        ContextState::Ready => "Pronto para continuar".to_string(),
+        ContextState::Available => "Contexto disponível (sessão finalizada)".to_string(),
+        ContextState::Incomplete => format!(
+            "Incompleto — falta: {}",
+            ready
+                .missing
+                .iter()
+                .map(|m| MISSING_LABEL
+                    .iter()
+                    .find(|(k, _)| k == m)
+                    .map_or(*m, |(_, l)| *l))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    let progress = s.progress();
+    let mut out = format!(
+        "# DDAE — {}: {}\n\n- Projeto: {}\n- Estado: {} ({})\n- Contexto IA: {}\n- Progresso: {} / {} blocos concluídos\n",
+        s.label(),
+        s.title,
+        project_name,
+        s.status.as_str(),
+        crate::ddae::status_pt(s.status),
+        state,
+        progress.completed,
+        progress.total
+    );
+    if let Some(reason) = &s.pause_reason {
+        out.push_str(&format!("- Motivo da pausa: {reason}\n"));
+    }
+    if let Some(result) = &s.result {
+        out.push_str(&format!("- Resultado: {result}\n"));
+    }
+    out.push('\n');
+    text_section(&mut out, "Objetivo", &s.objective);
+    text_section(&mut out, "Resultado desejado", &s.desired_outcome);
+    list_section(&mut out, "Restrições", &s.constraints);
+    list_section(&mut out, "Critérios de conclusão", &s.criteria);
+    out.push_str("## Blocos\n\n");
+    if s.blocks.is_empty() {
+        out.push_str(NOT_INFORMED);
+        out.push('\n');
+    }
+    for (i, b) in s.blocks.iter().enumerate() {
+        let mark = match b.status {
+            BlockStatus::Completed => "x",
+            BlockStatus::InProgress => "~",
+            BlockStatus::Pending => " ",
+        };
+        out.push_str(&format!("{}. [{mark}] {}\n", i + 1, b.title));
+    }
+    out.push_str(&format!(
+        "\n- Bloco atual: {}\n- Próximo bloco: {}\n\n",
+        s.current_block().map_or("nenhum", |b| b.title.as_str()),
+        s.next_block().map_or("nenhum", |b| b.title.as_str())
+    ));
+    out.push_str("## Decisões\n\n");
+    if s.decisions.is_empty() {
+        out.push_str(NOT_INFORMED);
+        out.push('\n');
+    }
+    for d in &s.decisions {
+        if d.body.is_empty() {
+            out.push_str(&format!("- {}\n", d.title));
+        } else {
+            out.push_str(&format!("- {} — {}\n", d.title, d.body));
+        }
+    }
+    out.push('\n');
+    list_section(&mut out, "Notas", &s.notes);
+    out.push_str("## Referências\n\n");
+    if s.references.is_empty() {
+        out.push_str(NOT_INFORMED);
+        out.push('\n');
+    }
+    for r in &s.references {
+        let kind = match r.kind {
+            ReferenceKind::ProjectPath => "project_path",
+            ReferenceKind::Url => "url",
+        };
+        out.push_str(&format!("- {kind}: {}\n", r.value));
+    }
+    // Última barreira: nada de caminho local no contexto (os campos já são validados na escrita).
+    if has_machine_path(&out) {
+        return Err("O contexto da sessão contém um caminho local e não foi gerado.".into());
+    }
+    Ok(out)
+}
+
+fn status_pt(status: SessionStatus) -> &'static str {
+    match status {
+        SessionStatus::Active => "ativa",
+        SessionStatus::Frozen => "congelada",
+        SessionStatus::Stopped => "parada",
+        SessionStatus::Completed => "finalizada",
     }
 }
 

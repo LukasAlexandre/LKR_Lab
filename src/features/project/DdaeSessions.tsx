@@ -5,6 +5,7 @@ import { api, desktop, errorText } from "../../shared/api";
 import {
   FILTERS,
   contextLine,
+  contextStatus,
   deriveDdaeNextAction,
   filterCounts,
   progressFraction,
@@ -394,6 +395,12 @@ export function DdaeSessions({ projectId, notify }: { projectId: string; notify:
                 <div><dt>Última atualização</dt><dd>{relativeTime(selected.updatedAt)}</dd></div>
                 <div><dt>Tipo</dt><dd>Feature</dd></div>
               </dl>
+
+              <p className={`ddae-context is-${contextStatus(selected.readyForAi).tone}`} title={contextStatus(selected.readyForAi).detail}>
+                <small>Contexto IA</small>
+                {contextStatus(selected.readyForAi).label}
+                {selected.readyForAi.state === "incomplete" && <span>{contextStatus(selected.readyForAi).detail}</span>}
+              </p>
 
               <div className="ddae-counts">
                 <span className="is-done">{selected.blocks.filter((b) => b.status === "completed").length} concluídos</span>
