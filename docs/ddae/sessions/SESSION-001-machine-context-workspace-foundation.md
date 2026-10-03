@@ -22,7 +22,7 @@ Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão apro
 | 02 | Concept 01 — Primeiro acesso / Computador não cadastrado | CONCLUÍDO (visual APROVADO) | [CONCEPT-01](../../concepts/machine-registry/CONCEPT-01.md), [imagem](../../concepts/machine-registry/concept-01-first-access.webp) |
 | 03 | Concept 02 — Machine Health Dashboard | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — ver D02) | [CONCEPT-02](../../concepts/machine-registry/CONCEPT-02.md), [imagem](../../concepts/machine-registry/concept-02-machine-health.webp) |
 | 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
-| 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — ver D03) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
+| 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
 | 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
 | 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
@@ -48,7 +48,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
-| D03 | Projects Foundation (Concepts 03–05) | EM ANDAMENTO (Concept 04 implementado; 03 e 05 pendentes) | `feat/session-001-projects-foundation` |
+| D03 | Projects Foundation (Concepts 03–05) | EM ANDAMENTO (Concept 04 implementado e validado no desktop; 03 e 05 pendentes) | `feat/session-001-projects-foundation` |
 
 ### Checkpoint — MACHINE FOUNDATION COMPLETE
 
@@ -74,7 +74,11 @@ Primeira entrega: **identidade de projeto + inspeção passiva + vínculo local*
 - **API Tauri:** `inspect_project_folder`, `register_project` (locator/stack/repositório vêm do backend, não da UI), `bind_project` mais estrito; `discover_project` mantido.
 - **UI (Concept 04):** página "Novo projeto" (`#projects/new`) com Pasta/Nome (50)/Descrição (200) e painel "Inspeção automática"; Reanalisar preserva o que o usuário digitou; estado "Projeto já conhecido" troca Cadastrar por Localizar/Associar; a prévia web não simula inspeção.
 - **Testes:** 27 testes Rust novos em `crates/hub-core/tests/projects_identity.rs` (normalização, remote principal, monorepo, dedupe, corrida, limites, inspeção sem executar código, Git inalterado, portátil sem caminho, projeto antigo sem locator) e 15 testes de lógica pura em `src/shared/projectInspection.test.ts`.
-- **Limites conhecidos:** duas máquinas que cadastram o mesmo repositório antes de sincronizar ainda podem criar UUIDs distintos (cada backend só enxerga o próprio banco); projetos antigos Missing/Unbound ficam sem locator até serem associados por edição; a validação visual da janela desktop (seletor nativo de pasta) ainda precisa ser feita pelo usuário.
+- **Limites conhecidos:** duas máquinas que cadastram o mesmo repositório antes de sincronizar ainda podem criar UUIDs distintos (cada backend só enxerga o próprio banco); projetos antigos Missing/Unbound ficam sem locator até serem associados por edição; a validação manual do desktop foi concluída (ver abaixo).
+- **Validação no desktop (Concept 04 — IMPLEMENTADO E VALIDADO NO DESKTOP):**
+  - *Manual, na janela real:* seletor nativo de pasta; inspeção passiva (Git, branch, remote, stack, package manager, scripts não executados, arquivos e estrutura); cadastro de Project novo (persistiu: 1 Project, 1 binding, locator gravado, caminho só em `project_bindings`); prevenção de duplicação da mesma pasta ("Projeto já cadastrado nesta máquina", sem Cadastrar; banco segue com o mesmo UUID e o mesmo número de bindings); Reanalisar (refaz a inspeção e preserva Nome e Descrição digitados); Cancelar (volta a Projetos, nada do rascunho é persistido); console sem exceções nem rejeições (apenas o 404 pré-existente de favicon.ico); nenhum processo de npm/cargo/git de escrita/docker disparado pela inspeção.
+  - *Cobertos por testes automatizados, não exercitados manualmente:* mesmo locator em outra pasta (Localizar/Associar), binding Missing, binding válido em outra pasta, monorepo, subprojects, projeto antigo sem locator, workspace portátil e sync. Web não simula inspeção.
+  - *Microcopy corrigida na validação:* "1 alterações" → "1 alteração" / "N alterações" (helper `changesLabel`, também em Projetos e Repositórios, que diziam "mudanças").
 
 ### Bloco D01 — Machine Registry Foundation (CONCLUÍDO)
 
