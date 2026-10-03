@@ -32,6 +32,16 @@ pub struct RegisterResult {
     pub registration: Registration,
 }
 
+/// Ação gravada por `generate_context`; aqui só para saber se o contexto já foi gerado.
+pub const CONTEXT_ACTIVITY: &str = "Contexto de desenvolvimento gerado";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectActivity {
+    pub items: Vec<Activity>,
+    pub context_generated: bool,
+}
+
 fn inspect_same_folder(bound: &str, folder: &Path) -> bool {
     !bound.is_empty() && inspect::same_folder_path(bound, folder)
 }
@@ -226,6 +236,41 @@ impl Database {
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| e.to_string());
         rows
+    }
+    /// Atividades recentes de UM projeto (mais novas primeiro) e se o contexto de IA já foi gerado
+    /// alguma vez. Fonte real: tabela `activities`; nada é inferido.
+    pub fn project_activity(&self, id: &str, limit: u32) -> HubResult<ProjectActivity> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT id,project_id,action,created_at FROM activities \
+                 WHERE project_id = ?1 ORDER BY id DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let items = stmt
+            .query_map(params![id, limit.min(50)], |r| {
+                Ok(Activity {
+                    id: r.get(0)?,
+                    project_id: r.get(1)?,
+                    action: r.get(2)?,
+                    created_at: r.get(3)?,
+                })
+            })
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        let context_generated: bool = self
+            .conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM activities WHERE project_id = ?1 AND action = ?2)",
+                params![id, CONTEXT_ACTIVITY],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(ProjectActivity {
+            items,
+            context_generated,
+        })
     }
     /// Última ação registrada por projeto (`created_at` em UTC). Alimenta "Última atividade".
     pub fn last_activity_by_project(&self) -> HubResult<std::collections::HashMap<String, String>> {

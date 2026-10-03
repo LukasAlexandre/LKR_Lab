@@ -7,7 +7,7 @@ import type { KnowledgeEntry } from "../shared/types";
 import { trackOperation } from "./operations";
 
 export function useResource<T>(resource: Resource<T>) {
-  return useSyncExternalStore(resource.subscribe, resource.getSnapshot);
+  return useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
 }
 
 const projects = createResource<Project[]>([], () => api("list_projects"));

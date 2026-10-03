@@ -20,12 +20,3 @@ export const routes: {
   { id: "terminal", title: "Terminal", icon: Terminal },
   { id: "settings", title: "Configurações", icon: Settings },
 ];
-export const routeFromHash = () => {
-  const value = window.location.hash.slice(1).split("/")[0];
-  return routes.some((r) => r.id === value) ? value : "dashboard";
-};
-export const NEW_PROJECT_HASH = "projects/new";
-export const isNewProjectHash = () => window.location.hash.slice(1) === NEW_PROJECT_HASH;
-/** "Abrir projeto": visão do projeto selecionado (placeholder até o Project Control Center, Concept 05). */
-export const OPEN_PROJECT_HASH = "projects/open";
-export const isOpenProjectHash = () => window.location.hash.slice(1) === OPEN_PROJECT_HASH;

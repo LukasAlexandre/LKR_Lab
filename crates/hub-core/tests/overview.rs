@@ -549,3 +549,33 @@ fn locate_replaces_a_missing_binding_with_the_correct_folder() {
     assert_eq!(p.id, id);
     assert!(p.local_path.ends_with("movida"));
 }
+
+#[test]
+fn project_activity_is_per_project_and_knows_if_context_was_generated() {
+    let tmp = tempfile::tempdir().unwrap();
+    let a = repo(tmp.path(), "a", "https://github.com/org/a");
+    let b = repo(tmp.path(), "b", "https://github.com/org/b");
+    let mut db = db(tmp.path());
+    let pa = register(&mut db, &a, "A");
+    let pb = register(&mut db, &b, "B");
+    let before = db.project_activity(&pa.id, 8).unwrap();
+    assert_eq!(before.items.len(), 1, "só o cadastro");
+    assert!(!before.context_generated);
+    db.activity(&pa.id, hub_core::database::CONTEXT_ACTIVITY)
+        .unwrap();
+    db.activity(&pa.id, "Outra ação").unwrap();
+    let after = db.project_activity(&pa.id, 8).unwrap();
+    assert!(after.context_generated);
+    assert_eq!(after.items[0].action, "Outra ação", "mais nova primeiro");
+    assert!(after
+        .items
+        .iter()
+        .all(|i| i.project_id.as_deref() == Some(pa.id.as_str())));
+    assert!(!db.project_activity(&pb.id, 8).unwrap().context_generated);
+    assert_eq!(db.project_activity(&pa.id, 2).unwrap().items.len(), 2);
+    assert!(db
+        .project_activity("inexistente", 8)
+        .unwrap()
+        .items
+        .is_empty());
+}

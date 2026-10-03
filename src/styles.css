@@ -2051,3 +2051,44 @@ summary {
 .project-back .link-button:hover { color: var(--accent); }
 @media (max-width: 1100px) { .overview-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .overview-summary { grid-template-columns: minmax(0, 1fr); } .overview-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- Concept 05 · Project Control Center ---- */
+.nav-item.parent { color: var(--muted); }
+.nav-item.parent.active, .nav-item.parent[aria-current="page"] { background: transparent; }
+.project-nav { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); }
+.project-nav-name { padding: 2px 12px 6px; font-size: 12px; font-weight: 600; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-compact .project-nav-name { display: none; }
+.pcc { display: grid; gap: 16px; }
+.pcc-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.pcc-head h1 { margin: 0 0 4px; display: flex; align-items: center; gap: 10px; font-size: 26px; color: var(--text-strong); }
+.pcc-head p { margin: 0 0 10px; color: #94abc0; font-size: 13px; }
+.pcc-live { width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 8px var(--success); }
+.pcc-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.pcc-path { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+.pcc-head-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.pcc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.pcc-card { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface-2); min-width: 0; }
+.pcc-card header { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.pcc-card h3 { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.pcc-card-body { display: grid; gap: 4px; flex: 1; min-width: 0; }
+.pcc-card-body strong { font-size: 16px; color: var(--text-strong); }
+.pcc-card-body.tone-good strong { color: var(--success); }
+.pcc-card-body.tone-warn strong { color: var(--warning); }
+.pcc-card-body.tone-blue strong { color: var(--accent); }
+.pcc-card-body strong.tone-neutral { color: var(--muted) !important; }
+.pcc-card-body small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.pcc-card .text-button { align-self: flex-start; }
+.pcc-missing { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-1); color: var(--muted); flex-wrap: wrap; }
+.pcc-missing div { flex: 1; min-width: 200px; }
+.pcc-missing strong { display: block; color: var(--text-strong); margin-bottom: 2px; }
+.pcc-columns { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.pcc-column { display: grid; gap: 14px; min-width: 0; }
+.pcc-next { display: grid; gap: 8px; }
+.pcc-next > strong { font-size: 16px; color: var(--text-strong); }
+.pcc-next .button { justify-self: start; }
+.pcc-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.pcc-activity li { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 8px; font-size: 13px; }
+.pcc-activity time { color: var(--muted); font-size: 12px; }
+.pcc-activity svg { color: var(--accent); }
+@media (max-width: 1000px) { .pcc-columns { grid-template-columns: minmax(0, 1fr); } }
+.pcc-overview { display: grid; gap: 14px; }

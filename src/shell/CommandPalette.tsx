@@ -9,8 +9,10 @@ import { useActiveProjectId, useResource, workspace } from "../state/workspace";
 import { protectedProcesses } from "../features/portClassification";
 
 interface PaletteCommand { id: string; label: string; detail: string; icon: LucideIcon; keywords: string; run: () => void }
-export function CommandPalette({ initialQuery, close, navigate, context, report, confirmKill }: {
+export function CommandPalette({ initialQuery, close, navigate, context, report, confirmKill, chooseProject }: {
   initialQuery: string; close: () => void; navigate: (route: string) => void; context: () => void;
+  /** Seleciona o projeto; dentro do contexto de um Project troca a rota mantendo a área. */
+  chooseProject: (id: string, goToList?: boolean) => void;
   report: (error: unknown) => void; confirmKill: (pid: number, startTime: number, name: string) => void;
 }) {
   const id = useActiveProjectId();
@@ -32,7 +34,7 @@ export function CommandPalette({ initialQuery, close, navigate, context, report,
   }, []);
   const commands = useMemo(() => {
     const items: PaletteCommand[] = routes.map(route => ({ id: `route-${route.id}`, label: route.title, detail: "Navegação", icon: route.icon, keywords: `abrir página ${route.title}`, run: () => navigate(route.id) }));
-    projects.forEach(project => items.push({ id: `project-${project.id}`, label: project.name, detail: project.localPath, icon: FolderOpen, keywords: `project projeto workspace repositório repo ${project.tags.join(" ")}`, run: () => { workspace.selectProject(project.id); navigate("projects"); } }));
+    projects.forEach(project => items.push({ id: `project-${project.id}`, label: project.name, detail: project.localPath, icon: FolderOpen, keywords: `project projeto workspace repositório repo ${project.tags.join(" ")}`, run: () => chooseProject(project.id, true) }));
     const selected = projects.find(project => project.id === id);
     if (selected) {
       for (const [action, label, icon] of [["terminal", "Abrir terminal", Terminal], ["vscode", "Abrir IDE", FolderOpen], ["folder", "Abrir pasta", FolderOpen], ["github", "Abrir GitHub", GitBranch]] as const) {
@@ -54,7 +56,7 @@ export function CommandPalette({ initialQuery, close, navigate, context, report,
     providers.forEach(provider => items.push({ id: `provider-${provider.provider}`, label: provider.provider, detail: `Provider · ${provider.availability}`, icon: Bot, keywords: "agent agente ia provider", run: () => navigate("agents") }));
     items.push({ id: "refresh", label: "Atualizar ambiente local", detail: "Portas, processos e sistema em segundo plano", icon: RefreshCw, keywords: "refresh atualizar", run: () => void workspace.refreshEnvironment() });
     return items;
-  }, [projects, ports, processes, prompts, knowledge, providers, trees, git, id, sources, navigate, context, report, confirmKill]);
+  }, [projects, ports, processes, prompts, knowledge, providers, trees, git, id, sources, navigate, context, report, confirmKill, chooseProject]);
   const results = useMemo(() => commands.map(command => ({ command, score: fuzzyScore(query, `${command.label} ${command.detail} ${command.keywords}`) })).filter(item => item.score >= 0).sort((a, b) => b.score - a.score).slice(0, 12).map(item => item.command), [commands, query]);
   const active = Math.min(index, Math.max(0, results.length - 1));
   const execute = (command: PaletteCommand) => { close(); command.run(); };

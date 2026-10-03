@@ -531,3 +531,9 @@ export interface ProjectsOverview {
   projects: ProjectOverview[];
   totals: OverviewTotals;
 }
+
+/** Atividades recentes de um projeto + se o contexto de IA já foi gerado alguma vez. */
+export interface ProjectActivity {
+  items: Activity[];
+  contextGenerated: boolean;
+}

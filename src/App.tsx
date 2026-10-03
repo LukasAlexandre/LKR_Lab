@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Bot,
   Check,
   ChevronRight,
-  ArrowLeft,
   CircleHelp,
   Code2,
   Copy,
   FileText,
-  FolderOpen,
   GitPullRequest,
   Plus,
   Search,
@@ -41,12 +39,16 @@ import { GitSummary } from "./features/GitSummary";
 import { Worktrees } from "./features/Worktrees";
 import { AgentProviders } from "./features/AgentProviders";
 import { Knowledge } from "./features/Knowledge";
-import { routes, routeFromHash, isNewProjectHash, isOpenProjectHash, NEW_PROJECT_HASH, OPEN_PROJECT_HASH } from "./app/routing";
+import { routes } from "./app/routing";
+import {
+  NEW_PROJECT_HASH, PROJECTS_HASH, PROJECT_AREA_TITLES, parseHash, projectHash, resolveRoute, switchProjectHash,
+} from "./app/projectRoute";
+import { ProjectControlCenter } from "./features/project/ProjectControlCenter";
+import { ProjectContextNav } from "./features/project/ProjectContextNav";
 import { ProjectsOverviewPage } from "./features/ProjectsOverview";
 import { WindowTitleBar } from "./shell/WindowTitleBar";
 import { LocationNotice } from "./components/LocationNotice";
 import { SyncIndicator } from "./components/SyncIndicator";
-import { ProjectRuntime, RuntimeDesktopOnly } from "./features/ProjectRuntime";
 import { ThisMachine } from "./features/ThisMachine";
 import { useMachine } from "./state/machine";
 import { NewProject } from "./features/NewProject";
@@ -55,11 +57,14 @@ import { HEALTH_LABEL } from "./shared/telemetry";
 export default function App() {
   const machine = useMachine().status?.machine;
   const health = useTelemetry().latest?.health.status;
-  const [route, setRoute] = useState(routeFromHash);
-  const [creating, setCreating] = useState(isNewProjectHash);
-  const [opened, setOpened] = useState(isOpenProjectHash);
+  // A URL (hash) é a fonte de verdade da navegação; dentro de #project/<id>/… o Project vem dela.
+  const [hash, setHash] = useState(() => window.location.hash);
+  const parsed = useMemo(() => parseHash(hash, routes.map((r) => r.id)), [hash]);
+  const route = parsed.kind === "global" ? parsed.route : "projects";
+  const creating = parsed.kind === "new-project";
+  const inProject = parsed.kind === "project";
+  const [contextVersion, setContextVersion] = useState(0);
   const selectedId = useActiveProjectId();
-  const setSelectedId = workspace.selectProject;
   const projectsSource = useResource(workspace.projects);
   const { data: projects } = projectsSource;
   const [sidebarCompact, setSidebarCompact] = usePreference("sidebarCompact");
@@ -95,33 +100,27 @@ export default function App() {
   const report = useCallback((e: unknown) => setError(errorText(e)), []);
   const navigate = useCallback((id: string) => {
     window.location.hash = id;
-    setRoute(id);
     setPalette(false);
   }, []);
   const openNewProject = useCallback(() => {
     window.location.hash = NEW_PROJECT_HASH;
-    setRoute("projects");
-    setCreating(true);
-    setOpened(false);
     setPalette(false);
   }, []);
   const closeNewProject = useCallback(() => {
-    window.location.hash = "projects";
-    setCreating(false);
+    window.location.hash = PROJECTS_HASH;
   }, []);
-  // "Abrir projeto": seleciona o projeto (estado de seleção, não de execução) e mostra a visão
-  // atual do projeto até o Project Control Center (Concept 05) existir.
+  // "Abrir projeto": a rota carrega o ID; o Project ativo é sincronizado a partir dela (efeito abaixo).
   const openProject = useCallback((id: string) => {
-    workspace.selectProject(id);
-    window.location.hash = OPEN_PROJECT_HASH;
-    setRoute("projects");
-    setCreating(false);
-    setOpened(true);
+    window.location.hash = projectHash(id);
     setPalette(false);
   }, []);
-  const closeOpenedProject = useCallback(() => {
-    window.location.hash = "projects";
-    setOpened(false);
+  // Trocar de Project: dentro do contexto mantém a área (#project/<novo>/<mesma área>); fora dele só seleciona.
+  const chooseProject = useCallback((id: string, goToList = false) => {
+    workspace.selectProject(id);
+    const next = switchProjectHash(parseHash(window.location.hash, routes.map((r) => r.id)), id);
+    if (next) window.location.hash = next;
+    else if (goToList) window.location.hash = PROJECTS_HASH;
+    setPalette(false);
   }, []);
   const closeForm = useCallback(() => setForm(null), []),
     closePalette = useCallback(() => setPalette(false), []),
@@ -132,11 +131,7 @@ export default function App() {
   useEffect(() => {
     void loadRegistry();
     if (desktop) void refresh();
-    const onHash = () => {
-      setRoute(routeFromHash());
-      setCreating(isNewProjectHash());
-      setOpened(isOpenProjectHash());
-    };
+    const onHash = () => setHash(window.location.hash);
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -160,6 +155,20 @@ export default function App() {
       window.removeEventListener("keydown", onKey);
     };
   }, [loadRegistry, navigate, refresh]);
+  // Resolve a rota diante dos Projects conhecidos: redireciona legado/inválido e sincroniza o ativo.
+  const registryLoaded = !desktop || projectsSource.status === "ready";
+  const knownIds = useMemo(() => projects.map((p) => p.id), [projects]);
+  useEffect(() => {
+    const resolution = resolveRoute(parsed, { loaded: registryLoaded, ids: knownIds }, selectedId);
+    if (resolution.action === "redirect") {
+      window.location.replace(resolution.hash);
+      if (resolution.notice) setToast(resolution.notice);
+      return;
+    }
+    if (parsed.kind === "project" && registryLoaded && knownIds.includes(parsed.projectId) && selectedId !== parsed.projectId) {
+      workspace.selectProject(parsed.projectId);
+    }
+  }, [parsed, registryLoaded, knownIds, selectedId]);
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(""), 4000);
@@ -183,6 +192,7 @@ export default function App() {
     try {
       setSnapshot(await api<string>("generate_context", { id: selected.id }));
       await loadRegistry();
+      setContextVersion((value) => value + 1);
     } catch (e) {
       report(e);
     } finally {
@@ -251,7 +261,7 @@ export default function App() {
     <select
       aria-label="Projeto ativo"
       value={selectedId}
-      onChange={(e) => setSelectedId(e.target.value)}
+      onChange={(e) => chooseProject(e.target.value)}
     >
       <option value="">Selecionar projeto</option>
       {projects.map((p) => (
@@ -309,7 +319,8 @@ export default function App() {
     </>
   );
   // Lista de projetos (Concept 03) tem cabeçalho próprio; "Abrir projeto" mantém a visão atual.
-  const projectsList = route === "projects" && !(opened && selected);
+  const projectsList = parsed.kind === "global" && parsed.route === "projects";
+  const projectRouteReady = parsed.kind === "project" && registryLoaded && selectedId === parsed.projectId && knownIds.includes(parsed.projectId);
   const pageTitle = routes.find((r) => r.id === route)?.title ?? "Dashboard";
   const activePorts = selected
     ? ports.filter(
@@ -320,18 +331,144 @@ export default function App() {
   const activeProcesses = selected
     ? processes.filter((process) => process.projectId === selected.id)
     : [];
+  const gitView = (
+    <div className="two-columns">
+      <Panel
+        title="Git local"
+        action={
+          <button
+            className="text-button"
+            disabled={!selected || busy}
+            onClick={() => { if (selected) void sources.git.refresh(); }}
+          >
+            Atualizar Git
+          </button>
+        }
+      >
+        {gitPanel}
+        {git && (
+          <>
+            <h3>Commits recentes</h3>
+            <p className="muted">{git.stashes ?? 0} stashes · {git.remote ?? "Remote HTTPS não informado"}</p>
+            <h3>Arquivos modificados</h3>
+            {(git.files ?? []).map((file, index) => <div className="commit" key={`${file.path}-${index}`}><code>{file.status}</code><span className="mono">{file.original ? `${file.original} → ` : ""}{file.path}</span></div>)}
+            {git.clean && <p className="muted">Árvore de trabalho limpa.</p>}
+            {git.commits.map((c) => (
+              <div className="commit" key={c.hash}>
+                <code>{c.hash}</code>
+                <span>{c.subject}</span>
+              </div>
+            ))}
+            <p className="footnote">
+              Ahead/behind usam refs locais. Nenhum fetch automático.
+            </p>
+          </>
+        )}
+      </Panel>
+      <Panel
+        title="GitHub · gh CLI"
+        icon={<GitPullRequest size={17} />}
+        action={
+          <button
+            className="button"
+            disabled={!selected || busy}
+            onClick={() => void hostingRefresh()}
+          >
+            Consultar GitHub
+          </button>
+        }
+      >
+        <SourceStatus source={sources.hosting} label="GitHub" />
+        {hosting ? (
+          <>
+            {hosting.pullRequests.length === 0 && (
+              <p>Nenhuma PR aberta encontrada.</p>
+            )}
+            {hosting.pullRequests.map((pr) => (
+              <article className="pr" key={pr.number}>
+                <h3>
+                  #{pr.number} · {pr.title}
+                </h3>
+                <p className="mono">{pr.headRefName}</p>
+                <div className="tags">
+                  <Badge>
+                    Review: {pr.reviewDecision || "Pendente"}
+                  </Badge>
+                  <Badge>Merge: {pr.mergeable || "Desconhecido"}</Badge>
+                </div>
+                {pr.statusCheckRollup.map((c, i) => (
+                  <p key={i}>
+                    {c.name || "Check"}:{" "}
+                    {c.conclusion || c.state || c.status || "Pendente"}
+                  </p>
+                ))}
+              </article>
+            ))}
+            <h3>Issues abertas</h3>
+            {hosting.issues.map((i) => (
+              <p key={i.number}>
+                #{i.number} · {i.title}
+              </p>
+            ))}
+          </>
+        ) : (
+          <Empty title="Consulta sob demanda">
+            <p>
+              Usa sua autenticação existente no gh. Nenhum token é
+              armazenado.
+            </p>
+          </Empty>
+        )}
+      </Panel>
+    </div>
+  );
+  const agentsView = (
+    <div className="two-columns">
+      <Panel title="Claude provider" icon={<Bot size={18} />}>
+        {agentPanel}
+        {agent && (
+          <>
+            <h3>Skills do projeto</h3>
+            {agent.skills.map((s) => (
+              <p key={s}>{s}</p>
+            ))}
+          </>
+        )}
+      </Panel>
+      <Panel title="Providers locais">
+        <AgentProviders />
+      </Panel>
+    </div>
+  );
   return (
     <>
     {desktop && <WindowTitleBar />}
     <div
       className={`app ${sidebarCompact ? "sidebar-compact" : ""} density-${density}`}
     >
-      <Sidebar route={route} sidebarCompact={sidebarCompact} toggle={toggleSidebar} projectCount={projects.length} />
+      <Sidebar
+        route={inProject ? "" : route}
+        parentRoute={inProject ? "projects" : undefined}
+        sidebarCompact={sidebarCompact}
+        toggle={toggleSidebar}
+        projectCount={projects.length}
+        projectNav={parsed.kind === "project" && selected && selected.id === parsed.projectId ? (
+          <ProjectContextNav projectId={selected.id} name={selected.name} area={parsed.area} compact={sidebarCompact} />
+        ) : undefined}
+      />
       <div className="workspace">
         <header className="topbar">
           <div className="breadcrumb">
             Workspace <ChevronRight size={13} />
-            <span>{pageTitle}</span>
+            {parsed.kind === "project" ? (
+              <>
+                <a href={PROJECTS_HASH}>Projetos</a> <ChevronRight size={13} />
+                <span>{selected?.name ?? "Projeto"}</span>
+                {parsed.area !== "overview" && (<> <ChevronRight size={13} /><span>{PROJECT_AREA_TITLES[parsed.area]}</span></>)}
+              </>
+            ) : (
+              <span>{pageTitle}</span>
+            )}
           </div>
           <button
             className="search-trigger"
@@ -376,14 +513,14 @@ export default function App() {
             <NewProject
               close={closeNewProject}
               done={(id) => {
-                setSelectedId(id);
+                workspace.selectProject(id);
                 closeNewProject();
                 setToast("Projeto cadastrado.");
               }}
             />
           ) : (<>
           {/* O Dashboard é a visão da máquina (Concept 02) e tem cabeçalho próprio. */}
-          {route !== "dashboard" && !projectsList && (<>
+          {route !== "dashboard" && !projectsList && !inProject && parsed.kind === "global" && (<>
           <div className="page-heading">
             <div>
               <div className="eyebrow">DEVELOPMENT CONTROL CENTER</div>
@@ -461,82 +598,17 @@ export default function App() {
               notify={setToast}
             />
           )}
-          {route === "projects" && !projectsList && (
-            <>
-              <div className="breadcrumb project-back">
-                <button type="button" className="link-button" onClick={closeOpenedProject}>
-                  <ArrowLeft size={14} /> Projetos
-                </button>
-              </div>
-              {selected && <ProjectRuntime project={selected} context={() => void context()} report={report} />}
-              <RuntimeDesktopOnly />
-              {selected && (
-                <Panel
-                  title={selected.name}
-                  icon={<FolderOpen size={18} />}
-                  className="detail-panel"
-                  action={<Badge>Projeto ativo</Badge>}
-                >
-                  <p>{selected.description}</p>
-                  {selected.localPath && (
-                    <div className="path-box mono">{selected.localPath}</div>
-                  )}
-                  <LocationNotice project={selected} report={report} />
-                  <Launchers
-                    id={selected.id}
-                    launch={launch}
-                    context={() => void context()}
-                  />
-                  <div className="detail-grid">
-                    <div>
-                      <h3>Estado Git</h3>
-                      {gitPanel}
-                    </div>
-                    <div>
-                      <h3>Serviços / portas declaradas</h3>
-                      {selected.ports.length ? (
-                        selected.ports.map((p) => (
-                          <div className="service-row" key={p.port}>
-                            <span>
-                              {p.name} <code>:{p.port}</code>
-                            </span>
-                            <Badge
-                              tone={
-                                ports.some((port) => port.port === p.port)
-                                  ? "blue"
-                                  : "neutral"
-                              }
-                            >
-                              {ports.some((port) => port.port === p.port)
-                                ? "Porta ocupada · vínculo a verificar"
-                                : "Não observada"}
-                            </Badge>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="muted">
-                          Edite o projeto para declarar portas.
-                        </p>
-                      )}
-                      <h3>Comandos declarados</h3>
-                      {selected.commands.map((c) => (
-                        <div className="path-box" key={c.name}>
-                          <strong>{c.name}</strong>
-                          <code>
-                            {c.program} {c.args.join(" ")}
-                          </code>
-                        </div>
-                      ))}
-                      <p className="footnote">
-                        Estes comandos são só metadados do cadastro e nunca são
-                        executados. O painel Runtime roda apenas scripts do
-                        package.json local.
-                      </p>
-                    </div>
-                  </div>
-                </Panel>
-              )}
-            </>
+          {projectRouteReady && parsed.kind === "project" && (
+            <ProjectControlCenter
+              projectId={parsed.projectId}
+              area={parsed.area}
+              views={{ git: gitView, context: agentsView }}
+              launch={launch}
+              generateContext={() => void context()}
+              report={report}
+              notify={setToast}
+              contextVersion={contextVersion}
+            />
           )}
           {route === "ports" && (
             <Panel title="Sockets locais · TCP em escuta / UDP">
@@ -576,115 +648,8 @@ export default function App() {
             />
           )}
           {route === "repositories" && <Repositories report={report} />}
-          {route === "git" && (
-            <div className="two-columns">
-              <Panel
-                title="Git local"
-                action={
-                  <button
-                    className="text-button"
-                    disabled={!selected || busy}
-                    onClick={() => { if (selected) void sources.git.refresh(); }}
-                  >
-                    Atualizar Git
-                  </button>
-                }
-              >
-                {gitPanel}
-                {git && (
-                  <>
-                    <h3>Commits recentes</h3>
-                    <p className="muted">{git.stashes ?? 0} stashes · {git.remote ?? "Remote HTTPS não informado"}</p>
-                    <h3>Arquivos modificados</h3>
-                    {(git.files ?? []).map((file, index) => <div className="commit" key={`${file.path}-${index}`}><code>{file.status}</code><span className="mono">{file.original ? `${file.original} → ` : ""}{file.path}</span></div>)}
-                    {git.clean && <p className="muted">Árvore de trabalho limpa.</p>}
-                    {git.commits.map((c) => (
-                      <div className="commit" key={c.hash}>
-                        <code>{c.hash}</code>
-                        <span>{c.subject}</span>
-                      </div>
-                    ))}
-                    <p className="footnote">
-                      Ahead/behind usam refs locais. Nenhum fetch automático.
-                    </p>
-                  </>
-                )}
-              </Panel>
-              <Panel
-                title="GitHub · gh CLI"
-                icon={<GitPullRequest size={17} />}
-                action={
-                  <button
-                    className="button"
-                    disabled={!selected || busy}
-                    onClick={() => void hostingRefresh()}
-                  >
-                    Consultar GitHub
-                  </button>
-                }
-              >
-                <SourceStatus source={sources.hosting} label="GitHub" />
-                {hosting ? (
-                  <>
-                    {hosting.pullRequests.length === 0 && (
-                      <p>Nenhuma PR aberta encontrada.</p>
-                    )}
-                    {hosting.pullRequests.map((pr) => (
-                      <article className="pr" key={pr.number}>
-                        <h3>
-                          #{pr.number} · {pr.title}
-                        </h3>
-                        <p className="mono">{pr.headRefName}</p>
-                        <div className="tags">
-                          <Badge>
-                            Review: {pr.reviewDecision || "Pendente"}
-                          </Badge>
-                          <Badge>Merge: {pr.mergeable || "Desconhecido"}</Badge>
-                        </div>
-                        {pr.statusCheckRollup.map((c, i) => (
-                          <p key={i}>
-                            {c.name || "Check"}:{" "}
-                            {c.conclusion || c.state || c.status || "Pendente"}
-                          </p>
-                        ))}
-                      </article>
-                    ))}
-                    <h3>Issues abertas</h3>
-                    {hosting.issues.map((i) => (
-                      <p key={i.number}>
-                        #{i.number} · {i.title}
-                      </p>
-                    ))}
-                  </>
-                ) : (
-                  <Empty title="Consulta sob demanda">
-                    <p>
-                      Usa sua autenticação existente no gh. Nenhum token é
-                      armazenado.
-                    </p>
-                  </Empty>
-                )}
-              </Panel>
-            </div>
-          )}
-          {route === "agents" && (
-            <div className="two-columns">
-              <Panel title="Claude provider" icon={<Bot size={18} />}>
-                {agentPanel}
-                {agent && (
-                  <>
-                    <h3>Skills do projeto</h3>
-                    {agent.skills.map((s) => (
-                      <p key={s}>{s}</p>
-                    ))}
-                  </>
-                )}
-              </Panel>
-              <Panel title="Providers locais">
-                <AgentProviders />
-              </Panel>
-            </div>
-          )}
+          {route === "git" && gitView}
+          {route === "agents" && agentsView}
           {route === "worktrees" && <Worktrees key={selectedId} />}
           {route === "terminal" && (
             <Panel title="Launchers nativos" icon={<Terminal size={18} />}>
@@ -908,7 +873,7 @@ export default function App() {
           </div>
         </Modal>
       )}
-      {palette && <CommandPalette initialQuery={query} close={closePalette} navigate={navigate} context={() => void context()} report={report} confirmKill={confirmKill} />}
+      {palette && <CommandPalette initialQuery={query} close={closePalette} navigate={navigate} context={() => void context()} report={report} confirmKill={confirmKill} chooseProject={chooseProject} />}
       {toast && (
         <div className="toast" role="status">
           <Check size={17} />

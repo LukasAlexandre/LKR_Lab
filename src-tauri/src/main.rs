@@ -453,7 +453,7 @@ async fn generate_context(
     })
     .await
     .map_err(|e| e.to_string())??;
-    db(&state)?.activity(&id, "Contexto de desenvolvimento gerado")?;
+    db(&state)?.activity(&id, hub_core::database::CONTEXT_ACTIVITY)?;
     Ok(text)
 }
 #[tauri::command]
@@ -493,6 +493,14 @@ fn save_knowledge(state: State<AppState>, entry: KnowledgeEntry) -> HubResult<St
 #[tauri::command]
 fn save_prompt(state: State<AppState>, prompt: Prompt) -> HubResult<String> {
     db(&state)?.save_prompt(prompt)
+}
+/// Atividades recentes de um projeto (Visão geral do Project Control Center).
+#[tauri::command]
+fn project_activity(
+    state: State<AppState>,
+    id: String,
+) -> HubResult<hub_core::database::ProjectActivity> {
+    db(&state)?.project_activity(&id, 8)
 }
 #[tauri::command]
 fn list_activities(state: State<AppState>) -> HubResult<Vec<Activity>> {
@@ -661,6 +669,7 @@ fn main() {
             save_knowledge,
             save_prompt,
             list_activities,
+            project_activity,
             agent_context,
             agent_providers,
             list_worktrees,

@@ -23,7 +23,7 @@ Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão apro
 | 03 | Concept 02 — Machine Health Dashboard | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — ver D02) | [CONCEPT-02](../../concepts/machine-registry/CONCEPT-02.md), [imagem](../../concepts/machine-registry/concept-02-machine-health.webp) |
 | 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
 | 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
-| 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
+| 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
 | 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
 | 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
@@ -48,7 +48,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
-| D03 | Projects Foundation (Concepts 03–05) | EM ANDAMENTO (Concepts 03 e 04 implementados e validados no desktop; 05 pendente) | `feat/session-001-projects-foundation` |
+| D03 | Projects Foundation (Concepts 03–05) | EM ANDAMENTO (Concepts 03, 04 e 05 implementados e validados no desktop) | `feat/session-001-projects-foundation` |
 
 ### Checkpoint — MACHINE FOUNDATION COMPLETE
 
@@ -101,6 +101,18 @@ Primeira entrega: **identidade de projeto + inspeção passiva + vínculo local*
   - *Testes:* 17 testes Rust (`tests/overview.rs`: disponível, missing, unbound, Git limpo/sujo/erro/pânico, runtime, stack desconhecida, totais, limite de paralelismo, atividade, Localizar preserva UUID / recusa pasta alheia / substitui binding Missing) e 28 testes JS (lógica pura em `projectOverview.test.ts` + render dos cards em `ProjectsOverview.test.tsx`).
   - *Validado manualmente no desktop:* título/resumo/busca/filtros/refresh (sem processos novos do projeto)/Abrir projeto/Novo projeto, com os 2 Projects reais do banco; lote de ~140 ms; console sem erros.
   - *Coberto só por teste automatizado, não exercitado manualmente:* cards Missing/Unbound e o fluxo Localizar na página (nenhum projeto real nessa situação; nada foi movido ou alterado para forçar).
+- **Concept 05 — Project Control Center (IMPLEMENTADO E VALIDADO NO DESKTOP):**
+  - *Rota canônica:* `#project/<id>/<área>` com áreas `overview`, `ddae`, `worktrees`, `planning`, `runtime`, `git`, `logs`, `context`. A ROTA é a fonte de verdade do Project aberto; `activeProjectId` (preferência local da máquina, sem migration) é sincronizada a partir dela e continua como "último usado" e fallback dos fluxos legados. Parser/decisão puros em `src/app/projectRoute.ts`.
+  - *Casos:* id inexistente/malformado → volta a `#projects` com aviso "Projeto não encontrado." (nunca elege outro Project); Project removido enquanto aberto → mesma saída; área inválida → normalizada para `overview`; `#projects/open` (legado) → `#project/<ativo>/overview` (ou `#projects` sem ativo válido), sem render próprio; o registro ainda não carregado não decide nada.
+  - *Navegação:* "Abrir projeto" (Concept 03) navega para a rota canônica; trocar de Project na topbar/paleta dentro do contexto mantém a área; fora dele mantém o comportamento anterior. Sidebar global intacta; seção "PROJETO ATUAL" (8 áreas, links com o ID, área atual marcada) só dentro do contexto, e "Projetos" fica sutil (não competindo com a área). Breadcrumb Workspace › Projetos › Projeto [› Área].
+  - *Visão geral (só dados reais):* cards Git (branch/estado/ahead-behind), Runtime (`project_overviews`), Worktrees (contagem e branches do Git, SEM estado operacional ATIVO/PARADO/FINALIZADO, que não existe), informações do projeto, serviços em execução (runtime real), última atividade (`project_activity`, tabela `activities` por projeto) e Próxima ação.
+  - *DDAE e Planejamento:* placeholders honestos ("Ainda não disponível") porque os módulos não existem; nenhuma sessão, progresso ou item fictício. As rotas existem e mostram a explicação.
+  - *Próxima ação (determinística, `deriveProjectNextAction`):* 1) sem pasta → Localizar; 2) conflitos Git → Resolver conflitos; 3) alterações locais → Revisar alterações; 4) erro de leitura do runtime → Revisar Runtime; 5) contexto IA nunca gerado → Gerar contexto; 6) nada urgente → nenhuma ação pendente. Não há regra de DDAE/Planejamento, e "contexto defasado" não é observável.
+  - *Áreas reaproveitadas:* Runtime (`ProjectRuntime`), Git e Contexto IA (as mesmas views das rotas globais, extraídas do `App.tsx`), Worktrees (`Worktrees`), Logs (wrapper fino sobre os logs reais das execuções gerenciadas). Missing/Unbound: Visão geral reduzida com "Não localizado nesta máquina" e Localizar (mesmo `bind_project`); áreas dependentes de pasta mostram o aviso.
+  - *Backend:* só `project_activity` (leitura de `activities` por projeto + se o contexto já foi gerado). Nenhuma migration.
+  - *Testes:* roteamento (16), próxima ação/worktrees (11), sidebar e Visão geral renderizadas (9) e `project_activity` (1 Rust).
+  - *Validado manualmente no desktop:* abrir pela lista, URL com UUID, reload/deep link, todas as áreas, sidebar contextual, troca de Project pela paleta preservando a área, ID inexistente e malformado, `#projects/open`, área inválida, rota global sem contexto, console sem erros.
+  - *Coberto só por teste automatizado:* Missing/Unbound no Project Control Center e a Próxima ação "Localizar".
 
 ### Bloco D01 — Machine Registry Foundation (CONCLUÍDO)
 

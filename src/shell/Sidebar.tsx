@@ -1,9 +1,14 @@
 import { memo } from "react";
+import type { ReactNode } from "react";
 import { Lock, Monitor, PanelLeftClose, PanelLeftOpen, ShieldCheck } from "lucide-react";
 import { routes } from "../app/routing";
 /** `locked`: computador não cadastrado. Os módulos aparecem, mas não são links. */
-export const Sidebar = memo(function Sidebar({ route, sidebarCompact, toggle, projectCount, locked = false }: {
+export const Sidebar = memo(function Sidebar({ route, sidebarCompact, toggle, projectCount, locked = false, projectNav, parentRoute }: {
  route: string; sidebarCompact: boolean; toggle: () => void; projectCount: number; locked?: boolean;
+ /** Seção "PROJETO ATUAL" (só dentro de #project/<id>/…). */
+ projectNav?: ReactNode;
+ /** Item global que contém o contexto aberto ("Projetos"): fica sutil, não competindo com a área atual. */
+ parentRoute?: string;
 }) {
  return (<aside className="sidebar" aria-label="Navegação do workspace">
         <div className="brand">
@@ -53,7 +58,7 @@ export const Sidebar = memo(function Sidebar({ route, sidebarCompact, toggle, pr
               ) : (
                 <a
                   href={`#${id}`}
-                  className={`nav-item ${route === id ? "active" : ""}`}
+                  className={`nav-item ${route === id ? "active" : ""} ${parentRoute === id ? "parent" : ""}`}
                   aria-current={route === id ? "page" : undefined}
                   title={sidebarCompact ? title : undefined}
                 >
@@ -66,6 +71,7 @@ export const Sidebar = memo(function Sidebar({ route, sidebarCompact, toggle, pr
               )}
             </div>
           ))}
+          {projectNav}
         </nav>
         <div className="sidebar-footer">
           <div className="local-mark">

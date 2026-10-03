@@ -84,7 +84,7 @@ pub struct Prompt {
     pub project_id: Option<String>,
     pub body: String,
 }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Activity {
     pub id: i64,
