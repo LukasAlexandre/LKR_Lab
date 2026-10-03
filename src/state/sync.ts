@@ -116,7 +116,7 @@ async function reloadAfterApply(status: SyncStatus) {
     const next = status.preferences;
     preferences.set({ sidebarCompact: next.sidebarCompact, density: next.density, promptFavorites: next.promptFavorites });
   }
-  await Promise.all([workspace.loadRegistry(), workspace.knowledge.refresh()]);
+  await Promise.all([workspace.loadRegistry(), workspace.knowledge.refresh(), workspace.refreshDdae()]);
   void workspace.refreshRepositories(0);
 }
 
@@ -144,6 +144,9 @@ const scheduleLocal = () => {
   clearTimeout(timer);
   timer = setTimeout(() => void checkLocal(), LOCAL_DEBOUNCE_MS);
 };
+
+/** O DDAE faz parte do workspace portátil: depois de mudá-lo, reavalia o estado local (sem rede). */
+export const notifyLocalChange = scheduleLocal;
 
 let started = false;
 /** Liga o cliente uma única vez. Retorna a função de limpeza. */

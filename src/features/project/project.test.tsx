@@ -45,11 +45,13 @@ const render = (p: ProjectOverview) =>
   );
 
 describe("Visão geral", () => {
-  it("DDAE e Planejamento são placeholders honestos, sem sessão/progresso inventado", () => {
+  it("DDAE vem do backend (sem sessão de exemplo) e só Planejamento segue como placeholder", () => {
     const html = render(base);
     expect(html).toContain("DDAE / Sessões");
     expect(html).toContain("Planejamento");
-    expect((html.match(/Ainda não disponível/g) ?? []).length).toBe(2);
+    // Fora do aplicativo desktop não há banco: o card diz isso em vez de inventar sessões.
+    expect(html).toContain("Disponível apenas no aplicativo desktop");
+    expect((html.match(/Ainda não disponível/g) ?? []).length).toBe(1);
     expect(html).not.toMatch(/SESSION-|ATIVA|\d+ ?\/ ?10/);
   });
   it("projeto disponível: Git, branch, Runtime e worktrees reais", () => {

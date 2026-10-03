@@ -57,7 +57,7 @@ impl Database {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 5 {
+        if version > 6 {
             return Err("Banco criado por versão mais recente do aplicativo.".into());
         }
         if version == 0 {
@@ -84,6 +84,12 @@ impl Database {
         if version < 5 {
             let tx = conn.transaction().map_err(|e| e.to_string())?;
             tx.execute_batch(include_str!("../migrations/005_machine.sql"))
+                .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+        }
+        if version < 6 {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            tx.execute_batch(include_str!("../migrations/006_ddae.sql"))
                 .map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
         }
@@ -536,6 +542,7 @@ impl Database {
             prompts: self.prompts()?,
             knowledge: self.knowledge()?,
             preferences: self.preferences()?,
+            ddae: crate::ddae::export(&self.conn)?,
         };
         crate::portable::normalize(&mut ws);
         Ok(ws)
@@ -565,6 +572,7 @@ impl Database {
             prompts: vec![],
             knowledge: vec![],
             preferences: prefs,
+            ddae: vec![],
         };
         crate::portable::normalize(&mut ws);
         let prefs = ws.preferences;
@@ -660,6 +668,9 @@ impl Database {
         for k in &ws.knowledge {
             tx.execute("INSERT INTO knowledge(id,project_id,title,kind,body,tags,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(id) DO UPDATE SET project_id=excluded.project_id,title=excluded.title,kind=excluded.kind,body=excluded.body,tags=excluded.tags,updated_at=excluded.updated_at", params![k.id, k.project_id, k.title, k.kind, k.body, k.tags, or_now(&k.updated_at)]).map_err(|e| e.to_string())?;
         }
+        // DDAE: o workspace manda (apagar e reinserir evita estados intermediários que violariam
+        // "uma ativa por projeto"). Projetos removidos levam suas sessões junto (CASCADE).
+        crate::ddae::replace_all(&tx, &ws.ddae)?;
         // Por último: projetos que saíram do workspace (o vínculo vai junto, a pasta nunca).
         let removed_projects =
             delete_absent(&tx, "projects", ws.projects.iter().map(|p| p.id.as_str()))?;
@@ -681,6 +692,7 @@ impl Database {
             projects: ws.projects.len(),
             prompts: ws.prompts.len(),
             knowledge: ws.knowledge.len(),
+            sessions: ws.ddae.len(),
             removed_projects,
         })
     }

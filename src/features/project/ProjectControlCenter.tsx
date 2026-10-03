@@ -11,12 +11,12 @@ import type { Project } from "../../shared/types";
 import { useResource, workspace } from "../../state/workspace";
 import { ProjectRuntime } from "../ProjectRuntime";
 import { Worktrees } from "../Worktrees";
+import { DdaeSessions } from "./DdaeSessions";
 import { ProjectLogs } from "./ProjectLogs";
 import { ProjectOverviewArea } from "./ProjectOverviewArea";
 
 /** Áreas que ainda não têm módulo: dizem isso, sem dados de exemplo. */
 const UNAVAILABLE: Partial<Record<ProjectArea, string>> = {
-  ddae: "O módulo DDAE / Sessões ainda não foi implementado. Hoje o DDAE existe apenas como documentação do repositório.",
   planning: "O módulo de Planejamento ainda não foi implementado.",
 };
 
@@ -119,6 +119,9 @@ export function ProjectControlCenter({ projectId, area, views, launch, generateC
         </Empty>
       </Panel>
     );
+  } else if (area === "ddae") {
+    // Sessões pertencem ao Project (estado portátil): não dependem da pasta nesta máquina.
+    content = <DdaeSessions key={projectId} projectId={projectId} notify={notify} />;
   } else if (NEEDS_FOLDER.includes(area) && !available) {
     content = unlocatedNotice;
   } else if (area === "overview") {

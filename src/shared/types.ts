@@ -537,3 +537,59 @@ export interface ProjectActivity {
   items: Activity[];
   contextGenerated: boolean;
 }
+
+/** DDAE (Concept 06): espelha hub-core::ddae. SQLite é a fonte; progresso/atual/próximo vêm derivados. */
+export type DdaeSessionStatus = "active" | "frozen" | "stopped" | "completed";
+export type DdaeBlockStatus = "pending" | "in_progress" | "completed";
+export interface DdaeBlock {
+  id: string;
+  title: string;
+  status: DdaeBlockStatus;
+}
+export interface DdaeDecision {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: string;
+}
+export interface DdaeSession {
+  id: string;
+  projectId: string;
+  number: number;
+  title: string;
+  objective: string;
+  status: DdaeSessionStatus;
+  pauseReason?: string;
+  result?: string;
+  blocks: DdaeBlock[];
+  decisions: DdaeDecision[];
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+export interface DdaeSessionView extends DdaeSession {
+  /** `SESSION-001` */
+  label: string;
+  progress: { completed: number; total: number };
+  currentBlock: DdaeBlock | null;
+  nextBlock: DdaeBlock | null;
+  canComplete: boolean;
+  recentDecision: DdaeDecision | null;
+}
+export interface DdaeCounts {
+  total: number;
+  active: number;
+  frozen: number;
+  stopped: number;
+  completed: number;
+}
+export type DdaeLegacyImport = "not_applicable" | "imported" | "already_imported" | "skipped";
+export interface DdaeOverview {
+  projectId: string;
+  /** Mais recente primeiro. */
+  sessions: DdaeSessionView[];
+  counts: DdaeCounts;
+  blocksTotal: number;
+  activeSessionId: string | null;
+  legacyImport: DdaeLegacyImport;
+}

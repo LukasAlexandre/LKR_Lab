@@ -284,6 +284,84 @@ fn bind_project(
 ) -> HubResult<BindResult> {
     db(&state)?.bind(&id, &path, confirmed)
 }
+/// DDAE (Concept 06): lista, derivados e importação idempotente da SESSION-001 histórica.
+#[tauri::command]
+fn ddae_overview(
+    state: State<AppState>,
+    project_id: String,
+) -> HubResult<hub_core::ddae::DdaeOverview> {
+    db(&state)?.ddae_overview_with_legacy(&project_id)
+}
+#[tauri::command]
+fn ddae_create_session(
+    state: State<AppState>,
+    project_id: String,
+    title: String,
+    objective: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_create_session(&project_id, &title, &objective)
+}
+#[tauri::command]
+fn ddae_add_block(
+    state: State<AppState>,
+    session_id: String,
+    title: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_add_block(&session_id, &title)
+}
+#[tauri::command]
+fn ddae_start_block(
+    state: State<AppState>,
+    session_id: String,
+    block_id: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_start_block(&session_id, &block_id)
+}
+#[tauri::command]
+fn ddae_complete_block(
+    state: State<AppState>,
+    session_id: String,
+    block_id: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_complete_block(&session_id, &block_id)
+}
+#[tauri::command]
+fn ddae_freeze(
+    state: State<AppState>,
+    session_id: String,
+    reason: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_freeze(&session_id, &reason)
+}
+#[tauri::command]
+fn ddae_stop(
+    state: State<AppState>,
+    session_id: String,
+    reason: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_stop(&session_id, &reason)
+}
+#[tauri::command]
+fn ddae_resume(state: State<AppState>, session_id: String) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_resume(&session_id)
+}
+#[tauri::command]
+fn ddae_complete(
+    state: State<AppState>,
+    session_id: String,
+    result: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_complete(&session_id, &result)
+}
+#[tauri::command]
+fn ddae_add_decision(
+    state: State<AppState>,
+    session_id: String,
+    title: String,
+    body: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_add_decision(&session_id, &title, &body)
+}
 #[tauri::command]
 fn export_portable(state: State<AppState>) -> HubResult<hub_core::portable::PortableWorkspace> {
     db(&state)?.export_portable()
@@ -675,7 +753,17 @@ fn main() {
             list_worktrees,
             create_worktree,
             remove_worktree,
-            launch_worktree
+            launch_worktree,
+            ddae_overview,
+            ddae_create_session,
+            ddae_add_block,
+            ddae_start_block,
+            ddae_complete_block,
+            ddae_freeze,
+            ddae_stop,
+            ddae_resume,
+            ddae_complete,
+            ddae_add_decision
         ]))
         .build(tauri::generate_context!());
     match result {

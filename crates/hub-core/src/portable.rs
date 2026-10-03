@@ -15,7 +15,9 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// v2 acrescenta `ddae` (sessões, blocos e decisões). v1 continua legível e vira v2 ao normalizar.
+pub const SCHEMA_VERSION: u32 = 2;
+const MIN_SCHEMA_VERSION: u32 = 1;
 /// Prompts criados pela migration 001: não contam como conteúdo do usuário.
 const SEED_PROMPT_IDS: [&str; 6] = ["audit", "bug", "pr", "continue", "security", "gate"];
 const DENSITIES: [&str; 2] = ["comfortable", "compact"];
@@ -81,6 +83,9 @@ pub struct PortableWorkspace {
     pub knowledge: Vec<KnowledgeEntry>,
     #[serde(default)]
     pub preferences: PortablePreferences,
+    /// DDAE (v2): ausente em workspaces v1 e quando ainda não há sessões.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ddae: Vec<crate::ddae::Session>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -89,6 +94,7 @@ pub struct ApplySummary {
     pub projects: usize,
     pub prompts: usize,
     pub knowledge: usize,
+    pub sessions: usize,
     pub removed_projects: usize,
 }
 
@@ -146,6 +152,11 @@ pub fn remote_identity(url: &str) -> String {
 /// Forma canônica, igual à de lkr-workspace.js: listas por id, textos aparados,
 /// itens vazios de listas descartados, favoritos únicos e ordenados.
 pub fn normalize(ws: &mut PortableWorkspace) {
+    // Um v1 legível vira v2 (ddae ausente = nenhuma sessão): o mesmo conteúdo, o mesmo hash.
+    if ws.version >= MIN_SCHEMA_VERSION && ws.version < SCHEMA_VERSION {
+        ws.version = SCHEMA_VERSION;
+    }
+    crate::ddae::normalize(&mut ws.ddae);
     fn clean(list: &mut Vec<String>) {
         *list = list
             .iter()
@@ -228,6 +239,21 @@ fn write_canonical(value: &serde_json::Value, out: &mut String) {
     }
 }
 
+fn strip_ddae_stamps(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in ["createdAt", "updatedAt", "completedAt"] {
+                map.remove(key);
+            }
+            for child in map.values_mut() {
+                strip_ddae_stamps(child);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter_mut().for_each(strip_ddae_stamps),
+        _ => {}
+    }
+}
+
 /// SHA-256 (hex) do workspace canônico. Carimbos de data ficam de fora: salvar
 /// sem mudar conteúdo não pode gerar divergência nem commit.
 pub fn content_hash(ws: &PortableWorkspace) -> String {
@@ -250,6 +276,12 @@ pub fn content_hash(ws: &PortableWorkspace) -> String {
             }
         }
     }
+    // DDAE: o conteúdo conta (status, blocos, decisões); carimbos de data ficam de fora.
+    if let Some(sessions) = value["ddae"].as_array_mut() {
+        for s in sessions {
+            strip_ddae_stamps(s);
+        }
+    }
     let mut text = String::new();
     write_canonical(&value, &mut text);
     Sha256::digest(text.as_bytes())
@@ -266,6 +298,7 @@ pub fn is_empty(ws: &PortableWorkspace) -> bool {
             .prompts
             .iter()
             .all(|p| SEED_PROMPT_IDS.contains(&p.id.as_str()))
+        && ws.ddae.is_empty()
         && ws.preferences == PortablePreferences::default()
 }
 
@@ -319,11 +352,17 @@ pub fn valid_locator(l: &RepositoryLocator) -> bool {
 }
 
 pub fn validate(ws: &PortableWorkspace) -> HubResult<()> {
-    check(ws.version == SCHEMA_VERSION, || {
-        format!(
-            "versão {} não suportada (esperada {SCHEMA_VERSION})",
-            ws.version
-        )
+    check(
+        (MIN_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&ws.version),
+        || {
+            format!(
+                "versão {} não suportada (esperada {MIN_SCHEMA_VERSION}–{SCHEMA_VERSION})",
+                ws.version
+            )
+        },
+    )?;
+    check(ws.version >= 2 || ws.ddae.is_empty(), || {
+        "DDAE exige a versão 2 do workspace".into()
     })?;
     let project_ids = unique(ws.projects.iter().map(|p| p.id.as_str()), "projeto")?;
     for p in &ws.projects {
@@ -410,6 +449,7 @@ pub fn validate(ws: &PortableWorkspace) -> HubResult<()> {
             && ws.preferences.prompt_favorites.iter().all(|f| valid_id(f)),
         || "preferências: favoritos inválidos".into(),
     )?;
+    crate::ddae::validate_portable(&ws.ddae, &project_ids)?;
     unique(ws.knowledge.iter().map(|k| k.id.as_str()), "conhecimento")?;
     for k in &ws.knowledge {
         check(

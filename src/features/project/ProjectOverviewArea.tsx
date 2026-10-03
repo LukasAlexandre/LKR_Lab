@@ -30,7 +30,7 @@ const Unavailable = ({ what }: { what: string }) => (
   </>
 );
 
-/** Visão geral (Concept 05): só dados reais. DDAE e Planejamento não existem como módulo e dizem isso. */
+/** Visão geral (Concept 05): só dados reais. O DDAE vem do backend; Planejamento ainda não existe e diz isso. */
 export function ProjectOverviewArea({ project: p, go, locate, generateContext, refreshKey }: {
   project: ProjectOverview;
   go: (area: ProjectArea) => void;
@@ -45,6 +45,10 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
   const { data: trees } = useResource(sources.worktrees);
   const { data: runtime } = useResource(sources.runtime);
   const [activity, setActivity] = useState<ProjectActivity | null>(null);
+  const { data: ddae, status: ddaeStatus } = useResource(sources.ddae);
+  useEffect(() => {
+    if (desktop) void sources.ddae.refresh();
+  }, [sources, refreshKey]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -63,7 +67,8 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
   const git = gitLabel(p);
   const runtimeText = runtimeLabel(p);
   const wt = worktreeSummary(trees);
-  const next = deriveProjectNextAction(p, activity ? activity.contextGenerated : null);
+  const next = deriveProjectNextAction(p, activity ? activity.contextGenerated : null, ddae);
+  const ddaeActive = ddae?.sessions.find((session) => session.id === ddae.activeSessionId) ?? null;
   const act = () => {
     if (next.target.kind === "locate") locate();
     else if (next.target.kind === "context") generateContext();
@@ -105,8 +110,23 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
             <><strong className="tone-neutral">—</strong><small>Sem pasta nesta máquina</small></>
           )}
         </SummaryCard>
-        <SummaryCard icon={<BookOpenCheck size={16} />} title="DDAE / Sessões">
-          <Unavailable what="O módulo DDAE ainda não foi implementado." />
+        <SummaryCard icon={<BookOpenCheck size={16} />} title="DDAE / Sessões" tone={ddaeActive ? "blue" : undefined} cta="Abrir DDAE" onCta={() => go("ddae")}>
+          {!desktop ? (
+            <><strong className="tone-neutral">—</strong><small>Disponível apenas no aplicativo desktop</small></>
+          ) : !ddae ? (
+            <><strong className="tone-neutral">{ddaeStatus === "error" ? "Indisponível" : "Carregando…"}</strong><small>Sessões do projeto</small></>
+          ) : ddaeActive ? (
+            <>
+              <strong>{ddaeActive.label}</strong>
+              <small>{ddaeActive.currentBlock ? `Atual: ${ddaeActive.currentBlock.title}` : "Sem bloco em andamento"}</small>
+              <small>{ddaeActive.progress.completed} / {ddaeActive.progress.total} blocos{ddaeActive.nextBlock ? ` · Próximo: ${ddaeActive.nextBlock.title}` : ""}</small>
+            </>
+          ) : (
+            <>
+              <strong className="tone-neutral">Nenhuma sessão ativa</strong>
+              <small>{ddae.counts.total === 0 ? "Nenhuma sessão neste projeto" : `${ddae.counts.total} ${ddae.counts.total === 1 ? "sessão" : "sessões"} no projeto`}</small>
+            </>
+          )}
         </SummaryCard>
         <SummaryCard icon={<ListChecks size={16} />} title="Planejamento">
           <Unavailable what="O módulo de Planejamento ainda não foi implementado." />

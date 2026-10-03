@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { api, desktop } from "../shared/api";
 import { preferences } from "../shared/preferences";
-import type { Activity, AgentContext, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
+import type { Activity, AgentContext, DdaeOverview, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
 import { createResource, type Resource } from "./resource";
 import type { KnowledgeEntry } from "../shared/types";
 import { trackOperation } from "./operations";
@@ -28,6 +28,8 @@ function projectSources(id: string) {
     agents: createResource<AgentContext | null>(null, () => api("agent_context", { id })),
     runtime: createResource<ProjectRuntime | null>(null, () => api("project_runtime", { id })),
     worktrees: createResource<Worktree[]>([], () => trackOperation("Consultando worktrees", () => api("list_worktrees", { id }), id)),
+    // DDAE: lista, derivados e importação idempotente da SESSION-001 histórica (backend).
+    ddae: createResource<DdaeOverview | null>(null, () => api("ddae_overview", { projectId: id })),
   };
 }
 const repositories = new Map<string, ReturnType<typeof projectSources>>();
@@ -63,9 +65,14 @@ async function refreshRepositories(maxAgeMs = 30_000) {
   }));
 }
 
+/** Relê o DDAE de todos os Projects já carregados (depois de um sync que aplicou o workspace). */
+async function refreshDdae() {
+  await Promise.all([...repositories.values()].map((sources) => sources.ddae.getSnapshot().lastUpdated === null ? Promise.resolve() : sources.ddae.refresh()));
+}
+
 export const workspace = {
   projects, overviews, ports, processes, environment, activities, prompts, agentProviders, knowledge, forProject,
-  selectProject, loadRegistry, refreshRepositories,
+  selectProject, loadRegistry, refreshRepositories, refreshDdae,
   async refreshEnvironment() {
     if (!desktop) return;
     const id = activeId();

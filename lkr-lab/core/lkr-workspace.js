@@ -22,7 +22,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  const SCHEMA_VERSION = 1;
+  /** v2 acrescenta `ddae`; v1 continua legível e vira v2 ao normalizar. */
+  const SCHEMA_VERSION = 2;
   const SOURCE = "lkr-lab";
   const MODULE = "workspace";
   const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -48,6 +49,16 @@
     knowledgeTags: 2000,
     timestamp: 40,
     favorites: 500,
+    sessionTitle: 120,
+    objective: 4000,
+    blockTitle: 200,
+    reason: 500,
+    result: 2000,
+    decisionTitle: 200,
+    decisionBody: 8000,
+    blocks: 500,
+    decisions: 500,
+    sessions: 10000,
   };
 
   // Padrões de credencial conhecidos: o sync é recusado em vez de publicar.
@@ -221,6 +232,106 @@
     };
   }
 
+  // ------------------------------------------------------------------ DDAE (v2)
+
+  const SESSION_STATUSES = ["active", "frozen", "stopped", "completed"];
+  const BLOCK_STATUSES = ["pending", "in_progress", "completed"];
+  // eslint-disable-next-line no-control-regex
+  const CONTROL_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+
+  /** Mesma heurística do hub-core (ddae.rs): caminho absoluto de máquina dentro de texto livre. */
+  const hasMachinePath = (value) =>
+    /(?:^|[^A-Za-z0-9])[A-Za-z]:(?:\\|\/(?!\/))/.test(value) ||
+    value.includes("\\\\") ||
+    value.includes("/Users/") ||
+    value.includes("/home/") ||
+    value.includes("~/") ||
+    value.includes("~\\");
+
+  /** Texto do DDAE: aparado, sem controle, sem credencial e SEM caminho local (estado portátil). */
+  function ddaeText(value, where, max, { required = false } = {}) {
+    const result = text(value, where, max, { required, trim: true });
+    if (CONTROL_CHARS.test(result)) fail(where, "contém caracteres de controle");
+    if (hasMachinePath(result)) fail(where, "contém caminho local; o DDAE é portátil e não guarda caminhos");
+    return result;
+  }
+
+  const optionalDdaeText = (value, where, max) => ddaeText(value, where, max) || undefined;
+
+  function claimId(seen, value, where) {
+    if (seen.has(value)) fail(where, "id duplicado (" + value + ")");
+    seen.add(value);
+  }
+
+  function session(raw, where, projectIds, seen) {
+    if (!isPlainObject(raw)) fail(where, "sessão inválida");
+    const sessionId = id(raw.id, where + ".id");
+    claimId(seen, sessionId, where + ".id");
+    const projectId = id(raw.projectId, where + ".projectId");
+    if (!projectIds.has(projectId)) fail(where + ".projectId", "referencia um projeto que não está no workspace");
+    if (!Number.isInteger(raw.number) || raw.number < 1) fail(where + ".number", "deve ser um inteiro a partir de 1");
+    if (!SESSION_STATUSES.includes(raw.status)) fail(where + ".status", "estado desconhecido");
+    const blocks = list(raw.blocks, where + ".blocks", LIMITS.blocks).map((block, i) => {
+      const at = where + ".blocks[" + i + "]";
+      if (!isPlainObject(block)) fail(at, "bloco inválido");
+      if (!BLOCK_STATUSES.includes(block.status)) fail(at + ".status", "estado desconhecido");
+      const blockId = id(block.id, at + ".id");
+      claimId(seen, blockId, at + ".id");
+      return { id: blockId, title: ddaeText(block.title, at + ".title", LIMITS.blockTitle, { required: true }), status: block.status };
+    });
+    if (blocks.filter((b) => b.status === "in_progress").length > 1) fail(where + ".blocks", "mais de um bloco em andamento");
+    if (raw.status === "completed" && (!blocks.length || blocks.some((b) => b.status !== "completed"))) {
+      fail(where + ".status", "finalizada exige todos os blocos concluídos e nenhum em andamento");
+    }
+    const decisions = list(raw.decisions, where + ".decisions", LIMITS.decisions).map((decision, i) => {
+      const at = where + ".decisions[" + i + "]";
+      if (!isPlainObject(decision)) fail(at, "decisão inválida");
+      const decisionId = id(decision.id, at + ".id");
+      claimId(seen, decisionId, at + ".id");
+      return {
+        id: decisionId,
+        title: ddaeText(decision.title, at + ".title", LIMITS.decisionTitle, { required: true }),
+        body: ddaeText(decision.body, at + ".body", LIMITS.decisionBody),
+        createdAt: stamp(decision.createdAt, at + ".createdAt"),
+      };
+    });
+    const pauseReason = optionalDdaeText(raw.pauseReason, where + ".pauseReason", LIMITS.reason);
+    const result = optionalDdaeText(raw.result, where + ".result", LIMITS.result);
+    const completedAt = stamp(raw.completedAt, where + ".completedAt") || undefined;
+    return {
+      id: sessionId,
+      projectId,
+      number: raw.number,
+      title: ddaeText(raw.title, where + ".title", LIMITS.sessionTitle, { required: true }),
+      objective: ddaeText(raw.objective, where + ".objective", LIMITS.objective),
+      status: raw.status,
+      ...(pauseReason ? { pauseReason } : {}),
+      ...(result ? { result } : {}),
+      blocks,
+      decisions,
+      createdAt: stamp(raw.createdAt, where + ".createdAt"),
+      updatedAt: stamp(raw.updatedAt, where + ".updatedAt"),
+      ...(completedAt ? { completedAt } : {}),
+    };
+  }
+
+  /** Invariantes entre sessões: numeração única por projeto e no máximo uma ativa por projeto. */
+  function ddaeInvariants(sessions) {
+    const numbers = new Set();
+    const active = new Set();
+    sessions.forEach((s, i) => {
+      const key = s.projectId + "#" + s.number;
+      if (numbers.has(key)) fail("ddae[" + i + "].number", "número repetido no projeto");
+      numbers.add(key);
+      if (s.status === "active") {
+        if (active.has(s.projectId)) fail("ddae[" + i + "].status", "o projeto já tem outra sessão ativa (no máximo uma)");
+        active.add(s.projectId);
+      }
+    });
+  }
+
+  const bySession = (a, b) => (a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : a.number - b.number);
+
   function preferences(raw) {
     const value = isPlainObject(raw) ? raw : {};
     const favorites = Array.isArray(value.promptFavorites) ? value.promptFavorites.filter((f) => typeof f === "string" && ID_PATTERN.test(f)) : [];
@@ -256,12 +367,18 @@
     uniqueIds(prompts, "prompts");
     const notes = list(raw.knowledge, "knowledge", 10000).map((k, i) => knowledge(k, "knowledge[" + i + "]", projectIds));
     uniqueIds(notes, "knowledge");
+    const seenDdaeIds = new Set();
+    const sessions = list(raw.ddae, "ddae", LIMITS.sessions).map((x, i) => session(x, "ddae[" + i + "]", projectIds, seenDdaeIds));
+    if (sessions.length && raw.version < 2) fail("workspace.ddae", "DDAE exige a versão 2 do workspace");
+    ddaeInvariants(sessions);
     return {
       version: SCHEMA_VERSION,
       projects: projects.sort(byId),
       prompts: prompts.sort(byId),
       knowledge: notes.sort(byId),
       preferences: preferences(raw.preferences),
+      // Só aparece quando há sessões: workspaces sem DDAE mantêm a mesma forma canônica.
+      ...(sessions.length ? { ddae: sessions.sort(bySession) } : {}),
     };
   }
 
@@ -284,7 +401,7 @@
         ok: true,
         state,
         hash: hash(state),
-        summary: { projects: state.projects.length, prompts: state.prompts.length, knowledge: state.knowledge.length },
+        summary: { projects: state.projects.length, prompts: state.prompts.length, knowledge: state.knowledge.length, sessions: state.ddae ? state.ddae.length : 0 },
       };
     } catch (error) {
       if (error instanceof InvalidWorkspace) return { ok: false, error: error.message };
@@ -296,7 +413,7 @@
 
   /** Máquina nova: sem projetos, sem conhecimento e só com os prompts de fábrica. */
   function isEmpty(state) {
-    return !state.projects.length && !state.knowledge.length && state.prompts.every((p) => SEED_PROMPT_IDS.includes(p.id));
+    return !state.projects.length && !state.knowledge.length && !(state.ddae && state.ddae.length) && state.prompts.every((p) => SEED_PROMPT_IDS.includes(p.id));
   }
 
   return { SCHEMA_VERSION, SOURCE, MODULE, SEED_PROMPT_IDS, LIMITS, validate, hash, isEmpty, isAbsolutePath, validRepository };

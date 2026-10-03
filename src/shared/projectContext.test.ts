@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveProjectNextAction, runtimeHeadline, worktreeSummary } from "./projectContext";
-import type { GitSummary, ProjectOverview } from "./types";
+import type { DdaeBlock, DdaeBlockStatus, DdaeOverview, DdaeSessionView, GitSummary, ProjectOverview } from "./types";
 
 const git = (over: Partial<GitSummary> = {}): GitSummary => ({
   isRepo: true, branch: "main", detached: false, upstream: null, ahead: null, behind: null,
@@ -87,5 +87,45 @@ describe("runtimeHeadline", () => {
     expect(runtimeHeadline(make())).toBe("Parado");
     expect(runtimeHeadline(make({ runtime: { status: "available", data: { running: true, managedRuns: 1, listeningPorts: [1420, 4317] }, message: null } }))).toBe("Em execução · 1 execução · portas 1420, 4317");
     expect(runtimeHeadline(absent("missing"))).toBe("Indisponível");
+  });
+});
+
+const dBlock = (id: string, title: string, status: DdaeBlockStatus): DdaeBlock => ({ id, title, status });
+function ddaeWith(blocks: DdaeBlock[], status: DdaeSessionView["status"] = "active"): DdaeOverview {
+  const completed = blocks.filter((b) => b.status === "completed").length;
+  const session: DdaeSessionView = {
+    id: "s1", projectId: "p", number: 1, label: "SESSION-001", title: "Feature", objective: "", status, blocks, decisions: [],
+    createdAt: "", updatedAt: "", progress: { completed, total: blocks.length },
+    currentBlock: blocks.find((b) => b.status === "in_progress") ?? null,
+    nextBlock: blocks.find((b) => b.status === "pending") ?? null,
+    canComplete: false, recentDecision: null,
+  };
+  return { projectId: "p", sessions: [session], counts: { total: 1, active: status === "active" ? 1 : 0, frozen: 0, stopped: 0, completed: 0 }, blocksTotal: blocks.length, activeSessionId: status === "active" ? "s1" : null, legacyImport: "not_applicable" };
+}
+
+describe("deriveProjectNextAction: DDAE", () => {
+  const working = ddaeWith([dBlock("a", "Concept 06", "in_progress"), dBlock("b", "Concept 07", "pending")]);
+  it("sessão ativa com bloco atual → Continuar <bloco>", () => {
+    expect(deriveProjectNextAction(make(), true, working)).toMatchObject({ id: "continue-block", title: "Continuar Concept 06", cta: "Abrir DDAE", target: { kind: "area", area: "ddae" } });
+  });
+  it("sessão ativa sem bloco atual e com próximo → Iniciar <bloco>", () => {
+    const idle = ddaeWith([dBlock("a", "Concept 05", "completed"), dBlock("b", "Concept 06", "pending")]);
+    expect(deriveProjectNextAction(make(), true, idle)).toMatchObject({ id: "start-block", title: "Iniciar Concept 06" });
+  });
+  it("entra DEPOIS dos problemas prioritários", () => {
+    const dirty = make({ git: { status: "available", data: git({ changes: 2, unstaged: 2, clean: false }), message: null } });
+    const conflicts = make({ git: { status: "available", data: git({ conflicts: 1, changes: 1, clean: false }), message: null } });
+    const broken = make({ runtime: { status: "error", data: null, message: "Portas: sem acesso" } });
+    expect(deriveProjectNextAction(absent("missing"), true, working).id).toBe("locate");
+    expect(deriveProjectNextAction(conflicts, true, working).id).toBe("conflicts");
+    expect(deriveProjectNextAction(dirty, true, working).id).toBe("review-changes");
+    expect(deriveProjectNextAction(broken, true, working).id).toBe("review-runtime");
+  });
+  it("vem antes de gerar contexto e não inventa ação sem DDAE real", () => {
+    expect(deriveProjectNextAction(make(), false, working).id).toBe("continue-block");
+    expect(deriveProjectNextAction(make(), false, null).id).toBe("generate-context");
+    expect(deriveProjectNextAction(make(), true, undefined).id).toBe("none");
+    expect(deriveProjectNextAction(make(), true, ddaeWith([dBlock("a", "X", "in_progress")], "frozen")).id).toBe("none");
+    expect(deriveProjectNextAction(make(), true, ddaeWith([])).id).toBe("none");
   });
 });

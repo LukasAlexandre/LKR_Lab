@@ -1,11 +1,12 @@
+import { deriveDdaeNextAction } from "./ddae";
 import { changesLabel } from "./logic";
 import { isDirty } from "./projectOverview";
 import type { ProjectArea } from "../app/projectRoute";
-import type { ProjectOverview, Worktree } from "./types";
+import type { DdaeOverview, ProjectOverview, Worktree } from "./types";
 
 /*
  * Lógica pura da Visão geral do Project Control Center (Concept 05).
- * Só fatos reais: o que não existe (DDAE, Planejamento, estado operacional de worktree) não é derivado aqui.
+ * Só fatos reais: o que não existe (Planejamento, estado operacional de worktree) não é derivado aqui.
  */
 
 export type NextActionTarget =
@@ -15,7 +16,7 @@ export type NextActionTarget =
   | { kind: "none" };
 
 export interface NextAction {
-  id: "locate" | "conflicts" | "review-changes" | "review-runtime" | "generate-context" | "none";
+  id: "locate" | "conflicts" | "review-changes" | "review-runtime" | "continue-block" | "start-block" | "generate-context" | "none";
   title: string;
   description: string;
   cta: string | null;
@@ -28,12 +29,19 @@ export interface NextAction {
  *  2. Git com conflitos          → Resolver conflitos (Git)
  *  3. Git com alterações locais  → Revisar alterações (Git)
  *  4. Runtime com erro de leitura→ Revisar Runtime
- *  5. Contexto IA nunca gerado   → Gerar contexto (só quando `contextGenerated === false`;
+ *  5. DDAE: sessão ativa com bloco em andamento → Continuar <bloco>;
+ *           sessão ativa sem bloco atual e com próximo → Iniciar <bloco>
+ *           (só com o DDAE real carregado; `null`/ausente = a regra não dispara)
+ *  6. Contexto IA nunca gerado   → Gerar contexto (só quando `contextGenerated === false`;
  *                                  `null` = desconhecido, a regra não dispara. "Defasado" não é observável.)
- *  6. Nada urgente               → nenhuma ação pendente
- * Não existe regra de DDAE/Planejamento: esses módulos ainda não existem.
+ *  7. Nada urgente               → nenhuma ação pendente
+ * O DDAE entra DEPOIS dos problemas prioritários (1–4). Não existe regra de Planejamento nem de IA.
  */
-export function deriveProjectNextAction(project: ProjectOverview, contextGenerated: boolean | null): NextAction {
+export function deriveProjectNextAction(
+  project: ProjectOverview,
+  contextGenerated: boolean | null,
+  ddae?: DdaeOverview | null,
+): NextAction {
   if (project.location !== "available") {
     return {
       id: "locate",
@@ -72,6 +80,16 @@ export function deriveProjectNextAction(project: ProjectOverview, contextGenerat
       description: project.runtime.message ?? "Não foi possível ler o estado de execução do projeto.",
       cta: "Abrir Runtime",
       target: { kind: "area", area: "runtime" },
+    };
+  }
+  const work = deriveDdaeNextAction(ddae);
+  if (work) {
+    return {
+      id: work.kind === "continue" ? "continue-block" : "start-block",
+      title: work.title,
+      description: work.description,
+      cta: "Abrir DDAE",
+      target: { kind: "area", area: "ddae" },
     };
   }
   if (contextGenerated === false) {

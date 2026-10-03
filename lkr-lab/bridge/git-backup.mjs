@@ -434,7 +434,7 @@ export function createGitBackup({ repoRoot, env = {}, now = () => new Date() }) 
   async function sync(moduleId, payload) {
     const mod = moduleOf(moduleId);
     return exclusive(async () => {
-      if (!payload || typeof payload !== "object" || payload.schemaVersion !== mod.schemaVersion) {
+      if (!payload || typeof payload !== "object" || !Number.isInteger(payload.schemaVersion) || payload.schemaVersion < 1 || payload.schemaVersion > mod.schemaVersion) {
         throw new BackupError("INVALID_PAYLOAD", { status: 400, message: "schemaVersion ausente ou incompatível." });
       }
       const prepared = mod.prepare(payload.state);

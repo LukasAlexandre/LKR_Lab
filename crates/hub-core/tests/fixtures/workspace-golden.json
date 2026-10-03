@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "projects": [
     {
       "id": "proj-a",
@@ -83,5 +83,80 @@
       "audit",
       "mine"
     ]
-  }
+  },
+  "ddae": [
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1a0001",
+      "projectId": "proj-a",
+      "number": 1,
+      "title": "Machine Context & Workspace Foundation",
+      "objective": "Fundação da máquina e do workspace — com acentuação.",
+      "status": "completed",
+      "result": "Entregue e validado.",
+      "blocks": [
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0001",
+          "title": "Product Architecture",
+          "status": "completed"
+        },
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0002",
+          "title": "Machine Registry",
+          "status": "completed"
+        }
+      ],
+      "decisions": [
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1c0001",
+          "title": "SQLite é a fonte de verdade",
+          "body": "Markdown é só export.",
+          "createdAt": "2026-01-02T09:00:00.000Z"
+        }
+      ],
+      "createdAt": "2026-01-01T09:00:00.000Z",
+      "updatedAt": "2026-01-04T09:00:00.000Z",
+      "completedAt": "2026-01-04T09:00:00.000Z"
+    },
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1a0002",
+      "projectId": "proj-a",
+      "number": 2,
+      "title": "DDAE Sessions",
+      "objective": "",
+      "status": "active",
+      "blocks": [
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0003",
+          "title": "Migration",
+          "status": "completed"
+        },
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0004",
+          "title": "Lifecycle",
+          "status": "in_progress"
+        },
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0005",
+          "title": "Frontend",
+          "status": "pending"
+        }
+      ],
+      "decisions": [],
+      "createdAt": "2026-01-05T09:00:00.000Z",
+      "updatedAt": "2026-01-05T10:00:00.000Z"
+    },
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1a0003",
+      "projectId": "proj-b",
+      "number": 1,
+      "title": "Spike",
+      "objective": "Explorar.",
+      "status": "frozen",
+      "pauseReason": "Aguardando a revisão do time.",
+      "blocks": [],
+      "decisions": [],
+      "createdAt": "2026-01-06T09:00:00.000Z",
+      "updatedAt": "2026-01-06T09:00:00.000Z"
+    }
+  ]
 }

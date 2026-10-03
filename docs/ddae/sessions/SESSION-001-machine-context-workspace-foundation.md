@@ -24,7 +24,7 @@ Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão apro
 | 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
 | 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
 | 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
-| 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
+| 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — validação manual no desktop pendente, ver D04) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
 | 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
 | 10 | Concept 09 — Planejamento | EM ANDAMENTO (visual EM REFINAMENTO) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
@@ -48,6 +48,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
+| D04 | DDAE Foundation (Concept 06) | IMPLEMENTADO; validação manual no desktop pendente | `feat/session-001-ddae-foundation` |
 | D03 | Projects Foundation (Concepts 03–05) | CONCLUÍDO (Concepts 03, 04 e 05 implementados e validados no desktop) | `feat/session-001-projects-foundation`, `feat/session-001-project-control-center` |
 
 ### Checkpoint — MACHINE FOUNDATION COMPLETE
@@ -82,6 +83,19 @@ Integrado à `main` por fast-forward (`2f9e528`). As branches `feat/session-001-
 - **Cobertos só por teste automatizado:** Missing/Unbound no Project Control Center, Localizar, binding alternativo, monorepo, falhas parciais.
 - **Estado atual do DDAE:** existe apenas como documentação em `docs/ddae/sessions/*.md`; não há modelo, banco, API nem persistência de sessões ou blocos.
 - **Próximo domínio:** DDAE. **Próximo concept:** 06 — DDAE / Sessões (branch `feat/session-001-ddae-foundation`), com o 07 auditado junto. SESSION-001 continua ATIVA; Concept 09 segue EM REFINAMENTO.
+
+### Bloco D04 — DDAE Foundation / Concept 06 (IMPLEMENTADO; validação manual no desktop pendente)
+
+- **Fonte de verdade:** SQLite (migration `006_ddae.sql`, `user_version=6`: `ddae_sessions`, `ddae_blocks`, `ddae_decisions`). Markdown é só documentação/export. SESSION = FEATURE e sempre pertence a um Project.
+- **Identidade:** UUID interno estável + `SESSION-NNN` humano, único por Project (nunca reutilizado).
+- **Invariantes no banco, não só na UI:** no máximo UMA Session `active` por Project e UM Block `in_progress` por Session (índices únicos parciais); `completed` é terminal (gatilho recusa qualquer UPDATE). Estados: `active|frozen|stopped|completed`; Blocks `pending|in_progress|completed`.
+- **Derivados no backend:** bloco atual = o `in_progress`; próximo = primeiro `pending` pela ordem; progresso = completed/total. Nenhum percentual é gravado.
+- **Transições explícitas (`hub-core::ddae`):** criar (nasce ativa; recusa se já houver ativa), adicionar/iniciar/concluir bloco (só em Session ativa; concluir não inicia o próximo), congelar/parar (exigem motivo), retomar (recusa com outra ativa), finalizar (todos os blocks concluídos, nenhum em andamento, ao menos 1 bloco), decisões. Comandos Tauri `ddae_*`.
+- **Portabilidade (Workspace v2):** `ddae` entra no `data/workspace.json`; v1 continua legível e vira v2 ao normalizar (mesmo conteúdo = mesmo hash). Validado em Rust (`portable.rs`/`ddae.rs`) e em JS (`lkr-workspace.js`, que descartaria o campo se não o conhecesse); o bridge aceita payload v1–v2. Nunca persiste caminho absoluto, Machine ID, hostname ou IP (texto com caminho local é recusado). O apply do sync substitui o DDAE inteiro numa transação.
+- **SESSION-001 legada:** importada do Markdown da pasta vinculada com UUID determinístico (Project + número), idempotente e igual em qualquer máquina. SESSION-002/003/004 (exemplos do concept) nunca são importadas. Estado real importado: 10 blocos, 9 concluídos, bloco atual = Concept 09 — Planejamento.
+- **UI (`#project/<id>/ddae`):** resumo, busca (SESSION-NNN, título, objetivo), filtros com contadores que fecham com o total, lista e preview master/detail, Nova sessão, ações de ciclo de vida e de bloco. Card DDAE e Próxima ação do Project Control Center usam o backend real (DDAE entra depois de Localizar, conflitos, alterações e erro de runtime).
+- **Divergências cosméticas (sem redesenho):** menus "⋯" do concept não foram implementados; **Abrir sessão** está desabilitado até o Concept 07 (Detalhe da Sessão); a busca global da topbar não indexa sessões; adicionar blocos só existe na API (sem UI até o 07).
+- **Validação:** testes Rust (31 em `tests/ddae.rs` + sync/portable) e JS (lógica, render da tela, Próxima ação, workspace v2). A tela foi conferida visualmente com o componente real e `invoke` simulado; **a validação manual no app desktop real ainda não foi feita**. Concept 09 segue EM REFINAMENTO.
 
 ### Bloco D03 — Projects Foundation (EM ANDAMENTO)
 
@@ -167,7 +181,7 @@ Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como esta
 | 03 | Projetos | APROVADO |
 | 04 | Cadastro de Projeto | APROVADO / IMPLEMENTADO (validação visual no desktop pendente) |
 | 05 | Project Control Center | APROVADO |
-| 06 | DDAE / Sessões | APROVADO |
+| 06 | DDAE / Sessões | APROVADO / IMPLEMENTADO (validação manual no desktop pendente) |
 | 07 | DDAE / Detalhe da Sessão | APROVADO |
 | 08 | Worktrees | APROVADO |
 | 09 | Planejamento | EM REFINAMENTO |
