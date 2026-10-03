@@ -222,7 +222,7 @@ export function MachineHealth() {
                 {t.gpus.map((gpu) => {
                   const memory = gpuMemory(gpu);
                   return (
-                    <tr key={gpu.name}>
+                    <tr key={gpu.id}>
                       <td>{gpu.name}</td>
                       <td>{available(gpu.capabilities.usage) ? pct(gpu.usage) : UNAVAILABLE}</td>
                       <td>{memory.dedicated ?? UNAVAILABLE}</td>

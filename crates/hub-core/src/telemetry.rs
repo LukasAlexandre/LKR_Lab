@@ -147,6 +147,8 @@ pub struct GpuCapabilities {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GpuTelemetry {
+    /// Identidade da GPU neste boot (endereço PCI). Distingue placas de mesmo modelo.
+    pub id: String,
     pub name: String,
     /// % do motor mais ocupado (mesma regra do Gerenciador de Tarefas).
     pub usage: Option<f32>,
@@ -321,13 +323,42 @@ pub fn memory_percent(total: u64, available: u64) -> f32 {
 /// Uso de GPU a partir das instâncias PDH de "GPU Engine": por adaptador e por processo,
 /// soma por tipo de motor e fica com o motor mais ocupado.
 pub fn gpu_usage(engines: &[(String, f64)]) -> (HashMap<u64, f32>, HashMap<u32, f32>) {
+    gpu_usage_grouped(engines, &HashMap::new())
+}
+
+/// LUID → LUID principal da GPU a que ele pertence (ver `gpu_luid_map`).
+pub type LuidMap = HashMap<u64, u64>;
+
+/// Mapa de todos os LUIDs de cada GPU para o LUID principal dela. LUIDs que não estão aqui
+/// (display indireto, software) não pertencem a nenhuma GPU e não viram atividade de GPU.
+pub fn gpu_luid_map(adapters: &[Adapter]) -> LuidMap {
+    adapters
+        .iter()
+        .flat_map(|a| a.luids.iter().map(move |l| (*l, a.luid)))
+        .collect()
+}
+
+/// Como `gpu_usage`, com os LUIDs de uma mesma GPU somados por tipo de motor antes de
+/// escolher o mais ocupado. Mapa vazio = cada LUID conta por si (comportamento anterior).
+/// O uso POR PROCESSO continua somando todos os adaptadores: é o que o processo gasta no total.
+pub fn gpu_usage_grouped(
+    engines: &[(String, f64)],
+    luids: &LuidMap,
+) -> (HashMap<u64, f32>, HashMap<u32, f32>) {
     let mut by_adapter: HashMap<(u64, String), f64> = HashMap::new();
     let mut by_process: HashMap<(u32, String), f64> = HashMap::new();
     for (instance, value) in engines {
         let Some((pid, luid, engine)) = sensors::parse_engine(instance) else {
             continue;
         };
-        *by_adapter.entry((luid, engine.clone())).or_default() += value;
+        let key = if luids.is_empty() {
+            Some(luid)
+        } else {
+            luids.get(&luid).copied()
+        };
+        if let Some(key) = key {
+            *by_adapter.entry((key, engine.clone())).or_default() += value;
+        }
         *by_process.entry((pid, engine)).or_default() += value;
     }
     let mut adapters: HashMap<u64, f32> = HashMap::new();
@@ -353,10 +384,23 @@ pub fn busiest_disk(idle: &[(String, f64)]) -> Option<(String, f32)> {
 }
 
 pub fn by_luid(values: &[(String, f64)]) -> HashMap<u64, u64> {
+    by_gpu(values, &HashMap::new())
+}
+
+/// Como `by_luid`, somando os LUIDs de uma mesma GPU (memória de cada fonte é distinta).
+pub fn by_gpu(values: &[(String, f64)], luids: &LuidMap) -> HashMap<u64, u64> {
     let mut out: HashMap<u64, u64> = HashMap::new();
     for (instance, value) in values {
-        if let Some(luid) = sensors::parse_luid(instance) {
-            *out.entry(luid).or_default() += value.max(0.0) as u64;
+        let Some(luid) = sensors::parse_luid(instance) else {
+            continue;
+        };
+        let key = if luids.is_empty() {
+            Some(luid)
+        } else {
+            luids.get(&luid).copied()
+        };
+        if let Some(key) = key {
+            *out.entry(key).or_default() += value.max(0.0) as u64;
         }
     }
     out
@@ -654,9 +698,10 @@ impl Sampler {
             self.adapters = sensors::gpu_adapters();
             self.adapters_at = Some(now);
         }
-        let (by_adapter, by_process) = gpu_usage(&self.pdh_values(PDH_GPU_ENGINE));
-        let dedicated = by_luid(&self.pdh_values(PDH_GPU_DEDICATED));
-        let shared = by_luid(&self.pdh_values(PDH_GPU_SHARED));
+        let luids = gpu_luid_map(&self.adapters);
+        let (by_adapter, by_process) = gpu_usage_grouped(&self.pdh_values(PDH_GPU_ENGINE), &luids);
+        let dedicated = by_gpu(&self.pdh_values(PDH_GPU_DEDICATED), &luids);
+        let shared = by_gpu(&self.pdh_values(PDH_GPU_SHARED), &luids);
         let engines = self.pdh_available(PDH_GPU_ENGINE);
         let memory = self.pdh_available(PDH_GPU_DEDICATED);
         let previous = std::mem::take(&mut self.gpus);
@@ -664,6 +709,7 @@ impl Sampler {
             .adapters
             .iter()
             .map(|a| GpuTelemetry {
+                id: a.id.clone(),
                 name: a.name.clone(),
                 usage: engines.then(|| by_adapter.get(&a.luid).copied().unwrap_or(0.0)),
                 dedicated_used: memory.then(|| dedicated.get(&a.luid).copied().unwrap_or(0)),
@@ -672,7 +718,7 @@ impl Sampler {
                 shared_total: a.shared,
                 temperature: previous
                     .iter()
-                    .find(|g| g.name == a.name)
+                    .find(|g| g.id == a.id)
                     .and_then(|g| g.temperature),
                 capabilities: GpuCapabilities {
                     usage: engines.into(),
@@ -731,12 +777,12 @@ impl Sampler {
         }];
         for adapter in &self.adapters {
             let celsius = sensors::gpu_temperature(adapter.luid);
-            if let Some(gpu) = self.gpus.iter_mut().find(|g| g.name == adapter.name) {
+            if let Some(gpu) = self.gpus.iter_mut().find(|g| g.id == adapter.id) {
                 gpu.temperature = celsius;
                 gpu.capabilities.temperature = celsius.is_some().into();
             }
             readings.push(TemperatureReading {
-                id: format!("gpu:{}", adapter.name),
+                id: format!("gpu:{}", adapter.id),
                 label: format!("GPU · {}", adapter.name),
                 source: SensorSource::Gpu,
                 celsius,

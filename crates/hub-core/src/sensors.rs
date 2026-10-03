@@ -12,11 +12,145 @@
 //!
 //! O que não existe na máquina volta vazio ou `None`; nunca há valor estimado.
 
-/// Adaptador de vídeo físico presente agora.
+/// Bits de `D3DKMT_ADAPTERTYPE` (d3dkmthk.h). É o que o Windows usa para distinguir um
+/// adaptador de renderização de um de vídeo virtual: o mesmo valor aparece no registro
+/// DirectX (`AdapterType`) e em `D3DKMTQueryAdapterInfo(KMTQAITYPE_ADAPTERTYPE)`.
+pub mod adapter_type {
+    pub const RENDER: u32 = 1 << 0;
+    pub const DISPLAY: u32 = 1 << 1;
+    pub const SOFTWARE: u32 = 1 << 2;
+    pub const INDIRECT_DISPLAY: u32 = 1 << 6;
+    pub const PARAVIRTUALIZED: u32 = 1 << 7;
+    pub const COMPUTE_ONLY: u32 = 1 << 11;
+}
+
+/// O que um adaptador DirectX/WDDM é de fato.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdapterClass {
+    /// Renderiza ou computa de verdade: uma GPU (física, ou a paravirtualizada de uma VM).
+    Physical,
+    /// Display indireto (Microsoft IDD: acesso remoto, monitor virtual). Só exibe; não é GPU.
+    Indirect,
+    /// Renderizador de software (Microsoft Basic Render Driver, WARP).
+    Software,
+    /// Só tem saída de vídeo, sem render nem compute.
+    DisplayOnly,
+}
+
+pub fn classify_adapter(flags: u32) -> AdapterClass {
+    use adapter_type::*;
+    if flags & SOFTWARE != 0 {
+        AdapterClass::Software
+    } else if flags & INDIRECT_DISPLAY != 0 {
+        AdapterClass::Indirect
+    } else if flags & (RENDER | COMPUTE_ONLY) != 0 {
+        AdapterClass::Physical
+    } else {
+        AdapterClass::DisplayOnly
+    }
+}
+
+/// Último recurso, só quando o Windows não informa o tipo: nomes de adaptadores que nunca
+/// são uma GPU. A decisão normal é sempre pelos bits de `adapter_type`, nunca pelo nome.
+fn looks_virtual(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    [
+        "microsoft basic",
+        "microsoft remote",
+        "idd device",
+        "indirect display",
+        "virtual display",
+    ]
+    .iter()
+    .any(|marker| name.contains(marker))
+}
+
+/// Endereço PCI (barramento:dispositivo.função) do adaptador, via `KMTQAITYPE_ADAPTERADDRESS`.
+/// É a identidade FÍSICA: duas placas iguais têm endereços diferentes; um display virtual não
+/// tem endereço PCI de verdade (o Windows devolve um endereço sintético ou inválido).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Pci {
+    pub bus: u32,
+    pub device: u32,
+    pub function: u32,
+}
+impl Pci {
+    /// Endereço utilizável: o Windows usa 0xFFFFFFFF para "não se aplica".
+    pub fn valid(&self) -> bool {
+        self.bus != u32::MAX && self.device < 32 && self.function < 8
+    }
+}
+
+/// Adaptador DirectX como o sistema o descreve, ainda sem decidir se é uma GPU.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RawAdapter {
+    pub luid: u64,
+    pub name: String,
+    pub dedicated: Option<u64>,
+    pub shared: Option<u64>,
+    /// Bits de `adapter_type`; `None` se nem o driver nem o registro informaram.
+    pub flags: Option<u32>,
+    pub pci: Option<Pci>,
+}
+
+/// GPUs de verdade a partir dos adaptadores presentes.
+///
+/// * só entra quem renderiza/computa e não é software nem display indireto;
+/// * LUIDs com o MESMO endereço PCI são a mesma GPU (um adaptador, várias fontes PDH);
+/// * nome, VendorId e DeviceId NUNCA fundem nada: duas placas idênticas são duas GPUs;
+/// * sem endereço PCI confiável, nada é fundido (na dúvida, não esconde uma GPU).
+pub fn physical_gpus(raw: Vec<RawAdapter>) -> Vec<Adapter> {
+    let mut gpus: Vec<(Option<Pci>, Adapter)> = Vec::new();
+    for adapter in raw {
+        if adapter.name.is_empty() {
+            continue;
+        }
+        let is_gpu = match adapter.flags {
+            Some(flags) => classify_adapter(flags) == AdapterClass::Physical,
+            None => !looks_virtual(&adapter.name),
+        };
+        if !is_gpu || gpus.iter().any(|(_, g)| g.luids.contains(&adapter.luid)) {
+            continue;
+        }
+        if let Some(pci) = adapter.pci {
+            if let Some((_, same)) = gpus.iter_mut().find(|(p, _)| *p == Some(pci)) {
+                same.luids.push(adapter.luid);
+                same.dedicated = same.dedicated.max(adapter.dedicated);
+                same.shared = same.shared.max(adapter.shared);
+                continue;
+            }
+        }
+        let id = match adapter.pci {
+            Some(p) => format!("pci:{}:{}.{}", p.bus, p.device, p.function),
+            None => format!("luid:{:x}", adapter.luid),
+        };
+        gpus.push((
+            adapter.pci,
+            Adapter {
+                id,
+                luid: adapter.luid,
+                luids: vec![adapter.luid],
+                name: adapter.name,
+                dedicated: adapter.dedicated,
+                shared: adapter.shared,
+            },
+        ));
+    }
+    // Ordem estável: com endereço PCI primeiro (a integrada fica antes das placas), depois por LUID.
+    gpus.sort_by_key(|(pci, a)| (pci.is_none(), *pci, a.luid));
+    gpus.into_iter().map(|(_, adapter)| adapter).collect()
+}
+
+/// GPU (adaptador físico de renderização) presente agora.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Adapter {
-    /// LUID do boot atual (liga o adaptador aos contadores PDH). Nunca é persistido.
+    /// Identidade da GPU neste boot: `pci:0:2.0` (endereço PCI) ou, sem endereço, `luid:…`.
+    /// Nunca é persistida nem sai da máquina.
+    pub id: String,
+    /// LUID principal do boot atual (liga o adaptador aos contadores PDH e ao D3DKMT).
     pub luid: u64,
+    /// Todos os LUIDs cujos contadores PDH pertencem a esta GPU (inclui `luid`).
+    pub luids: Vec<u64>,
     pub name: String,
     /// Segmento de memória DEDICADO informado pelo driver. Em GPU integrada é pequeno e não
     /// representa a memória gráfica total: ela usa a memória do sistema (`shared`).
@@ -157,13 +291,53 @@ mod windows {
         }
     }
 
-    /// Adaptadores físicos presentes: entradas do registro DirectX (descrição, LUID e
-    /// memória dedicada) cujo LUID abre agora. Renderizador de software fica de fora.
+    const KMTQAITYPE_ADAPTERADDRESS: i32 = 6;
+    const KMTQAITYPE_ADAPTERTYPE: i32 = 15;
+    #[repr(C)]
+    #[derive(Default)]
+    struct AdapterAddress {
+        bus: u32,
+        device: u32,
+        function: u32,
+    }
+
+    impl KmtAdapter {
+        fn query<T: Default>(&self, kind: i32) -> Option<T> {
+            let mut value = T::default();
+            let mut query = QueryAdapterInfo {
+                adapter: self.0,
+                kind,
+                data: (&mut value as *mut T).cast(),
+                size: std::mem::size_of::<T>() as u32,
+            };
+            // SAFETY: `value` tem o tamanho informado e vive durante a chamada.
+            (unsafe { D3DKMTQueryAdapterInfo(&mut query) } == 0).then_some(value)
+        }
+        /// Bits de `adapter_type` informados pelo driver agora.
+        fn adapter_type(&self) -> Option<u32> {
+            self.query::<u32>(KMTQAITYPE_ADAPTERTYPE)
+        }
+        /// Endereço PCI real; `None` se o Windows devolve "não se aplica".
+        fn pci(&self) -> Option<super::Pci> {
+            let address = self.query::<AdapterAddress>(KMTQAITYPE_ADAPTERADDRESS)?;
+            let pci = super::Pci {
+                bus: address.bus,
+                device: address.device,
+                function: address.function,
+            };
+            pci.valid().then_some(pci)
+        }
+    }
+
+    /// GPUs presentes: entradas do registro DirectX cujo LUID abre agora, classificadas pelo
+    /// tipo do adaptador (D3DKMT agora; o `AdapterType` do registro só como reserva). Displays
+    /// indiretos (MS IDD) e renderizadores de software não são GPUs; a identidade física é o
+    /// endereço PCI. As regras vivem em `physical_gpus` (puro e testado).
     pub fn gpu_adapters() -> Vec<Adapter> {
         let Some(root) = Key::local_machine(r"SOFTWARE\Microsoft\DirectX") else {
             return Vec::new();
         };
-        let mut found: Vec<Adapter> = Vec::new();
+        let mut raw: Vec<super::RawAdapter> = Vec::new();
         for sub in root.subkeys() {
             let Some(key) = root.subkey(&sub) else {
                 continue;
@@ -172,23 +346,21 @@ mod windows {
             else {
                 continue;
             };
-            if name.is_empty()
-                || name.starts_with("Microsoft Basic")
-                || found.iter().any(|a| a.luid == luid)
-                || KmtAdapter::open(luid).is_none()
-            {
-                continue;
-            }
-            let dedicated = key.number("DedicatedVideoMemory").filter(|m| *m > 0);
-            let shared = key.number("SharedSystemMemory").filter(|m| *m > 0);
-            found.push(Adapter {
+            let Some(present) = KmtAdapter::open(luid) else {
+                continue; // entrada antiga: o adaptador não existe neste boot
+            };
+            raw.push(super::RawAdapter {
                 luid,
                 name,
-                dedicated,
-                shared,
+                dedicated: key.number("DedicatedVideoMemory").filter(|m| *m > 0),
+                shared: key.number("SharedSystemMemory").filter(|m| *m > 0),
+                flags: present
+                    .adapter_type()
+                    .or_else(|| key.number("AdapterType").map(|t| t as u32)),
+                pci: present.pci(),
             });
         }
-        found
+        super::physical_gpus(raw)
     }
 
     /// Temperatura reportada pelo driver (WDDM 2.4+). Integradas costumam não informar.
@@ -561,10 +733,8 @@ pub(crate) mod registry {
             if kind != REG_SZ && kind != REG_EXPAND_SZ {
                 return None;
             }
-            let units: Vec<u16> = data
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
-                .collect();
+            let (pairs, _) = data.as_chunks::<2>();
+            let units: Vec<u16> = pairs.iter().map(|c| u16::from_le_bytes(*c)).collect();
             Some(wide_to_string(&units))
         }
 

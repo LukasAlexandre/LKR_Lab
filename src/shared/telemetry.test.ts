@@ -147,7 +147,7 @@ describe("telemetry history", () => {
 
 const GB = 1024 ** 3;
 const gpuOf = (patch: Partial<Telemetry["gpus"][number]> = {}): Telemetry["gpus"][number] => ({
-  name: "gpu", usage: null, dedicatedUsed: null, dedicatedTotal: null, sharedUsed: null, sharedTotal: null,
+  id: "pci:0:2.0", name: "gpu", usage: null, dedicatedUsed: null, dedicatedTotal: null, sharedUsed: null, sharedTotal: null,
   temperature: null,
   capabilities: { usage: "available", dedicatedMemory: "available", sharedMemory: "available", temperature: "unavailable" },
   ...patch,

@@ -492,14 +492,8 @@ pub fn detect_system(now: i64) -> MachineSnapshot {
         cpu_cores: System::physical_core_count().map(|n| n as u32),
         cpu_threads: (!cpus.is_empty()).then_some(cpus.len() as u32),
         memory_total: Some(system.total_memory()).filter(|m| *m > 0),
-        // Adaptadores presentes agora, com a memória DEDICADA (a compartilhada não entra).
-        gpus: crate::sensors::gpu_adapters()
-            .into_iter()
-            .map(|a| GpuInfo {
-                name: a.name,
-                memory: a.dedicated,
-            })
-            .collect(),
+        // GPUs presentes agora (nunca displays virtuais), com a memória DEDICADA (a compartilhada não entra).
+        gpus: gpu_infos(crate::sensors::gpu_adapters()),
         storage,
         network_interfaces,
         active_interface,
@@ -507,6 +501,17 @@ pub fn detect_system(now: i64) -> MachineSnapshot {
         uptime: Some(System::uptime()).filter(|u| *u > 0),
         detected_at: now,
     }
+}
+
+/// Inventário de GPUs: uma entrada por GPU física, na ordem de `physical_gpus`.
+pub fn gpu_infos(adapters: Vec<crate::sensors::Adapter>) -> Vec<GpuInfo> {
+    adapters
+        .into_iter()
+        .map(|a| GpuInfo {
+            name: a.name,
+            memory: a.dedicated,
+        })
+        .collect()
 }
 
 /// IPv4 que o sistema usaria para sair da rede local. `connect` em UDP só consulta a

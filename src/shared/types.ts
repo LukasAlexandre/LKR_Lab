@@ -391,6 +391,8 @@ export interface Telemetry {
   cpu: { usage: number; clockMhz: number | null };
   memory: { total: number; used: number; available: number; percent: number; swapTotal: number; swapUsed: number };
   gpus: {
+    /** Identidade da GPU neste boot (endereço PCI): distingue placas do mesmo modelo. */
+    id: string;
     name: string;
     usage: number | null;
     dedicatedUsed: number | null;
