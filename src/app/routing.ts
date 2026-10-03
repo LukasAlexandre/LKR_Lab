@@ -26,3 +26,6 @@ export const routeFromHash = () => {
 };
 export const NEW_PROJECT_HASH = "projects/new";
 export const isNewProjectHash = () => window.location.hash.slice(1) === NEW_PROJECT_HASH;
+/** "Abrir projeto": visão do projeto selecionado (placeholder até o Project Control Center, Concept 05). */
+export const OPEN_PROJECT_HASH = "projects/open";
+export const isOpenProjectHash = () => window.location.hash.slice(1) === OPEN_PROJECT_HASH;

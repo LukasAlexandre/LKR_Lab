@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { api, desktop } from "../shared/api";
 import { preferences } from "../shared/preferences";
-import type { Activity, AgentContext, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
+import type { Activity, AgentContext, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
 import { createResource, type Resource } from "./resource";
 import type { KnowledgeEntry } from "../shared/types";
 import { trackOperation } from "./operations";
@@ -11,6 +11,8 @@ export function useResource<T>(resource: Resource<T>) {
 }
 
 const projects = createResource<Project[]>([], () => api("list_projects"));
+// Página Projetos: UMA chamada agregada (disponibilidade + Git + runtime + stack), nunca N consultas.
+const overviews = createResource<ProjectsOverview | null>(null, () => trackOperation("Consultando projetos", () => api("project_overviews")));
 const ports = createResource<PortInfo[]>([], () => trackOperation("Consultando portas", () => api("list_ports")));
 const processes = createResource<ProcessInfo[]>([], () => trackOperation("Consultando processos", () => api("list_processes")));
 const environment = createResource<SystemState | null>(null, () => api("system_state"));
@@ -62,7 +64,7 @@ async function refreshRepositories(maxAgeMs = 30_000) {
 }
 
 export const workspace = {
-  projects, ports, processes, environment, activities, prompts, agentProviders, knowledge, forProject,
+  projects, overviews, ports, processes, environment, activities, prompts, agentProviders, knowledge, forProject,
   selectProject, loadRegistry, refreshRepositories,
   async refreshEnvironment() {
     if (!desktop) return;

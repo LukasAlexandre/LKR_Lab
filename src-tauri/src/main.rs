@@ -102,6 +102,30 @@ fn list_projects(state: State<AppState>) -> HubResult<Vec<ProjectEntry>> {
         .map(hub_core::projects::entry)
         .collect())
 }
+/// Página Projetos: UMA chamada devolve cada projeto com disponibilidade, Git, runtime e stack
+/// (somente leitura, paralelismo limitado, falhas isoladas por projeto).
+#[tauri::command]
+async fn project_overviews(
+    app: tauri::AppHandle,
+) -> HubResult<hub_core::overview::ProjectsOverview> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let (all, last) = {
+            let guard = db(&state)?;
+            (guard.projects()?, guard.last_activity_by_project()?)
+        };
+        let supervisor = &app.state::<RuntimeState>().0;
+        let runs = all
+            .iter()
+            .map(|p| (p.id.clone(), supervisor.runs_for(&p.id)))
+            .collect();
+        Ok(hub_core::overview::collect(all, last, runs, &|| {
+            supervisor.managed_pids()
+        }))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 #[tauri::command]
 fn save_project(
     state: State<AppState>,
@@ -603,6 +627,7 @@ fn main() {
             machine_telemetry_watch,
             machine_telemetry_refresh,
             list_projects,
+            project_overviews,
             save_project,
             delete_project,
             choose_folder,

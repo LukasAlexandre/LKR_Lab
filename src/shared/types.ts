@@ -483,3 +483,51 @@ export interface RegisterResult {
   project: Project | null;
   registration: Registration;
 }
+
+/** Página Projetos (Concept 03): uma dimensão consultada sozinha (Git, runtime). */
+export interface Dimension<T> {
+  status: "available" | "not_applicable" | "error";
+  data: T | null;
+  message: string | null;
+}
+export interface GitSummary {
+  isRepo: boolean;
+  branch: string;
+  detached: boolean;
+  upstream: string | null;
+  ahead: number | null;
+  behind: number | null;
+  staged: number;
+  unstaged: number;
+  untracked: number;
+  conflicts: number;
+  changes: number;
+  clean: boolean;
+  error: string | null;
+}
+export interface RuntimeSummary {
+  running: boolean;
+  managedRuns: number;
+  listeningPorts: number[];
+}
+export interface ProjectOverview extends Project {
+  location: "available" | "missing" | "unbound";
+  git: Dimension<GitSummary>;
+  runtime: Dimension<RuntimeSummary>;
+  stack: string[];
+  stackSource: "detected" | "registered";
+  /** Última ação registrada pelo LKR LAB para o projeto (UTC); null = sem registro. */
+  lastActivity: string | null;
+}
+export interface OverviewTotals {
+  total: number;
+  available: number;
+  missing: number;
+  unbound: number;
+  running: number;
+  dirty: number;
+}
+export interface ProjectsOverview {
+  projects: ProjectOverview[];
+  totals: OverviewTotals;
+}

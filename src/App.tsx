@@ -3,6 +3,7 @@ import {
   Bot,
   Check,
   ChevronRight,
+  ArrowLeft,
   CircleHelp,
   Code2,
   Copy,
@@ -31,7 +32,6 @@ import type {
 import {
   Launchers,
   ProjectForm,
-  Projects,
 } from "./features/Projects";
 import { Ports, Processes } from "./features/Ports";
 import { Prompts } from "./features/Prompts";
@@ -41,7 +41,8 @@ import { GitSummary } from "./features/GitSummary";
 import { Worktrees } from "./features/Worktrees";
 import { AgentProviders } from "./features/AgentProviders";
 import { Knowledge } from "./features/Knowledge";
-import { routes, routeFromHash, isNewProjectHash, NEW_PROJECT_HASH } from "./app/routing";
+import { routes, routeFromHash, isNewProjectHash, isOpenProjectHash, NEW_PROJECT_HASH, OPEN_PROJECT_HASH } from "./app/routing";
+import { ProjectsOverviewPage } from "./features/ProjectsOverview";
 import { WindowTitleBar } from "./shell/WindowTitleBar";
 import { LocationNotice } from "./components/LocationNotice";
 import { SyncIndicator } from "./components/SyncIndicator";
@@ -56,6 +57,7 @@ export default function App() {
   const health = useTelemetry().latest?.health.status;
   const [route, setRoute] = useState(routeFromHash);
   const [creating, setCreating] = useState(isNewProjectHash);
+  const [opened, setOpened] = useState(isOpenProjectHash);
   const selectedId = useActiveProjectId();
   const setSelectedId = workspace.selectProject;
   const projectsSource = useResource(workspace.projects);
@@ -100,11 +102,26 @@ export default function App() {
     window.location.hash = NEW_PROJECT_HASH;
     setRoute("projects");
     setCreating(true);
+    setOpened(false);
     setPalette(false);
   }, []);
   const closeNewProject = useCallback(() => {
     window.location.hash = "projects";
     setCreating(false);
+  }, []);
+  // "Abrir projeto": seleciona o projeto (estado de seleção, não de execução) e mostra a visão
+  // atual do projeto até o Project Control Center (Concept 05) existir.
+  const openProject = useCallback((id: string) => {
+    workspace.selectProject(id);
+    window.location.hash = OPEN_PROJECT_HASH;
+    setRoute("projects");
+    setCreating(false);
+    setOpened(true);
+    setPalette(false);
+  }, []);
+  const closeOpenedProject = useCallback(() => {
+    window.location.hash = "projects";
+    setOpened(false);
   }, []);
   const closeForm = useCallback(() => setForm(null), []),
     closePalette = useCallback(() => setPalette(false), []),
@@ -118,6 +135,7 @@ export default function App() {
     const onHash = () => {
       setRoute(routeFromHash());
       setCreating(isNewProjectHash());
+      setOpened(isOpenProjectHash());
     };
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -290,6 +308,8 @@ export default function App() {
       </div>
     </>
   );
+  // Lista de projetos (Concept 03) tem cabeçalho próprio; "Abrir projeto" mantém a visão atual.
+  const projectsList = route === "projects" && !(opened && selected);
   const pageTitle = routes.find((r) => r.id === route)?.title ?? "Dashboard";
   const activePorts = selected
     ? ports.filter(
@@ -363,7 +383,7 @@ export default function App() {
             />
           ) : (<>
           {/* O Dashboard é a visão da máquina (Concept 02) e tem cabeçalho próprio. */}
-          {route !== "dashboard" && (<>
+          {route !== "dashboard" && !projectsList && (<>
           <div className="page-heading">
             <div>
               <div className="eyebrow">DEVELOPMENT CONTROL CENTER</div>
@@ -431,16 +451,23 @@ export default function App() {
             </div>
           )}
           {route === "dashboard" && <MachineHealth />}
-          {route === "projects" && (
+          {projectsList && (
+            <ProjectsOverviewPage
+              add={openNewProject}
+              open={(p) => openProject(p.id)}
+              edit={(p) => setForm(projects.find((x) => x.id === p.id) ?? p)}
+              remove={(p) => remove(projects.find((x) => x.id === p.id) ?? p)}
+              report={report}
+              notify={setToast}
+            />
+          )}
+          {route === "projects" && !projectsList && (
             <>
-              <Projects
-                projects={projects}
-                open={setSelectedId}
-                launch={launch}
-                add={openNewProject}
-                edit={setForm}
-                remove={remove}
-              />
+              <div className="breadcrumb project-back">
+                <button type="button" className="link-button" onClick={closeOpenedProject}>
+                  <ArrowLeft size={14} /> Projetos
+                </button>
+              </div>
               {selected && <ProjectRuntime project={selected} context={() => void context()} report={report} />}
               <RuntimeDesktopOnly />
               {selected && (

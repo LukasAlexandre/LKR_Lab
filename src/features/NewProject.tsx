@@ -19,7 +19,8 @@ import {
   validateDescription,
   validateName,
 } from "../shared/projectInspection";
-import type { BindResult, ProjectInspection, RegisterResult } from "../shared/types";
+import { bindWithConfirmation } from "../shared/bind";
+import type { ProjectInspection, RegisterResult } from "../shared/types";
 
 /** Concept 04 · Cadastro de Projeto. A inspeção é passiva (arquivos + Git somente leitura) e feita pelo backend. */
 export function NewProject({ close, done }: { close: () => void; done: (projectId: string) => void }) {
@@ -71,13 +72,9 @@ export function NewProject({ close, done }: { close: () => void; done: (projectI
     if (!target) return;
     setView((v) => ({ ...v, registering: true, error: "" }));
     try {
-      let result = await api<BindResult>("bind_project", { id: target.id, path: view.folder, confirmed: false });
-      if (result.needsConfirmation) {
-        if (!window.confirm(`${result.message}\n\nAssociar mesmo assim a:\n${view.folder}`)) {
-          setView((v) => ({ ...v, registering: false }));
-          return;
-        }
-        result = await api<BindResult>("bind_project", { id: target.id, path: view.folder, confirmed: true });
+      if (!(await bindWithConfirmation(target.id, view.folder))) {
+        setView((v) => ({ ...v, registering: false }));
+        return;
       }
       await workspace.loadRegistry();
       done(target.id);

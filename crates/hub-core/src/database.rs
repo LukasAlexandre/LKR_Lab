@@ -227,6 +227,22 @@ impl Database {
             .map_err(|e| e.to_string());
         rows
     }
+    /// Última ação registrada por projeto (`created_at` em UTC). Alimenta "Última atividade".
+    pub fn last_activity_by_project(&self) -> HubResult<std::collections::HashMap<String, String>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT project_id, MAX(created_at) FROM activities \
+                 WHERE project_id IS NOT NULL GROUP BY project_id",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<std::collections::HashMap<_, _>, _>>()
+            .map_err(|e| e.to_string());
+        rows
+    }
     pub fn prompts(&self) -> HubResult<Vec<Prompt>> {
         let mut stmt = self
             .conn

@@ -1,79 +1,14 @@
 import { useState } from "react";
-import {
-  FolderOpen,
-  Plus,
-  Code2,
-  Terminal,
-  GitPullRequest,
-  Pencil,
-  Trash2,
-  FileText,
-  GitBranch,
-  ArrowUpRight,
-} from "lucide-react";
+import { FolderOpen, Code2, Terminal, GitPullRequest, FileText } from "lucide-react";
 import { api, desktop, errorText } from "../shared/api";
 import { parsePorts } from "../shared/logic";
-import { Badge, Empty, Modal } from "../shared/ui";
+import { Modal } from "../shared/ui";
 import type {
   Discovery,
   Project,
   ProjectCommand,
   ProjectInput,
 } from "../shared/types";
-export function ProjectCard({
-  project: p,
-  open,
-  launch,
-}: {
-  project: Project;
-  open: (id: string) => void;
-  launch: (id: string, action: string) => void;
-}) {
-  return (
-    <article className="project-card">
-      <div className="row">
-        <div className="project-icon">
-          <FolderOpen size={21} />
-        </div>
-        <button className="project-name" onClick={() => open(p.id)}>
-          {p.name}
-        </button>
-        <ArrowUpRight size={15} />
-      </div>
-      <p>{p.description || "Sem descrição"}</p>
-      <div className="port-labels">
-        {p.ports.length
-          ? p.ports.map((p) => `${p.name} :${p.port}`).join(" / ")
-          : "Nenhuma porta declarada"}
-      </div>
-      <div className="tags">
-        {p.stack.map((s) => (
-          <Badge key={s}>{s}</Badge>
-        ))}
-      </div>
-      <div className="card-footer">
-        <button onClick={() => open(p.id)}>
-          <GitBranch size={14} />
-          Ver estado Git
-        </button>
-        <div>
-          <button
-            aria-label={`Abrir pasta ${p.name}`}
-            onClick={() => launch(p.id, "folder")}
-          >
-            <FolderOpen size={15} />
-          </button>
-          <button
-            aria-label={`Abrir terminal ${p.name}`}
-            onClick={() => launch(p.id, "terminal")}
-          >
-            <Terminal size={15} />
-          </button>
-        </div>
-      </div>
-    </article>
-  );
-}
 export function ProjectForm({
   project,
   close,
@@ -306,73 +241,6 @@ export function ProjectForm({
         </div>
       </form>
     </Modal>
-  );
-}
-export function Projects({
-  projects,
-  open,
-  launch,
-  add,
-  edit,
-  remove,
-}: {
-  projects: Project[];
-  open: (id: string) => void;
-  launch: (id: string, action: string) => void;
-  add: () => void;
-  edit: (p: Project) => void;
-  remove: (p: Project) => void;
-}) {
-  const [search, setSearch] = useState("");
-  const filtered = projects.filter((p) =>
-    `${p.name} ${p.stack.join(" ")}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
-  return (
-    <>
-      <div className="toolbar">
-        <input
-          aria-label="Buscar projetos"
-          placeholder="Buscar por nome ou stack…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <button className="button primary" onClick={add}>
-          <Plus size={16} />
-          Adicionar projeto
-        </button>
-      </div>
-      {!filtered.length ? (
-        <Empty title="Seu workspace começa com um projeto">
-          <p>
-            Conecte uma pasta local para reunir Git, portas e contexto de IA.
-          </p>
-          <button className="button primary" onClick={add}>
-            <FolderOpen size={16} />
-            Adicionar projeto existente
-          </button>
-        </Empty>
-      ) : (
-        <div className="project-grid">
-          {filtered.map((p) => (
-            <div key={p.id}>
-              <ProjectCard project={p} open={open} launch={launch} />
-              <div className="project-actions">
-                <button onClick={() => edit(p)}>
-                  <Pencil size={14} />
-                  Editar
-                </button>
-                <button onClick={() => remove(p)}>
-                  <Trash2 size={14} />
-                  Remover cadastro
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
   );
 }
 export function Launchers({

@@ -21,7 +21,7 @@ Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão apro
 | 01 | Product Architecture | CONCLUÍDO | abaixo |
 | 02 | Concept 01 — Primeiro acesso / Computador não cadastrado | CONCLUÍDO (visual APROVADO) | [CONCEPT-01](../../concepts/machine-registry/CONCEPT-01.md), [imagem](../../concepts/machine-registry/concept-01-first-access.webp) |
 | 03 | Concept 02 — Machine Health Dashboard | CONCLUÍDO (visual APROVADO; IMPLEMENTADO — ver D02) | [CONCEPT-02](../../concepts/machine-registry/CONCEPT-02.md), [imagem](../../concepts/machine-registry/concept-02-machine-health.webp) |
-| 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
+| 04 | Concept 03 — Projetos | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-03](../../concepts/machine-registry/CONCEPT-03.md), [imagem](../../concepts/machine-registry/concept-03-projects.webp) |
 | 05 | Concept 04 — Cadastro de Projeto | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-04](../../concepts/machine-registry/CONCEPT-04.md), [imagem](../../concepts/machine-registry/concept-04-new-project.webp) |
 | 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
 | 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
@@ -48,7 +48,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 |---|-------|--------|--------|
 | D01 | Machine Registry Foundation (Concept 01) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
-| D03 | Projects Foundation (Concepts 03–05) | EM ANDAMENTO (Concept 04 implementado e validado no desktop; 03 e 05 pendentes) | `feat/session-001-projects-foundation` |
+| D03 | Projects Foundation (Concepts 03–05) | EM ANDAMENTO (Concepts 03 e 04 implementados e validados no desktop; 05 pendente) | `feat/session-001-projects-foundation` |
 
 ### Checkpoint — MACHINE FOUNDATION COMPLETE
 
@@ -63,7 +63,7 @@ A SESSION-001 **continua ATIVA**: ela representa a feature maior (Machine Contex
 
 ### Bloco D03 — Projects Foundation (EM ANDAMENTO)
 
-Primeira entrega: **identidade de projeto + inspeção passiva + vínculo local**, base do Concept 04 (Cadastro de Projeto). Concepts 03 (Projetos) e 05 (Project Control Center) seguem sem implementação; o 09 segue EM REFINAMENTO.
+Primeira entrega: **identidade de projeto + inspeção passiva + vínculo local**, base do Concept 04 (Cadastro de Projeto). O Concept 05 (Project Control Center) segue sem implementação e o 09 segue EM REFINAMENTO. O Concept 03 (Projetos) foi implementado na sequência (ver abaixo).
 
 - **Identidade:** o ID do projeto continua UUID v4 e nunca deriva de caminho, remote, nome, hash, hostname ou Machine ID. Novo campo opcional **Repository Locator** (`remote` canônico + `path` relativo dentro do repositório Git), portável, com `serde(default)`: projetos antigos carregam sem migração SQL.
 - **Remote canônico (`hub-core::locator`):** SSH, scp-like e HTTPS equivalem; `.git` final removido; porta explícita faz parte da identidade; github.com/gitlab.com/bitbucket.org comparam sem diferenciar caixa, demais hosts preservam a caixa. Credenciais nunca entram. Remote principal: `origin`, senão o remote upstream da branch atual, senão o único remote reconhecível, senão nenhum (sem chute).
@@ -79,6 +79,17 @@ Primeira entrega: **identidade de projeto + inspeção passiva + vínculo local*
   - *Manual, na janela real:* seletor nativo de pasta; inspeção passiva (Git, branch, remote, stack, package manager, scripts não executados, arquivos e estrutura); cadastro de Project novo (persistiu: 1 Project, 1 binding, locator gravado, caminho só em `project_bindings`); prevenção de duplicação da mesma pasta ("Projeto já cadastrado nesta máquina", sem Cadastrar; banco segue com o mesmo UUID e o mesmo número de bindings); Reanalisar (refaz a inspeção e preserva Nome e Descrição digitados); Cancelar (volta a Projetos, nada do rascunho é persistido); console sem exceções nem rejeições (apenas o 404 pré-existente de favicon.ico); nenhum processo de npm/cargo/git de escrita/docker disparado pela inspeção.
   - *Cobertos por testes automatizados, não exercitados manualmente:* mesmo locator em outra pasta (Localizar/Associar), binding Missing, binding válido em outra pasta, monorepo, subprojects, projeto antigo sem locator, workspace portátil e sync. Web não simula inspeção.
   - *Microcopy corrigida na validação:* "1 alterações" → "1 alteração" / "N alterações" (helper `changesLabel`, também em Projetos e Repositórios, que diziam "mudanças").
+- **Concept 03 — Projetos (IMPLEMENTADO E VALIDADO NO DESKTOP):**
+  - *Overview agregado (`hub-core::overview`, comando `project_overviews`):* UMA chamada de backend devolve cada projeto com disponibilidade (`available`/`missing`/`unbound`, preservada no backend; a UI agrupa Missing+Unbound como "Não localizado nesta máquina"), Git, runtime, stack e última atividade, mais totais. Somente leitura: `git status` (sem fetch/pull/checkout), leitura de manifests e uma foto única de processos/portas.
+  - *Dimensões independentes:* cada dimensão (Git, runtime) é `available` / `not_applicable` / `error` e falha sozinha; pânico ou erro num projeto não derruba a lista. Missing/Unbound NÃO consultam Git, stack nem runtime (saem `not_applicable`, sem "Clean"/"Parado" inventados); a stack mostrada para eles é a do cadastro portátil (`stackSource: registered`). Pasta sem Git = `not_applicable`, não erro.
+  - *Concorrência:* até 4 projetos enriquecidos em paralelo (`MAX_WORKERS`), ordem da lista preservada.
+  - *Definições:* "Em execução" = execução gerenciada ativa (não-tarefa, não-observador) OU porta TCP em escuta atribuída ao projeto; shell aberto na pasta e Compose não contam. "Com alterações" = working tree sujo (staged/unstaged/untracked) ou conflitos; ahead/behind sozinho não conta. "Última atividade" = última linha de `activities` do projeto (UTC), "—" se não houver; nenhum timestamp é inventado.
+  - *Contador da sidebar:* total de Projects conhecidos (cadastrados), não os disponíveis.
+  - *UI:* resumo (cadastrados / disponíveis / em execução / com alterações), busca por nome/descrição/stack, filtros (Todos, Disponíveis, Não localizados, Em execução, Com alterações), ordenação (Nome, Última atividade), cards com stack (+N), caminho local secundário, Branch/Git/Runtime, CTA "Abrir projeto" ou "Localizar", menu (Editar, Remover cadastro) e card "Novo projeto" (leva a `#projects/new`). "Abrir projeto" seleciona o projeto e mostra a visão atual em `#projects/open` (placeholder até o Concept 05). Projeto selecionado ≠ projeto em execução.
+  - *Localizar:* reaproveita `bind_project` (mesma função do Concept 04, `shared/bind.ts`): o backend confere o locator, recusa pasta de outro Project e vínculo válido existente, e nunca cria UUID.
+  - *Testes:* 17 testes Rust (`tests/overview.rs`: disponível, missing, unbound, Git limpo/sujo/erro/pânico, runtime, stack desconhecida, totais, limite de paralelismo, atividade, Localizar preserva UUID / recusa pasta alheia / substitui binding Missing) e 28 testes JS (lógica pura em `projectOverview.test.ts` + render dos cards em `ProjectsOverview.test.tsx`).
+  - *Validado manualmente no desktop:* título/resumo/busca/filtros/refresh (sem processos novos do projeto)/Abrir projeto/Novo projeto, com os 2 Projects reais do banco; lote de ~140 ms; console sem erros.
+  - *Coberto só por teste automatizado, não exercitado manualmente:* cards Missing/Unbound e o fluxo Localizar na página (nenhum projeto real nessa situação; nada foi movido ou alterado para forçar).
 
 ### Bloco D01 — Machine Registry Foundation (CONCLUÍDO)
 
