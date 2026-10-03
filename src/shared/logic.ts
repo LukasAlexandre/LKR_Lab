@@ -56,3 +56,4 @@ export function renderPrompt(
 export const bytes = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
 export const percent = (used: number, total: number) =>
   total > 0 ? Math.round((used / total) * 100) : null;
+export const changesLabel = (n: number) => `${n} ${n === 1 ? "alteração" : "alterações"}`;

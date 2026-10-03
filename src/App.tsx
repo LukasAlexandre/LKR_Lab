@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { api, desktop, errorText } from "./shared/api";
+import { changesLabel } from "./shared/logic";
 import { Badge, Empty, Modal, Panel, Refresh } from "./shared/ui";
 import { usePreference } from "./shared/preferences";
 import { useActiveProjectId, useResource, workspace } from "./state/workspace";
@@ -385,7 +386,7 @@ export default function App() {
                 <div>
                   <strong>{selected.name}</strong>
                   <span className="mono">{git?.branch ?? "branch pendente"}</span>
-                  <span>{git ? (git.clean ? "clean" : `${git.staged + git.unstaged + git.untracked} mudanças`) : "Git não consultado"}</span>
+                  <span>{git ? (git.clean ? "clean" : changesLabel(git.staged + git.unstaged + git.untracked)) : "Git não consultado"}</span>
                 </div>
               </div>
               <div className="context-signals">

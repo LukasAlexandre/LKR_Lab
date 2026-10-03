@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, FileText, FolderOpen, GitBranch, Play, RotateCw, ScrollText, Square, Terminal } from "lucide-react";
 import { api, desktop, errorText } from "../shared/api";
+import { changesLabel } from "../shared/logic";
 import { Badge, Panel } from "../shared/ui";
 import { useResource, workspace } from "../state/workspace";
 import { restartRun, runCommand, startRuntimeEvents, stopRun, useRunLogs, watchRun } from "../state/runtime";
@@ -246,7 +247,7 @@ export function ProjectRuntime({ project, context, report }: { project: Project;
           <span className="runtime-git">
             <GitBranch size={13} /> {git.detached ? "HEAD destacado" : git.branch}
             {" • "}
-            {dirty ? `${dirty} ${dirty === 1 ? "alteração" : "alterações"}` : "limpo"}
+            {dirty ? changesLabel(dirty) : "limpo"}
             {git.ahead || git.behind ? ` · ↑${git.ahead ?? 0} ↓${git.behind ?? 0}` : ""}
             {git.conflicts > 0 && <Badge tone="warn">{git.conflicts} conflito(s)</Badge>}
           </span>

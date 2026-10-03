@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { changesLabel } from "../shared/logic";
 import { ArrowLeft, CheckCircle2, FolderOpen, GitBranch, Loader2, MapPin, RefreshCw, TriangleAlert } from "lucide-react";
 import { api, desktop, errorText } from "../shared/api";
 import { Badge } from "../shared/ui";
@@ -209,7 +210,7 @@ export function NewProject({ close, done }: { close: () => void; done: (projectI
                     <>
                       {inspection.git.detached ? "HEAD destacado" : inspection.git.branch}
                       {" · "}
-                      {inspection.git.clean ? "limpo" : `${inspection.git.changes} alterações`}
+                      {inspection.git.clean ? "limpo" : changesLabel(inspection.git.changes)}
                       <div className="mono muted">
                         {inspection.locator
                           ? `${inspection.locator.remote}${inspection.locator.path ? ` / ${inspection.locator.path}` : ""}`

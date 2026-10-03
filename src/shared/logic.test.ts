@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePorts, renderPrompt, percent } from "./logic";
+import { parsePorts, renderPrompt, percent, changesLabel } from "./logic";
 import type { Project } from "./types";
 const project: Project = {
   id: "1",
@@ -53,3 +53,11 @@ describe("prompt rendering", () => {
 });
 it("does not manufacture metrics without a denominator", () =>
   expect(percent(10, 0)).toBeNull());
+
+describe("changesLabel", () => {
+  it("pluraliza corretamente", () => {
+    expect(changesLabel(1)).toBe("1 alteração");
+    expect(changesLabel(2)).toBe("2 alterações");
+    expect(changesLabel(0)).toBe("0 alterações");
+  });
+});

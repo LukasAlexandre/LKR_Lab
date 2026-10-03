@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { ExternalLink, FolderOpen, GitBranch, Terminal } from "lucide-react";
 import { api } from "../shared/api";
+import { changesLabel } from "../shared/logic";
 import { Badge, Empty, Panel, Refresh } from "../shared/ui";
 import { SourceStatus } from "../components/SourceStatus";
 import { LocationNotice } from "../components/LocationNotice";
@@ -23,7 +24,7 @@ const RepositoryRow = memo(function RepositoryRow({ project, report }: { project
       {git?.commits[0] && <small>{git.commits[0].hash} · {git.commits[0].subject}</small>}
     </div>
     <div className="repo-state">
-      {git ? <><span className="mono">{git.branch}</span><Badge tone={git.clean ? "good" : "warn"}>{git.clean ? "Clean" : `${git.staged + git.unstaged + git.untracked} mudanças`}</Badge><small>{git.ahead ?? "—"} ahead · {git.behind ?? "—"} behind</small></> : <small>{loading ? "Consultando Git…" : "Git indisponível"}</small>}
+      {git ? <><span className="mono">{git.branch}</span><Badge tone={git.clean ? "good" : "warn"}>{git.clean ? "Clean" : changesLabel(git.staged + git.unstaged + git.untracked)}</Badge><small>{git.ahead ?? "—"} ahead · {git.behind ?? "—"} behind</small></> : <small>{loading ? "Consultando Git…" : "Git indisponível"}</small>}
       <Refresh onClick={() => void source.refresh()} busy={loading} />
     </div>
     <div className="row repository-actions">
