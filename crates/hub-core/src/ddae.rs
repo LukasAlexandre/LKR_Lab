@@ -87,13 +87,160 @@ impl BlockStatus {
 pub struct Block {
     pub id: String,
     pub title: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
     pub status: BlockStatus,
 }
+
+/// Critério de conclusão marcável. NÃO é progresso de execução (isso são os Blocks).
+/// Lê também o formato antigo (uma string): vira `{ id, text, completed: false }`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Criterion {
+    pub id: String,
+    pub text: String,
+    pub completed: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CriterionRepr {
+    Text(String),
+    Full {
+        #[serde(default)]
+        id: String,
+        text: String,
+        #[serde(default)]
+        completed: bool,
+    },
+}
+
+impl<'de> Deserialize<'de> for Criterion {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(match CriterionRepr::deserialize(d)? {
+            CriterionRepr::Text(text) => Criterion {
+                id: String::new(),
+                text,
+                completed: false,
+            },
+            CriterionRepr::Full {
+                id,
+                text,
+                completed,
+            } => Criterion {
+                id,
+                text,
+                completed,
+            },
+        })
+    }
+}
+
+impl From<&str> for Criterion {
+    fn from(text: &str) -> Self {
+        Criterion {
+            id: String::new(),
+            text: text.into(),
+            completed: false,
+        }
+    }
+}
+
+/// Id determinístico de um critério vindo do formato antigo: o mesmo em qualquer máquina,
+/// então o workspace canônico (e o hash) não muda entre PCs.
+fn assign_criterion_ids(session_id: &str, list: &mut [Criterion]) {
+    for (i, c) in list.iter_mut().enumerate() {
+        if c.id.is_empty() {
+            c.id = deterministic_uuid(&format!(
+                "lkr-lab:ddae:{session_id}:criterion:{i}:{}",
+                c.text
+            ));
+        }
+    }
+}
+
+/// Tipos de evento do histórico semântico da Session (portátil).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum EventType {
+    SessionCreated,
+    SessionFrozen,
+    SessionStopped,
+    SessionResumed,
+    SessionCompleted,
+    /// Session importada do histórico legado (o que veio antes dos eventos não é inventado).
+    LegacyImported,
+    BlockAdded,
+    BlockStarted,
+    BlockCompleted,
+    BlockRenamed,
+    BlockRemoved,
+    CriterionAdded,
+    CriterionCompleted,
+    CriterionReopened,
+    CriterionRemoved,
+    DecisionAdded,
+    NoteAdded,
+    NoteRemoved,
+    DetailsUpdated,
+}
+
+impl EventType {
+    pub fn as_str(self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_string))
+            .unwrap_or_default()
+    }
+}
+
+/// Evento append-only da Session. Só fatos da feature (nunca caminho, Machine ID, host, IP, PID).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Event {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: EventType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_id: Option<String>,
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub payload: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+/// Evento a gravar na MESMA transação da mudança.
+pub struct NewEvent {
+    kind: EventType,
+    block_id: Option<String>,
+    payload: serde_json::Map<String, serde_json::Value>,
+}
+
+fn ev(kind: EventType, block_id: Option<&str>, pairs: &[(&str, &str)]) -> NewEvent {
+    let mut payload = serde_json::Map::new();
+    for (k, v) in pairs {
+        if !v.is_empty() {
+            payload.insert((*k).into(), serde_json::Value::String((*v).into()));
+        }
+    }
+    NewEvent {
+        kind,
+        block_id: block_id.map(str::to_string),
+        payload,
+    }
+}
+
+pub const MAX_PAYLOAD: usize = 2_000;
+pub const MAX_EVENTS: usize = 20_000;
+pub const MAX_BLOCK_DESCRIPTION: usize = 1_000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Decision {
     pub id: String,
+    /// Bloco associado (opcional); some se o bloco pendente for removido.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_id: Option<String>,
     pub title: String,
     #[serde(default)]
     pub body: String,
@@ -115,6 +262,8 @@ pub enum ReferenceKind {
 pub struct Reference {
     pub kind: ReferenceKind,
     pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 /// A Session como é guardada E como viaja no workspace portátil (o mesmo formato).
@@ -134,7 +283,7 @@ pub struct Session {
     pub constraints: Vec<String>,
     /// Critérios de conclusão.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub criteria: Vec<String>,
+    pub criteria: Vec<Criterion>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -156,6 +305,9 @@ pub struct Session {
     pub updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    /// Histórico semântico, append-only; ordem canônica (created_at, id).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<Event>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -191,13 +343,35 @@ impl Session {
             .iter()
             .find(|b| b.status == BlockStatus::Pending)
     }
-    /// Pode ser finalizada: há blocks, todos `completed`, nenhum `in_progress`.
-    pub fn can_complete(&self) -> bool {
+    /// Blocks: há ao menos um e todos `completed` (a regra que um workspace finalizado precisa cumprir).
+    pub fn blocks_complete(&self) -> bool {
         !self.blocks.is_empty()
             && self
                 .blocks
                 .iter()
                 .all(|b| b.status == BlockStatus::Completed)
+    }
+    /// O que impede finalizar (códigos estáveis): nenhum bloco, bloco em andamento, blocos
+    /// pendentes, critérios pendentes. Vazio = elegível. Critérios só bloqueiam se existirem.
+    pub fn completion_blockers(&self) -> Vec<&'static str> {
+        let mut out = Vec::new();
+        if self.blocks.is_empty() {
+            out.push("no_blocks");
+        }
+        if self.current_block().is_some() {
+            out.push("block_in_progress");
+        }
+        if self.next_block().is_some() {
+            out.push("blocks_pending");
+        }
+        if self.criteria.iter().any(|c| !c.completed) {
+            out.push("criteria_pending");
+        }
+        out
+    }
+    /// Pode ser finalizada: todos os blocks concluídos E, se houver critérios, todos concluídos.
+    pub fn can_complete(&self) -> bool {
+        self.completion_blockers().is_empty()
     }
 }
 
@@ -216,6 +390,7 @@ pub struct SessionView {
     pub current_block: Option<Block>,
     pub next_block: Option<Block>,
     pub can_complete: bool,
+    pub completion_blockers: Vec<&'static str>,
     pub recent_decision: Option<Decision>,
     /// Derivado (nunca gravado): a Session tem o necessário para um agente continuá-la?
     pub ready_for_ai: ReadyForAi,
@@ -229,6 +404,7 @@ impl From<Session> for SessionView {
             current_block: session.current_block().cloned(),
             next_block: session.next_block().cloned(),
             can_complete: session.can_complete(),
+            completion_blockers: session.completion_blockers(),
             recent_decision: session.decisions.last().cloned(),
             ready_for_ai: ready_for_ai(&session),
             session,
@@ -358,6 +534,9 @@ pub const MAX_ITEMS: usize = 50;
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Details {
+    /// `None` = título inalterado (número e UUID nunca mudam).
+    #[serde(default)]
+    pub title: Option<String>,
     #[serde(default)]
     pub objective: String,
     #[serde(default)]
@@ -365,7 +544,7 @@ pub struct Details {
     #[serde(default)]
     pub constraints: Vec<String>,
     #[serde(default)]
-    pub criteria: Vec<String>,
+    pub criteria: Vec<Criterion>,
     #[serde(default)]
     pub notes: Vec<String>,
     #[serde(default)]
@@ -410,9 +589,11 @@ fn check_references(items: &[Reference]) -> HubResult<Vec<Reference>> {
                 }
             };
             if ok {
+                let label = opt_text("Rótulo", r.label.as_deref(), 100)?;
                 Ok(Reference {
                     kind: r.kind,
                     value,
+                    label,
                 })
             } else {
                 Err(match r.kind {
@@ -428,16 +609,67 @@ fn check_references(items: &[Reference]) -> HubResult<Vec<Reference>> {
         .collect()
 }
 
+fn check_criteria(items: &[Criterion]) -> HubResult<Vec<Criterion>> {
+    if items.len() > MAX_ITEMS {
+        return Err(format!(
+            "Critérios de conclusão: máximo de {MAX_ITEMS} itens."
+        ));
+    }
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for c in items {
+        let text = check_text("Critérios de conclusão", &c.text, MAX_ITEM, false)?;
+        if text.is_empty() {
+            continue;
+        }
+        if !c.id.is_empty() {
+            ensure_id("critério", &c.id)?;
+            if !seen.insert(c.id.clone()) {
+                return Err(format!("id de critério duplicado ({})", c.id));
+            }
+        }
+        out.push(Criterion {
+            id: c.id.clone(),
+            text,
+            completed: c.completed,
+        });
+    }
+    Ok(out)
+}
+
 /// Valida e aplica a forma canônica (aparada, sem itens vazios).
 pub fn check_details(d: &Details) -> HubResult<Details> {
     Ok(Details {
+        title: match &d.title {
+            None => None,
+            Some(t) => Some(check_text("Título", t, MAX_TITLE, true)?),
+        },
         objective: check_text("Objetivo", &d.objective, MAX_OBJECTIVE, false)?,
         desired_outcome: check_text("Resultado desejado", &d.desired_outcome, MAX_OUTCOME, false)?,
         constraints: check_list("Restrições", &d.constraints)?,
-        criteria: check_list("Critérios de conclusão", &d.criteria)?,
+        criteria: check_criteria(&d.criteria)?,
         notes: check_list("Notas", &d.notes)?,
         references: check_references(&d.references)?,
     })
+}
+
+fn check_payload(p: &serde_json::Map<String, serde_json::Value>) -> HubResult<()> {
+    let text = serde_json::to_string(p).map_err(|e| e.to_string())?;
+    if text.len() > MAX_PAYLOAD {
+        return Err("payload de evento grande demais".into());
+    }
+    for v in p.values() {
+        match v {
+            serde_json::Value::String(t) => {
+                if has_machine_path(t) {
+                    return Err("evento contém caminho local".into());
+                }
+            }
+            serde_json::Value::Number(_) | serde_json::Value::Bool(_) => {}
+            _ => return Err("payload de evento só aceita texto, número ou booleano".into()),
+        }
+    }
+    Ok(())
 }
 
 // ------------------------------------------------------------------ validação de texto
@@ -535,6 +767,7 @@ pub fn validate_portable(sessions: &[Session], project_ids: &HashSet<&str>) -> H
         check_text("título", &s.title, MAX_TITLE, true).map_err(map)?;
         check_text("objetivo", &s.objective, MAX_OBJECTIVE, false).map_err(map)?;
         check_details(&Details {
+            title: None,
             objective: s.objective.clone(),
             desired_outcome: s.desired_outcome.clone(),
             constraints: s.constraints.clone(),
@@ -569,7 +802,9 @@ pub fn validate_portable(sessions: &[Session], project_ids: &HashSet<&str>) -> H
         if in_progress > 1 {
             return fail(format!("{at}: mais de um bloco em andamento"));
         }
-        if s.status == SessionStatus::Completed && !s.can_complete() {
+        // Uma Session finalizada é terminal e confiável: exige os blocos, não revalida critérios
+        // (um workspace antigo legítimo, com critérios em texto, continua válido).
+        if s.status == SessionStatus::Completed && !s.blocks_complete() {
             return fail(format!(
                 "{at}: finalizada exige todos os blocos concluídos e nenhum em andamento"
             ));
@@ -580,8 +815,38 @@ pub fn validate_portable(sessions: &[Session], project_ids: &HashSet<&str>) -> H
                 return fail(format!("id de bloco duplicado ({})", b.id));
             }
             check_text("bloco", &b.title, MAX_BLOCK_TITLE, true).map_err(map)?;
+            check_text(
+                "descrição do bloco",
+                &b.description,
+                MAX_BLOCK_DESCRIPTION,
+                false,
+            )
+            .map_err(map)?;
+        }
+        for e in &s.events {
+            ensure_id("evento", &e.id).map_err(map)?;
+            if !ids.insert(e.id.as_str()) {
+                return fail(format!("id de evento duplicado ({})", e.id));
+            }
+            if e.created_at.len() > MAX_TIMESTAMP {
+                return fail(format!("{at}: data de evento inválida"));
+            }
+            if let Some(b) = &e.block_id {
+                ensure_id("bloco do evento", b).map_err(map)?;
+            }
+            check_payload(&e.payload).map_err(map)?;
+        }
+        if s.events.len() > MAX_EVENTS {
+            return fail(format!("{at}: excede o limite de eventos"));
         }
         for d in &s.decisions {
+            if let Some(b) = &d.block_id {
+                if !s.blocks.iter().any(|x| &x.id == b) {
+                    return fail(format!(
+                        "{at}: decisão referencia um bloco que não existe nesta sessão"
+                    ));
+                }
+            }
             ensure_id("decisão", &d.id).map_err(map)?;
             if !ids.insert(d.id.as_str()) {
                 return fail(format!("id de decisão duplicado ({})", d.id));
@@ -609,7 +874,24 @@ pub fn normalize(sessions: &mut [Session]) {
         s.title = s.title.trim().to_string();
         s.objective = s.objective.trim().to_string();
         s.desired_outcome = s.desired_outcome.trim().to_string();
-        for list in [&mut s.constraints, &mut s.criteria, &mut s.notes] {
+        for c in &mut s.criteria {
+            c.text = c.text.trim().to_string();
+        }
+        s.criteria.retain(|c| !c.text.is_empty());
+        assign_criterion_ids(&s.id, &mut s.criteria);
+        for r in &mut s.references {
+            r.label = r
+                .label
+                .take()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty());
+        }
+        for b in &mut s.blocks {
+            b.description = b.description.trim().to_string();
+        }
+        s.events
+            .sort_by(|a, b| (&a.created_at, &a.id).cmp(&(&b.created_at, &b.id)));
+        for list in [&mut s.constraints, &mut s.notes] {
             *list = list
                 .iter()
                 .map(|i| i.trim().to_string())
@@ -645,7 +927,7 @@ fn now(conn: &Connection) -> HubResult<String> {
 
 fn load_blocks(conn: &Connection, session_id: &str) -> HubResult<Vec<Block>> {
     let mut stmt = conn
-        .prepare("SELECT id,title,status FROM ddae_blocks WHERE session_id=?1 ORDER BY position")
+        .prepare("SELECT id,title,status,description FROM ddae_blocks WHERE session_id=?1 ORDER BY position")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([session_id], |r| {
@@ -653,17 +935,52 @@ fn load_blocks(conn: &Connection, session_id: &str) -> HubResult<Vec<Block>> {
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
             ))
         })
         .map_err(|e| e.to_string())?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())?;
     rows.into_iter()
-        .map(|(id, title, status)| {
+        .map(|(id, title, status, description)| {
             Ok(Block {
                 id,
                 title,
+                description,
                 status: BlockStatus::parse(&status)?,
+            })
+        })
+        .collect()
+}
+
+fn load_events(conn: &Connection, session_id: &str) -> HubResult<Vec<Event>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id,event_type,block_id,payload,created_at FROM ddae_events WHERE session_id=?1 ORDER BY created_at, id",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([session_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, Option<String>>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, String>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    rows.into_iter()
+        .map(|(id, kind, block_id, payload, created_at)| {
+            Ok(Event {
+                id,
+                kind: serde_json::from_value(serde_json::Value::String(kind))
+                    .map_err(|e| e.to_string())?,
+                block_id,
+                payload: serde_json::from_str(&payload).map_err(|e| e.to_string())?,
+                created_at,
             })
         })
         .collect()
@@ -672,7 +989,7 @@ fn load_blocks(conn: &Connection, session_id: &str) -> HubResult<Vec<Block>> {
 fn load_decisions(conn: &Connection, session_id: &str) -> HubResult<Vec<Decision>> {
     let mut stmt = conn
         .prepare(
-            "SELECT id,title,body,created_at FROM ddae_decisions WHERE session_id=?1 ORDER BY position",
+            "SELECT id,title,body,created_at,block_id FROM ddae_decisions WHERE session_id=?1 ORDER BY position",
         )
         .map_err(|e| e.to_string())?;
     let rows = stmt
@@ -682,6 +999,7 @@ fn load_decisions(conn: &Connection, session_id: &str) -> HubResult<Vec<Decision
                 title: r.get(1)?,
                 body: r.get(2)?,
                 created_at: r.get(3)?,
+                block_id: r.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -712,7 +1030,7 @@ fn row_to_session(r: &rusqlite::Row) -> rusqlite::Result<Session> {
             Box::<dyn std::error::Error + Send + Sync>::from(e),
         )
     })?;
-    Ok(Session {
+    let mut session = Session {
         id: r.get(0)?,
         project_id: r.get(1)?,
         number: r.get(2)?,
@@ -731,12 +1049,17 @@ fn row_to_session(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         created_at: r.get(13)?,
         updated_at: r.get(14)?,
         completed_at: r.get(15)?,
-    })
+        events: vec![],
+    };
+    let id = session.id.clone();
+    assign_criterion_ids(&id, &mut session.criteria);
+    Ok(session)
 }
 
 fn assemble(conn: &Connection, mut session: Session) -> HubResult<Session> {
     session.blocks = load_blocks(conn, &session.id)?;
     session.decisions = load_decisions(conn, &session.id)?;
+    session.events = load_events(conn, &session.id)?;
     Ok(session)
 }
 
@@ -804,15 +1127,22 @@ fn insert_session(tx: &Transaction, s: &Session) -> HubResult<()> {
     .map_err(|e| e.to_string())?;
     for (i, b) in s.blocks.iter().enumerate() {
         tx.execute(
-            "INSERT INTO ddae_blocks(id,session_id,position,title,status) VALUES(?1,?2,?3,?4,?5)",
-            params![b.id, s.id, i as i64, b.title, b.status.as_str()],
+            "INSERT INTO ddae_blocks(id,session_id,position,title,status,description) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![b.id, s.id, i as i64, b.title, b.status.as_str(), b.description],
         )
         .map_err(|e| e.to_string())?;
     }
     for (i, d) in s.decisions.iter().enumerate() {
         tx.execute(
-            "INSERT INTO ddae_decisions(id,session_id,position,title,body,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
-            params![d.id, s.id, i as i64, d.title, d.body, d.created_at],
+            "INSERT INTO ddae_decisions(id,session_id,position,title,body,created_at,block_id) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![d.id, s.id, i as i64, d.title, d.body, d.created_at, d.block_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    for e in &s.events {
+        tx.execute(
+            "INSERT OR IGNORE INTO ddae_events(id,session_id,block_id,event_type,payload,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
+            params![e.id, s.id, e.block_id, e.kind.as_str(), json_text(&e.payload)?, e.created_at],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -833,6 +1163,8 @@ pub fn replace_all(tx: &Transaction, sessions: &[Session]) -> HubResult<()> {
     let now = now(tx)?;
     for s in sessions {
         let mut s = s.clone();
+        let sid = s.id.clone();
+        assign_criterion_ids(&sid, &mut s.criteria);
         if s.created_at.is_empty() {
             s.created_at = now.clone();
         }
@@ -851,6 +1183,68 @@ pub fn replace_all(tx: &Transaction, sessions: &[Session]) -> HubResult<()> {
 
 fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+/// Grava um evento na transação corrente (UUID próprio; `created_at` do banco).
+fn record_event(tx: &Transaction, session_id: &str, e: &NewEvent) -> HubResult<()> {
+    check_payload(&e.payload)?;
+    tx.execute(
+        "INSERT INTO ddae_events(id,session_id,block_id,event_type,payload,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
+        params![new_id(), session_id, e.block_id, e.kind.as_str(), json_text(&e.payload)?, now(tx)?],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn legacy_event_id(session_id: &str) -> String {
+    deterministic_uuid(&format!("lkr-lab:ddae:{session_id}:event:legacy_imported"))
+}
+
+/// Sessions importadas ANTES de existirem eventos ganham um único evento LEGACY_IMPORTED (com o
+/// instante da atividade de importação já registrada). Nenhum histórico detalhado é inventado.
+/// Id determinístico: o mesmo em qualquer máquina, sem duplicar ao sincronizar.
+pub fn backfill_legacy_events(conn: &Connection) -> HubResult<()> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT s.id, s.number, s.project_id FROM ddae_sessions s \
+             WHERE NOT EXISTS (SELECT 1 FROM ddae_events e WHERE e.session_id = s.id)",
+        )
+        .map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, u32>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    for (session_id, number, project_id) in rows {
+        let at: Option<String> = conn
+            .query_row(
+                "SELECT created_at FROM activities WHERE project_id=?1 AND action=?2 ORDER BY id LIMIT 1",
+                params![
+                    project_id,
+                    format!(
+                        "DDAE: {} importada do histórico do projeto",
+                        label(number)
+                    )
+                ],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if let Some(created_at) = at {
+            conn.execute(
+                "INSERT OR IGNORE INTO ddae_events(id,session_id,block_id,event_type,payload,created_at) VALUES(?1,?2,NULL,'LEGACY_IMPORTED','{}',?3)",
+                params![legacy_event_id(&session_id), session_id, created_at],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
 }
 
 fn project_exists(conn: &Connection, project_id: &str) -> HubResult<()> {
@@ -904,6 +1298,22 @@ impl Database {
         load_session(&self.conn, session_id)
     }
 
+    /// Detalhe de UMA Session, validando o PAR (Project, Session): uma Session de outro Project
+    /// é tratada como inexistente (a rota nunca depende só do UUID global).
+    pub fn ddae_session_detail(
+        &self,
+        project_id: &str,
+        session_id: &str,
+    ) -> HubResult<SessionView> {
+        project_exists(&self.conn, project_id)?;
+        let session = load_session(&self.conn, session_id)
+            .map_err(|_| "Sessão não encontrada neste projeto.".to_string())?;
+        if session.project_id != project_id {
+            return Err("Sessão não encontrada neste projeto.".into());
+        }
+        Ok(SessionView::from(session))
+    }
+
     /// Cria uma Session `active` para o Project. Só uma ativa por Project: com outra ativa,
     /// a criação é recusada (congele ou pare a ativa antes) em vez de inventar um estado.
     pub fn ddae_create_session(
@@ -949,8 +1359,18 @@ impl Database {
             criteria: vec![],
             notes: vec![],
             references: vec![],
+            events: vec![],
         };
         insert_session(&tx, &session)?;
+        record_event(
+            &tx,
+            &session.id,
+            &ev(
+                EventType::SessionCreated,
+                None,
+                &[("title", &session.title)],
+            ),
+        )?;
         activity(
             &tx,
             project_id,
@@ -961,11 +1381,12 @@ impl Database {
     }
 
     /// Roda uma mudança sobre a Session numa transação: recusa Session finalizada (terminal),
-    /// atualiza `updated_at`, registra a atividade e devolve a Session recarregada.
+    /// atualiza `updated_at`, grava os eventos e a atividade NA MESMA transação e devolve a Session
+    /// recarregada. Se qualquer parte falhar, nada muda.
     fn ddae_mutate(
         &mut self,
         session_id: &str,
-        change: impl FnOnce(&Transaction, &mut Session) -> HubResult<String>,
+        change: impl FnOnce(&Transaction, &mut Session) -> HubResult<(String, Vec<NewEvent>)>,
     ) -> HubResult<Session> {
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
         let mut session = load_session(&tx, session_id)?;
@@ -978,7 +1399,10 @@ impl Database {
             params![session_id, now(&tx)?],
         )
         .map_err(|e| e.to_string())?;
-        let text = change(&tx, &mut session)?;
+        let (text, events) = change(&tx, &mut session)?;
+        for e in &events {
+            record_event(&tx, session_id, e)?;
+        }
         activity(
             &tx,
             &session.project_id,
@@ -989,8 +1413,10 @@ impl Database {
         Ok(reloaded)
     }
 
-    /// Define objetivo, resultado desejado, restrições, critérios, notas e referências.
-    /// Substitui esses campos (não toca em título, estado, blocos nem decisões).
+    /// Define título, objetivo, resultado desejado, restrições, critérios, notas e referências.
+    /// Substitui esses campos (não toca em número, estado, blocos nem decisões); `title: None`
+    /// mantém o título. Os eventos (critério adicionado/concluído/reaberto/removido, nota
+    /// adicionada/removida, detalhes alterados) saem da diferença entre o estado antigo e o novo.
     pub fn ddae_update_details(
         &mut self,
         session_id: &str,
@@ -998,20 +1424,77 @@ impl Database {
     ) -> HubResult<Session> {
         let details = check_details(&details)?;
         self.ddae_mutate(session_id, |tx, s| {
+            let mut criteria = details.criteria.clone();
+            for c in &mut criteria {
+                if c.id.is_empty() {
+                    c.id = new_id();
+                }
+            }
+            let title = details.title.clone().unwrap_or_else(|| s.title.clone());
+            let events = details_events(s, &title, &details, &criteria);
             tx.execute(
-                "UPDATE ddae_sessions SET objective=?2,desired_outcome=?3,constraints=?4,criteria=?5,notes=?6,refs=?7 WHERE id=?1",
+                "UPDATE ddae_sessions SET title=?8,objective=?2,desired_outcome=?3,constraints=?4,criteria=?5,notes=?6,refs=?7 WHERE id=?1",
                 params![
                     s.id,
                     details.objective,
                     details.desired_outcome,
                     json_text(&details.constraints)?,
-                    json_text(&details.criteria)?,
+                    json_text(&criteria)?,
                     json_text(&details.notes)?,
-                    json_text(&details.references)?
+                    json_text(&details.references)?,
+                    title
                 ],
             )
             .map_err(|e| e.to_string())?;
-            Ok("teve os detalhes atualizados".into())
+            Ok(("teve os detalhes atualizados".into(), events))
+        })
+    }
+
+    /// Adiciona uma referência. Para `project_path` aceita também o caminho ABSOLUTO de um arquivo
+    /// escolhido: o backend o converte em caminho RELATIVO ao Project (e recusa o que está fora).
+    pub fn ddae_add_reference(
+        &mut self,
+        session_id: &str,
+        kind: ReferenceKind,
+        value: &str,
+        label: Option<&str>,
+    ) -> HubResult<Session> {
+        let session = load_session(&self.conn, session_id)?;
+        let value = match kind {
+            ReferenceKind::ProjectPath => {
+                let project = self.project(&session.project_id)?;
+                relativize(&project.local_path, value)?
+            }
+            ReferenceKind::Url => value.trim().to_string(),
+        };
+        let mut references = session.references.clone();
+        let new_ref = Reference {
+            kind,
+            value,
+            label: label.map(str::to_string),
+        };
+        if references
+            .iter()
+            .any(|r| r.kind == new_ref.kind && r.value == new_ref.value)
+        {
+            return Err("Esta referência já está na sessão.".into());
+        }
+        references.push(new_ref);
+        let references = check_references(&references)?;
+        self.ddae_mutate(session_id, |tx, s| {
+            tx.execute(
+                "UPDATE ddae_sessions SET refs=?2 WHERE id=?1",
+                params![s.id, json_text(&references)?],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok((
+                "ganhou uma referência".into(),
+                vec![ev(
+                    EventType::DetailsUpdated,
+                    None,
+                    &[("fields", "references")],
+                )],
+            ))
         })
     }
 
@@ -1027,19 +1510,105 @@ impl Database {
         })
     }
 
-    /// Acrescenta um Block `pending` ao fim da ordem.
-    pub fn ddae_add_block(&mut self, session_id: &str, title: &str) -> HubResult<Session> {
+    /// Acrescenta um Block `pending` ao fim da ordem (descrição opcional).
+    pub fn ddae_add_block(
+        &mut self,
+        session_id: &str,
+        title: &str,
+        description: &str,
+    ) -> HubResult<Session> {
         let title = check_text("Bloco", title, MAX_BLOCK_TITLE, true)?;
+        let description = check_text(
+            "Descrição do bloco",
+            description,
+            MAX_BLOCK_DESCRIPTION,
+            false,
+        )?;
         self.ddae_mutate(session_id, |tx, s| {
             if s.blocks.len() >= MAX_BLOCKS {
                 return Err(format!("Máximo de {MAX_BLOCKS} blocos por sessão."));
             }
+            let id = new_id();
             tx.execute(
-                "INSERT INTO ddae_blocks(id,session_id,position,title,status) VALUES(?1,?2,?3,?4,'pending')",
-                params![new_id(), s.id, s.blocks.len() as i64, title],
+                "INSERT INTO ddae_blocks(id,session_id,position,title,status,description) VALUES(?1,?2,?3,?4,'pending',?5)",
+                params![id, s.id, s.blocks.len() as i64, title, description],
             )
             .map_err(|e| e.to_string())?;
-            Ok(format!("ganhou o bloco “{title}”"))
+            Ok((
+                format!("ganhou o bloco “{title}”"),
+                vec![ev(EventType::BlockAdded, Some(&id), &[("title", &title)])],
+            ))
+        })
+    }
+
+    /// Renomeia um Block pendente ou em andamento. Um bloco concluído é histórico e não muda.
+    pub fn ddae_rename_block(
+        &mut self,
+        session_id: &str,
+        block_id: &str,
+        title: &str,
+    ) -> HubResult<Session> {
+        let title = check_text("Bloco", title, MAX_BLOCK_TITLE, true)?;
+        self.ddae_mutate(session_id, |tx, s| {
+            let block = s
+                .blocks
+                .iter()
+                .find(|b| b.id == block_id)
+                .ok_or("Bloco não encontrado nesta sessão.")?;
+            if block.status == BlockStatus::Completed {
+                return Err("Um bloco concluído é histórico e não pode ser renomeado.".into());
+            }
+            if block.title == title {
+                return Err("O bloco já tem este nome.".into());
+            }
+            let old = block.title.clone();
+            tx.execute(
+                "UPDATE ddae_blocks SET title=?2 WHERE id=?1",
+                params![block_id, title],
+            )
+            .map_err(|e| e.to_string())?;
+            Ok((
+                format!("renomeou o bloco “{old}”"),
+                vec![ev(
+                    EventType::BlockRenamed,
+                    Some(block_id),
+                    &[("from", &old), ("to", &title)],
+                )],
+            ))
+        })
+    }
+
+    /// Remove um Block SOMENTE se estiver pendente (em andamento e concluídos ficam).
+    pub fn ddae_remove_block(&mut self, session_id: &str, block_id: &str) -> HubResult<Session> {
+        self.ddae_mutate(session_id, |tx, s| {
+            let index = s
+                .blocks
+                .iter()
+                .position(|b| b.id == block_id)
+                .ok_or("Bloco não encontrado nesta sessão.")?;
+            let block = &s.blocks[index];
+            if block.status != BlockStatus::Pending {
+                return Err("Só um bloco pendente pode ser removido.".into());
+            }
+            let title = block.title.clone();
+            tx.execute("DELETE FROM ddae_blocks WHERE id=?1", [block_id])
+                .map_err(|e| e.to_string())?;
+            // Reempacota as posições (uma a uma, em ordem, para não violar UNIQUE(session, posição)).
+            for (offset, later) in s.blocks[index + 1..].iter().enumerate() {
+                tx.execute(
+                    "UPDATE ddae_blocks SET position=?2 WHERE id=?1",
+                    params![later.id, (index + offset) as i64],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+            Ok((
+                format!("perdeu o bloco “{title}”"),
+                vec![ev(
+                    EventType::BlockRemoved,
+                    Some(block_id),
+                    &[("title", &title)],
+                )],
+            ))
         })
     }
 
@@ -1068,11 +1637,18 @@ impl Database {
                 [block_id],
             )
             .map_err(|e| e.to_string())?;
-            Ok(format!("iniciou o bloco “{}”", block.title))
+            Ok((
+                format!("iniciou o bloco “{}”", block.title),
+                vec![ev(
+                    EventType::BlockStarted,
+                    Some(block_id),
+                    &[("title", &block.title)],
+                )],
+            ))
         })
     }
 
-    /// in_progress → completed. Não inicia o próximo bloco.
+    /// in_progress → completed. Não inicia o próximo bloco NEM finaliza a Session.
     pub fn ddae_complete_block(&mut self, session_id: &str, block_id: &str) -> HubResult<Session> {
         self.ddae_mutate(session_id, |tx, s| {
             if s.status != SessionStatus::Active {
@@ -1091,7 +1667,14 @@ impl Database {
                 [block_id],
             )
             .map_err(|e| e.to_string())?;
-            Ok(format!("concluiu o bloco “{}”", block.title))
+            Ok((
+                format!("concluiu o bloco “{}”", block.title),
+                vec![ev(
+                    EventType::BlockCompleted,
+                    Some(block_id),
+                    &[("title", &block.title)],
+                )],
+            ))
         })
     }
 
@@ -1105,31 +1688,37 @@ impl Database {
         self.pause(session_id, reason, SessionStatus::Stopped)
     }
 
+    /// O motivo é OPCIONAL no backend (a interface o incentiva, mas não bloqueia por vazio).
     fn pause(
         &mut self,
         session_id: &str,
         reason: &str,
         target: SessionStatus,
     ) -> HubResult<Session> {
-        let reason = check_text("Motivo", reason, MAX_REASON, true)?;
+        let reason = check_text("Motivo", reason, MAX_REASON, false)?;
+        let reason_value: Option<&str> = if reason.is_empty() {
+            None
+        } else {
+            Some(&reason)
+        };
         self.ddae_mutate(session_id, |tx, s| {
             if s.status != SessionStatus::Active {
                 return Err("Só uma sessão ativa pode ser congelada ou parada.".into());
             }
             tx.execute(
                 "UPDATE ddae_sessions SET status=?2, pause_reason=?3 WHERE id=?1",
-                params![s.id, target.as_str(), reason],
+                params![s.id, target.as_str(), reason_value],
             )
             .map_err(|e| e.to_string())?;
-            Ok(match target {
-                SessionStatus::Frozen => "congelada",
-                _ => "parada",
-            }
-            .into())
+            let (text, kind) = match target {
+                SessionStatus::Frozen => ("congelada", EventType::SessionFrozen),
+                _ => ("parada", EventType::SessionStopped),
+            };
+            Ok((text.into(), vec![ev(kind, None, &[("reason", &reason)])]))
         })
     }
 
-    /// frozen|stopped → active. Recusa se o Project já tem outra ativa.
+    /// frozen|stopped → active. Recusa se o Project já tem outra ativa (nunca mexe na outra).
     pub fn ddae_resume(&mut self, session_id: &str) -> HubResult<Session> {
         self.ddae_mutate(session_id, |tx, s| {
             if s.status == SessionStatus::Active {
@@ -1146,11 +1735,12 @@ impl Database {
                 [&s.id],
             )
             .map_err(|e| e.to_string())?;
-            Ok("retomada".into())
+            Ok(("retomada".into(), vec![ev(EventType::SessionResumed, None, &[])]))
         })
     }
 
-    /// → completed (terminal). Exige todos os blocks concluídos e nenhum em andamento.
+    /// → completed (terminal), SEMPRE explícito. Exige todos os blocks concluídos e, se existirem
+    /// critérios, todos concluídos. Sem critérios, não bloqueia por critérios.
     pub fn ddae_complete(&mut self, session_id: &str, result: &str) -> HubResult<Session> {
         let result = check_text("Resultado", result, MAX_RESULT, false)?;
         self.ddae_mutate(session_id, |tx, s| {
@@ -1163,11 +1753,19 @@ impl Database {
                     current.title
                 ));
             }
-            if !s.can_complete() {
+            if s.next_block().is_some() {
                 let p = s.progress();
                 return Err(format!(
                     "Só é possível finalizar com todos os blocos concluídos ({}/{}).",
                     p.completed, p.total
+                ));
+            }
+            let open = s.criteria.iter().filter(|c| !c.completed).count();
+            if open > 0 {
+                return Err(format!(
+                    "Só é possível finalizar com todos os critérios de conclusão concluídos ({} pendente{}).",
+                    open,
+                    if open == 1 { "" } else { "s" }
                 ));
             }
             let stamp = now(tx)?;
@@ -1176,16 +1774,21 @@ impl Database {
                 params![s.id, if result.is_empty() { None } else { Some(&result) }, stamp],
             )
             .map_err(|e| e.to_string())?;
-            Ok("finalizada".into())
+            Ok((
+                "finalizada".into(),
+                vec![ev(EventType::SessionCompleted, None, &[("result", &result)])],
+            ))
         })
     }
 
-    /// Registra uma Decision (acrescentada ao fim).
+    /// Registra uma Decision (acrescentada ao fim; é registro histórico: sem editar nem apagar).
+    /// `block_id` opcional precisa ser um bloco desta Session.
     pub fn ddae_add_decision(
         &mut self,
         session_id: &str,
         title: &str,
         body: &str,
+        block_id: Option<&str>,
     ) -> HubResult<Session> {
         let title = check_text("Decisão", title, MAX_DECISION_TITLE, true)?;
         let body = check_text("Detalhe da decisão", body, MAX_DECISION_BODY, false)?;
@@ -1193,12 +1796,21 @@ impl Database {
             if s.decisions.len() >= MAX_DECISIONS {
                 return Err(format!("Máximo de {MAX_DECISIONS} decisões por sessão."));
             }
+            if let Some(b) = block_id {
+                if !s.blocks.iter().any(|x| x.id == b) {
+                    return Err("O bloco da decisão não pertence a esta sessão.".into());
+                }
+            }
+            let id = new_id();
             tx.execute(
-                "INSERT INTO ddae_decisions(id,session_id,position,title,body,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
-                params![new_id(), s.id, s.decisions.len() as i64, title, body, now(tx)?],
+                "INSERT INTO ddae_decisions(id,session_id,position,title,body,created_at,block_id) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![id, s.id, s.decisions.len() as i64, title, body, now(tx)?, block_id],
             )
             .map_err(|e| e.to_string())?;
-            Ok(format!("registrou a decisão “{title}”"))
+            Ok((
+                format!("registrou a decisão “{title}”"),
+                vec![ev(EventType::DecisionAdded, block_id, &[("title", &title)])],
+            ))
         })
     }
 
@@ -1260,11 +1872,12 @@ impl Database {
             .map(|(i, (title, status))| Block {
                 id: legacy_child_id(&id, "block", i),
                 title: title.clone(),
+                description: String::new(),
                 status: *status,
             })
             .collect();
         let session = Session {
-            id,
+            id: id.clone(),
             project_id: project_id.into(),
             number: parsed.number,
             title: parsed.title,
@@ -1275,13 +1888,20 @@ impl Database {
             blocks,
             decisions: vec![],
             created_at: created,
-            updated_at: stamp,
+            updated_at: stamp.clone(),
             completed_at: None,
             desired_outcome: String::new(),
             constraints: vec![],
             criteria: vec![],
             notes: vec![],
             references: vec![],
+            events: vec![Event {
+                id: legacy_event_id(&id),
+                kind: EventType::LegacyImported,
+                block_id: None,
+                payload: serde_json::Map::new(),
+                created_at: stamp.clone(),
+            }],
         };
         insert_session(&tx, &session)?;
         activity(
@@ -1295,6 +1915,107 @@ impl Database {
         tx.commit().map_err(|e| e.to_string())?;
         Ok(LegacyImport::Imported)
     }
+}
+
+/// Eventos da edição de detalhes, pela diferença entre o estado antigo e o novo.
+fn details_events(
+    old: &Session,
+    title: &str,
+    new: &Details,
+    criteria: &[Criterion],
+) -> Vec<NewEvent> {
+    let mut out = Vec::new();
+    let mut fields: Vec<&str> = Vec::new();
+    if title != old.title {
+        fields.push("title");
+    }
+    if new.objective != old.objective {
+        fields.push("objective");
+    }
+    if new.desired_outcome != old.desired_outcome {
+        fields.push("desired_outcome");
+    }
+    if new.constraints != old.constraints {
+        fields.push("constraints");
+    }
+    if new.references != old.references {
+        fields.push("references");
+    }
+    for c in criteria {
+        match old.criteria.iter().find(|o| o.id == c.id) {
+            None => out.push(ev(EventType::CriterionAdded, None, &[("text", &c.text)])),
+            Some(o) => {
+                if o.completed != c.completed {
+                    let kind = if c.completed {
+                        EventType::CriterionCompleted
+                    } else {
+                        EventType::CriterionReopened
+                    };
+                    out.push(ev(kind, None, &[("text", &c.text)]));
+                }
+                if o.text != c.text && !fields.contains(&"criteria") {
+                    fields.push("criteria");
+                }
+            }
+        }
+    }
+    for o in &old.criteria {
+        if !criteria.iter().any(|c| c.id == o.id) {
+            out.push(ev(EventType::CriterionRemoved, None, &[("text", &o.text)]));
+        }
+    }
+    let mut remaining = old.notes.clone();
+    for n in &new.notes {
+        if let Some(i) = remaining.iter().position(|o| o == n) {
+            remaining.remove(i);
+        } else {
+            out.push(ev(EventType::NoteAdded, None, &[("text", n)]));
+        }
+    }
+    for removed in remaining {
+        out.push(ev(EventType::NoteRemoved, None, &[("text", &removed)]));
+    }
+    if !fields.is_empty() {
+        out.insert(
+            0,
+            ev(
+                EventType::DetailsUpdated,
+                None,
+                &[("fields", &fields.join(","))],
+            ),
+        );
+    }
+    out
+}
+
+/// Caminho RELATIVO ao Project a partir do que o usuário informou: relativo passa (validado);
+/// absoluto só é aceito se estiver DENTRO da pasta do Project (e é convertido). Nunca persiste
+/// caminho absoluto.
+fn relativize(project_path: &str, input: &str) -> HubResult<String> {
+    let input = input.trim();
+    if !crate::portable::is_absolute_path(input) {
+        return Ok(input.replace('\\', "/"));
+    }
+    if project_path.is_empty() {
+        return Err(
+            "O projeto não está localizado nesta máquina; informe um caminho relativo.".into(),
+        );
+    }
+    let root = crate::runtime::plain_path(crate::projects::canonical(project_path)?);
+    let given = std::path::Path::new(input);
+    let given =
+        crate::runtime::plain_path(given.canonicalize().unwrap_or_else(|_| given.to_path_buf()));
+    let rest = given.strip_prefix(&root).map_err(|_| {
+        "O arquivo está fora da pasta do projeto; escolha um arquivo dentro do projeto.".to_string()
+    })?;
+    let parts: Vec<String> = rest
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .collect();
+    if parts.is_empty() || parts.iter().any(|p| p == ".." || p == ".") {
+        return Err("Caminho inválido para uma referência do projeto.".into());
+    }
+    Ok(parts.join("/"))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1375,7 +2096,19 @@ fn render_context(project_name: &str, s: &Session) -> HubResult<String> {
     text_section(&mut out, "Objetivo", &s.objective);
     text_section(&mut out, "Resultado desejado", &s.desired_outcome);
     list_section(&mut out, "Restrições", &s.constraints);
-    list_section(&mut out, "Critérios de conclusão", &s.criteria);
+    out.push_str("## Critérios de conclusão\n\n");
+    if s.criteria.is_empty() {
+        out.push_str(NOT_INFORMED);
+        out.push('\n');
+    }
+    for c in &s.criteria {
+        out.push_str(&format!(
+            "- [{}] {}\n",
+            if c.completed { "x" } else { " " },
+            c.text
+        ));
+    }
+    out.push('\n');
     out.push_str("## Blocos\n\n");
     if s.blocks.is_empty() {
         out.push_str(NOT_INFORMED);
@@ -1400,10 +2133,16 @@ fn render_context(project_name: &str, s: &Session) -> HubResult<String> {
         out.push('\n');
     }
     for d in &s.decisions {
+        let block = d
+            .block_id
+            .as_ref()
+            .and_then(|id| s.blocks.iter().find(|b| &b.id == id))
+            .map(|b| format!(" (bloco: {})", b.title))
+            .unwrap_or_default();
         if d.body.is_empty() {
-            out.push_str(&format!("- {}\n", d.title));
+            out.push_str(&format!("- {}{block}\n", d.title));
         } else {
-            out.push_str(&format!("- {} — {}\n", d.title, d.body));
+            out.push_str(&format!("- {}{block} — {}\n", d.title, d.body));
         }
     }
     out.push('\n');

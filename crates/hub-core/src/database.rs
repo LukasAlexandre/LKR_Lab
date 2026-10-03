@@ -57,7 +57,7 @@ impl Database {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 7 {
+        if version > 8 {
             return Err("Banco criado por versão mais recente do aplicativo.".into());
         }
         if version == 0 {
@@ -98,6 +98,13 @@ impl Database {
             tx.execute_batch(include_str!("../migrations/007_ddae_context.sql"))
                 .map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
+        }
+        if version < 8 {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            tx.execute_batch(include_str!("../migrations/008_ddae_session_detail.sql"))
+                .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+            crate::ddae::backfill_legacy_events(&conn)?;
         }
         Ok(Self { conn })
     }

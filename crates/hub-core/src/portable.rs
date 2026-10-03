@@ -15,8 +15,10 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-/// v2 acrescenta `ddae` (sessões, blocos e decisões). v1 continua legível e vira v2 ao normalizar.
-pub const SCHEMA_VERSION: u32 = 2;
+/// v2 acrescentou `ddae` (sessões, blocos e decisões); v3 torna os critérios de conclusão marcáveis
+/// (`{ id, text, completed }`) e traz o histórico `events` de cada sessão. v1 e v2 continuam legíveis
+/// (critérios em texto viram objetos não concluídos; eventos ausentes = nenhum) e viram v3 ao normalizar.
+pub const SCHEMA_VERSION: u32 = 3;
 const MIN_SCHEMA_VERSION: u32 = 1;
 /// Prompts criados pela migration 001: não contam como conteúdo do usuário.
 const SEED_PROMPT_IDS: [&str; 6] = ["audit", "bug", "pr", "continue", "security", "gate"];

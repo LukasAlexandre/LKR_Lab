@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "projects": [
     {
       "id": "proj-a",
@@ -110,12 +110,20 @@
           "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1c0001",
           "title": "SQLite é a fonte de verdade",
           "body": "Markdown é só export.",
-          "createdAt": "2026-01-02T09:00:00.000Z"
+          "createdAt": "2026-01-02T09:00:00.000Z",
+          "blockId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0002"
         }
       ],
       "createdAt": "2026-01-01T09:00:00.000Z",
       "updatedAt": "2026-01-04T09:00:00.000Z",
-      "completedAt": "2026-01-04T09:00:00.000Z"
+      "completedAt": "2026-01-04T09:00:00.000Z",
+      "events": [
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1e0001",
+          "type": "LEGACY_IMPORTED",
+          "createdAt": "2026-01-01T09:00:00.000Z"
+        }
+      ]
     },
     {
       "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1a0002",
@@ -133,7 +141,8 @@
         {
           "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0004",
           "title": "Lifecycle",
-          "status": "in_progress"
+          "status": "in_progress",
+          "description": "Operações de ciclo de vida."
         },
         {
           "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0005",
@@ -150,7 +159,16 @@
         "Sem caminho absoluto"
       ],
       "criteria": [
-        "Testes verdes"
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1d0001",
+          "text": "Testes verdes",
+          "completed": false
+        },
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1d0002",
+          "text": "Revisão feita",
+          "completed": true
+        }
       ],
       "notes": [
         "Nota com acentuação — ação."
@@ -158,11 +176,31 @@
       "references": [
         {
           "kind": "project_path",
-          "value": "docs/ddae/sessions/SESSION-001.md"
+          "value": "docs/ddae/sessions/SESSION-001.md",
+          "label": "Documento da sessão"
         },
         {
           "kind": "url",
           "value": "https://github.com/org/alpha"
+        }
+      ],
+      "events": [
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1e0002",
+          "type": "SESSION_CREATED",
+          "payload": {
+            "title": "DDAE Sessions"
+          },
+          "createdAt": "2026-01-05T09:00:00.000Z"
+        },
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1e0003",
+          "type": "BLOCK_STARTED",
+          "blockId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0004",
+          "payload": {
+            "title": "Lifecycle"
+          },
+          "createdAt": "2026-01-05T09:30:00.000Z"
         }
       ]
     },

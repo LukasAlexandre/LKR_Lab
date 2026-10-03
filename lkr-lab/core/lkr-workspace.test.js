@@ -124,19 +124,19 @@ const session = (extra = {}) => ({
 });
 const v2 = (sessions) => state({ version: 2, ddae: sessions });
 
-describe("workspace portátil: DDAE (v2)", () => {
+describe("workspace portátil: DDAE (v2/v3)", () => {
   it("preserva sessões, blocos e decisões na forma canônica", () => {
     const result = ws.validate(v2([session()]));
     expect(result.ok).toBe(true);
-    expect(result.state.version).toBe(2);
+    expect(result.state.version).toBe(3);
     expect(result.state.ddae).toEqual([session()]);
     expect(result.summary.sessions).toBe(1);
     expect(ws.isEmpty(result.state)).toBe(false);
   });
-  it("sem sessões a chave ddae não aparece e v1 vira v2 com o mesmo conteúdo", () => {
+  it("sem sessões a chave ddae não aparece e v1/v2 viram v3 com o mesmo conteúdo", () => {
     const old = ws.validate(state());
     expect(old.ok).toBe(true);
-    expect(old.state.version).toBe(2);
+    expect(old.state.version).toBe(3);
     expect("ddae" in old.state).toBe(false);
     expect(ws.validate(state({ version: 2 })).hash).toBe(old.hash);
   });

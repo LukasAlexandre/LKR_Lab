@@ -35,7 +35,7 @@ fn with_blocks(db: &mut Database, project: &str, titles: &[&str]) -> String {
         .ddae_create_session(project, "Feature", "Objetivo")
         .unwrap();
     for t in titles {
-        db.ddae_add_block(&s.id, t).unwrap();
+        db.ddae_add_block(&s.id, t, "").unwrap();
     }
     s.id
 }
@@ -53,10 +53,15 @@ fn user_version(db: &Database) -> i64 {
 // ---- schema ----
 
 #[test]
-fn migration_creates_the_ddae_tables_at_version_7() {
+fn migration_creates_the_ddae_tables_at_version_8() {
     let (_tmp, db, _) = setup();
-    assert_eq!(user_version(&db), 7);
-    for table in ["ddae_sessions", "ddae_blocks", "ddae_decisions"] {
+    assert_eq!(user_version(&db), 8);
+    for table in [
+        "ddae_sessions",
+        "ddae_blocks",
+        "ddae_decisions",
+        "ddae_events",
+    ] {
         let n: i64 = db
             .conn
             .query_row(
@@ -72,7 +77,12 @@ fn migration_creates_the_ddae_tables_at_version_7() {
 #[test]
 fn ddae_tables_never_store_paths_or_machine_identity() {
     let (_tmp, db, _) = setup();
-    for table in ["ddae_sessions", "ddae_blocks", "ddae_decisions"] {
+    for table in [
+        "ddae_sessions",
+        "ddae_blocks",
+        "ddae_decisions",
+        "ddae_events",
+    ] {
         let columns: Vec<String> = db
             .conn
             .prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
@@ -81,7 +91,11 @@ fn ddae_tables_never_store_paths_or_machine_identity() {
             .unwrap()
             .map(Result::unwrap)
             .collect();
-        for forbidden in ["path", "machine", "host", "ip", "percent", "progress"] {
+        assert!(
+            !columns.iter().any(|c| c == "ip" || c.starts_with("ip_")),
+            "{table}: coluna de IP"
+        );
+        for forbidden in ["path", "machine", "host", "percent", "progress"] {
             assert!(
                 !columns.iter().any(|c| c.contains(forbidden)),
                 "{table} tem coluna {forbidden}: {columns:?}"
@@ -205,7 +219,7 @@ fn rejects_absolute_paths_in_any_text() {
             "ver docs/ddae/x.md",
         )
         .unwrap();
-    assert!(db.ddae_add_block(&s.id, "Bloco 1: C#").is_ok());
+    assert!(db.ddae_add_block(&s.id, "Bloco 1: C#", "").is_ok());
 }
 
 // ---- Blocks ----
@@ -280,10 +294,14 @@ fn blocks_only_move_in_an_active_session() {
 // ---- Lifecycle ----
 
 #[test]
-fn freeze_and_stop_need_a_reason_and_resume_clears_it() {
+fn freeze_and_stop_take_an_optional_reason_and_resume_clears_it() {
     let (_tmp, mut db, project) = setup();
     let s = with_blocks(&mut db, &project, &["A"]);
-    assert!(db.ddae_freeze(&s, "  ").is_err());
+    // O motivo é opcional no backend (a UI o incentiva): vazio não bloqueia e não grava texto.
+    let bare = db.ddae_freeze(&s, "  ").unwrap();
+    assert_eq!(bare.status, SessionStatus::Frozen);
+    assert_eq!(bare.pause_reason, None);
+    db.ddae_resume(&s).unwrap();
     let frozen = db.ddae_freeze(&s, "Aguardando API").unwrap();
     assert_eq!(frozen.status, SessionStatus::Frozen);
     assert_eq!(frozen.pause_reason.as_deref(), Some("Aguardando API"));
@@ -320,8 +338,8 @@ fn completion_needs_every_block_completed_and_none_in_progress() {
         "sem blocos não finaliza"
     );
     let s = empty.id;
-    db.ddae_add_block(&s, "A").unwrap();
-    db.ddae_add_block(&s, "B").unwrap();
+    db.ddae_add_block(&s, "A", "").unwrap();
+    db.ddae_add_block(&s, "B", "").unwrap();
     let (a, b) = (block_id(&db, &s, 0), block_id(&db, &s, 1));
     assert!(db.ddae_complete(&s, "").is_err(), "pendentes");
     db.ddae_start_block(&s, &a).unwrap();
@@ -349,8 +367,8 @@ fn completed_is_terminal() {
     assert!(db.ddae_resume(&s).is_err());
     assert!(db.ddae_freeze(&s, "x").is_err());
     assert!(db.ddae_stop(&s, "x").is_err());
-    assert!(db.ddae_add_block(&s, "novo").is_err());
-    assert!(db.ddae_add_decision(&s, "d", "").is_err());
+    assert!(db.ddae_add_block(&s, "novo", "").is_err());
+    assert!(db.ddae_add_decision(&s, "d", "", None).is_err());
     assert!(db.ddae_complete(&s, "").is_err());
     // Nem por SQL direto: o gatilho do banco recusa.
     assert!(db
@@ -369,9 +387,11 @@ fn completed_is_terminal() {
 fn decisions_are_appended_in_order() {
     let (_tmp, mut db, project) = setup();
     let s = with_blocks(&mut db, &project, &[]);
-    db.ddae_add_decision(&s, "Usar SQLite", "fonte de verdade")
+    db.ddae_add_decision(&s, "Usar SQLite", "fonte de verdade", None)
         .unwrap();
-    let session = db.ddae_add_decision(&s, "Markdown é export", "").unwrap();
+    let session = db
+        .ddae_add_decision(&s, "Markdown é export", "", None)
+        .unwrap();
     assert_eq!(
         session
             .decisions
@@ -380,7 +400,7 @@ fn decisions_are_appended_in_order() {
             .collect::<Vec<_>>(),
         ["Usar SQLite", "Markdown é export"]
     );
-    assert!(db.ddae_add_decision(&s, "  ", "").is_err());
+    assert!(db.ddae_add_decision(&s, "  ", "", None).is_err());
     let view = db.ddae_overview(&project).unwrap().sessions.remove(0);
     assert_eq!(view.recent_decision.unwrap().title, "Markdown é export");
 }
@@ -439,7 +459,7 @@ fn project_ws(db: &Database) -> PortableWorkspace {
 fn export_carries_sessions_and_stays_portable() {
     let (tmp, mut db, project) = setup();
     let s = with_blocks(&mut db, &project, &["A"]);
-    db.ddae_add_decision(&s, "Decisão", "corpo").unwrap();
+    db.ddae_add_decision(&s, "Decisão", "corpo", None).unwrap();
     let ws = project_ws(&db);
     assert_eq!(ws.version, portable::SCHEMA_VERSION);
     assert_eq!(ws.ddae.len(), 1);
@@ -459,7 +479,7 @@ fn sessions_travel_through_the_workspace_with_the_same_identity() {
     let s = with_blocks(&mut a, &project, &["A", "B"]);
     let first = block_id(&a, &s, 0);
     a.ddae_start_block(&s, &first).unwrap();
-    a.ddae_add_decision(&s, "D", "").unwrap();
+    a.ddae_add_decision(&s, "D", "", None).unwrap();
     let ws = project_ws(&a);
 
     let tmp2 = tempfile::tempdir().unwrap();
@@ -542,7 +562,7 @@ fn v1_workspaces_without_ddae_stay_readable_and_become_v2() {
     portable::validate(&ws).unwrap();
     let h = portable::content_hash(&ws);
     portable::normalize(&mut ws);
-    assert_eq!(ws.version, 2);
+    assert_eq!(ws.version, 3);
     assert_eq!(
         portable::content_hash(&ws),
         h,
@@ -571,8 +591,9 @@ fn validation_rejects_broken_ddae_state() {
         portable::validate(&w)
     };
     assert!(mutate(&|_| {}).is_ok());
-    assert!(mutate(&|w| w.version = 1).is_err(), "DDAE exige v2");
-    assert!(mutate(&|w| w.version = 3).is_err());
+    assert!(mutate(&|w| w.version = 1).is_err(), "DDAE exige v2+");
+    assert!(mutate(&|w| w.version = 2).is_ok(), "v2 continua legível");
+    assert!(mutate(&|w| w.version = 4).is_err());
     assert!(mutate(&|w| w.ddae[0].project_id = "fantasma".into()).is_err());
     assert!(mutate(&|w| w.ddae[0].title = r"C:\Users\x\proj".into()).is_err());
     assert!(mutate(&|w| w.ddae[0].objective = "/home/x/app".into()).is_err());

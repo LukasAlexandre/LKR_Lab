@@ -32,6 +32,7 @@ fn setup() -> (tempfile::TempDir, Database, String) {
 
 fn complete_details() -> Details {
     Details {
+        title: None,
         objective: "Entregar a feature".into(),
         desired_outcome: "Feature funcionando de ponta a ponta".into(),
         constraints: vec!["Sem LLM".into()],
@@ -41,10 +42,12 @@ fn complete_details() -> Details {
             Reference {
                 kind: ReferenceKind::ProjectPath,
                 value: "docs/ddae/sessions/SESSION-001.md".into(),
+                label: None,
             },
             Reference {
                 kind: ReferenceKind::Url,
                 value: "https://github.com/org/repo".into(),
+                label: None,
             },
         ],
     }
@@ -53,8 +56,8 @@ fn complete_details() -> Details {
 /// Session ativa com 1 bloco concluído, 1 pendente; detalhes completos.
 fn ready_session(db: &mut Database, project: &str) -> String {
     let s = db.ddae_create_session(project, "Feature", "").unwrap();
-    db.ddae_add_block(&s.id, "Bloco A").unwrap();
-    db.ddae_add_block(&s.id, "Bloco B").unwrap();
+    db.ddae_add_block(&s.id, "Bloco A", "").unwrap();
+    db.ddae_add_block(&s.id, "Bloco B", "").unwrap();
     db.ddae_update_details(&s.id, complete_details()).unwrap();
     s.id
 }
@@ -80,7 +83,7 @@ fn context_is_deterministic() {
         "## Objetivo\n\nEntregar a feature",
         "## Resultado desejado\n\nFeature funcionando de ponta a ponta",
         "- Sem LLM",
-        "- Testes verdes",
+        "- [ ] Testes verdes",
         "1. [ ] Bloco A",
         "Bloco atual: nenhum",
         "Próximo bloco: Bloco A",
@@ -125,7 +128,7 @@ fn ready_for_ai_requires_every_canonical_field() {
         ["objective", "desired_outcome", "blocks", "criteria"]
     );
 
-    db.ddae_add_block(&s.id, "A").unwrap();
+    db.ddae_add_block(&s.id, "A", "").unwrap();
     let full = complete_details();
     let with = |f: &dyn Fn(&mut Details)| {
         let mut d = full.clone();
@@ -195,6 +198,14 @@ fn completed_sessions_still_generate_context() {
         db.ddae_start_block(&id, &b.id).unwrap();
         db.ddae_complete_block(&id, &b.id).unwrap();
     }
+    // Finalizar exige os critérios concluídos (existe 1 critério em ready_session).
+    let mut details = complete_details();
+    let criterion = db.ddae_session(&id).unwrap().criteria[0].clone();
+    details.criteria = vec![ddae::Criterion {
+        completed: true,
+        ..criterion
+    }];
+    db.ddae_update_details(&id, details).unwrap();
     db.ddae_complete(&id, "Entregue").unwrap();
     assert_eq!(
         db.ddae_session(&id).unwrap().status,
@@ -244,7 +255,7 @@ fn context_has_no_local_data() {
     let id = ready_session(&mut db, &project);
     let blocks = db.ddae_session(&id).unwrap().blocks;
     db.ddae_start_block(&id, &blocks[0].id).unwrap();
-    db.ddae_add_decision(&id, "Decisão", "corpo da decisão")
+    db.ddae_add_decision(&id, "Decisão", "corpo da decisão", None)
         .unwrap();
     let md = db.ddae_generate_context(&id).unwrap().markdown;
 
@@ -303,7 +314,8 @@ fn details_reject_local_paths_and_bad_references() {
                 &s.id,
                 bad_text(&|d| d.references = vec![Reference {
                     kind: ReferenceKind::ProjectPath,
-                    value: path.into()
+                    value: path.into(),
+                    label: None
                 }])
             )
             .is_err(),
@@ -317,6 +329,7 @@ fn details_reject_local_paths_and_bad_references() {
             d.references = vec![Reference {
                 kind: ReferenceKind::ProjectPath,
                 value: path.into(),
+                label: None,
             }]
         });
         assert!(db.ddae_update_details(&s.id, d).is_err(), "{path:?}");
@@ -331,6 +344,7 @@ fn details_reject_local_paths_and_bad_references() {
             d.references = vec![Reference {
                 kind: ReferenceKind::Url,
                 value: url.into(),
+                label: None,
             }]
         });
         assert!(db.ddae_update_details(&s.id, d).is_err(), "{url}");
@@ -338,7 +352,7 @@ fn details_reject_local_paths_and_bad_references() {
     assert!(db
         .ddae_update_details(
             &s.id,
-            bad_text(&|d| d.criteria = vec!["x".repeat(ddae::MAX_ITEM + 1)])
+            bad_text(&|d| d.criteria = vec!["x".repeat(ddae::MAX_ITEM + 1).as_str().into()])
         )
         .is_err());
     assert!(db
@@ -370,7 +384,13 @@ fn details_travel_in_the_portable_workspace() {
     b.apply_portable(&ws).unwrap();
     let got = b.ddae_session(&id).unwrap();
     assert_eq!(got.desired_outcome, "Feature funcionando de ponta a ponta");
-    assert_eq!(got.criteria, ["Testes verdes"]);
+    assert_eq!(
+        got.criteria
+            .iter()
+            .map(|c| c.text.as_str())
+            .collect::<Vec<_>>(),
+        ["Testes verdes"]
+    );
     assert_eq!(got.references.len(), 2);
     assert_eq!(
         b.ddae_generate_context(&id).unwrap().markdown,

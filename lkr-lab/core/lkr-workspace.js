@@ -22,8 +22,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  /** v2 acrescenta `ddae`; v1 continua legível e vira v2 ao normalizar. */
-  const SCHEMA_VERSION = 2;
+  /** v2 acrescentou `ddae`; v3 torna os critérios marcáveis ({ id, text, completed }) e traz `events`. v1/v2 continuam legíveis. */
+  const SCHEMA_VERSION = 3;
   const SOURCE = "lkr-lab";
   const MODULE = "workspace";
   const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -62,6 +62,10 @@
     outcome: 2000,
     detailItem: 500,
     detailItems: 50,
+    blockDescription: 1000,
+    events: 20000,
+    payload: 2000,
+    label: 100,
   };
 
   // Padrões de credencial conhecidos: o sync é recusado em vez de publicar.
@@ -278,6 +282,66 @@
       .filter(Boolean);
   }
 
+  /**
+   * Critérios de conclusão: aceita o formato antigo (texto) e o atual ({ id, text, completed }).
+   * Um critério em texto fica com id "" (o hub-core atribui o id determinístico ao normalizar):
+   * o JS não inventa um id diferente do Rust.
+   */
+  function ddaeCriteria(value, where) {
+    const seen = new Set();
+    return list(value, where, LIMITS.detailItems)
+      .map((item, i) => {
+        const at = where + "[" + i + "]";
+        const raw = typeof item === "string" ? { text: item } : item;
+        if (!isPlainObject(raw)) fail(at, "critério inválido");
+        const criterionText = ddaeText(raw.text, at + ".text", LIMITS.detailItem);
+        const criterionId = raw.id === undefined || raw.id === "" ? "" : id(raw.id, at + ".id");
+        if (criterionId) {
+          if (seen.has(criterionId)) fail(at + ".id", "id duplicado (" + criterionId + ")");
+          seen.add(criterionId);
+        }
+        if (raw.completed !== undefined && typeof raw.completed !== "boolean") fail(at + ".completed", "deve ser verdadeiro ou falso");
+        return { id: criterionId, text: criterionText, completed: raw.completed === true };
+      })
+      .filter((c) => c.text);
+  }
+
+  const EVENT_TYPES = [
+    "SESSION_CREATED", "SESSION_FROZEN", "SESSION_STOPPED", "SESSION_RESUMED", "SESSION_COMPLETED", "LEGACY_IMPORTED",
+    "BLOCK_ADDED", "BLOCK_STARTED", "BLOCK_COMPLETED", "BLOCK_RENAMED", "BLOCK_REMOVED",
+    "CRITERION_ADDED", "CRITERION_COMPLETED", "CRITERION_REOPENED", "CRITERION_REMOVED",
+    "DECISION_ADDED", "NOTE_ADDED", "NOTE_REMOVED", "DETAILS_UPDATED",
+  ];
+
+  /** Histórico append-only da Session: ordem canônica (createdAt, id); sem caminho local nos textos. */
+  function ddaeEvents(value, where, seen) {
+    const events = list(value, where, LIMITS.events).map((event, i) => {
+      const at = where + "[" + i + "]";
+      if (!isPlainObject(event)) fail(at, "evento inválido");
+      const eventId = id(event.id, at + ".id");
+      claimId(seen, eventId, at + ".id");
+      if (!EVENT_TYPES.includes(event.type)) fail(at + ".type", "tipo de evento desconhecido");
+      const payload = event.payload === undefined || event.payload === null ? {} : event.payload;
+      if (!isPlainObject(payload)) fail(at + ".payload", "deve ser um objeto");
+      const clean = {};
+      for (const [key, v] of Object.entries(payload)) {
+        if (typeof v === "string") clean[key] = ddaeText(v, at + ".payload." + key, LIMITS.payload);
+        else if (typeof v === "number" || typeof v === "boolean") clean[key] = v;
+        else fail(at + ".payload." + key, "só texto, número ou booleano");
+      }
+      if (bytes(JSON.stringify(clean)) > LIMITS.payload) fail(at + ".payload", "grande demais");
+      const blockId = event.blockId === undefined || event.blockId === null || event.blockId === "" ? undefined : id(event.blockId, at + ".blockId");
+      return {
+        id: eventId,
+        type: event.type,
+        ...(blockId ? { blockId } : {}),
+        ...(Object.keys(clean).length ? { payload: clean } : {}),
+        createdAt: stamp(event.createdAt, at + ".createdAt"),
+      };
+    });
+    return events.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  }
+
   function ddaeReferences(value, where) {
     return list(value, where, LIMITS.detailItems).map((ref, i) => {
       const at = where + "[" + i + "]";
@@ -286,7 +350,8 @@
       const refValue = text(ref.value, at + ".value", LIMITS.detailItem, { required: true, trim: true });
       if (ref.kind === "project_path" && !validProjectPath(refValue)) fail(at + ".value", "use um caminho RELATIVO ao projeto (sem caminho local nem \"..\")");
       if (ref.kind === "url" && !validRepository(refValue)) fail(at + ".value", "use uma URL https sem credenciais");
-      return { kind: ref.kind, value: refValue };
+      const label = ref.label === undefined || ref.label === null ? "" : ddaeText(ref.label, at + ".label", LIMITS.label);
+      return { kind: ref.kind, value: refValue, ...(label ? { label } : {}) };
     });
   }
 
@@ -309,7 +374,13 @@
       if (!BLOCK_STATUSES.includes(block.status)) fail(at + ".status", "estado desconhecido");
       const blockId = id(block.id, at + ".id");
       claimId(seen, blockId, at + ".id");
-      return { id: blockId, title: ddaeText(block.title, at + ".title", LIMITS.blockTitle, { required: true }), status: block.status };
+      const description = ddaeText(block.description, at + ".description", LIMITS.blockDescription);
+      return {
+        id: blockId,
+        title: ddaeText(block.title, at + ".title", LIMITS.blockTitle, { required: true }),
+        ...(description ? { description } : {}),
+        status: block.status,
+      };
     });
     if (blocks.filter((b) => b.status === "in_progress").length > 1) fail(where + ".blocks", "mais de um bloco em andamento");
     if (raw.status === "completed" && (!blocks.length || blocks.some((b) => b.status !== "completed"))) {
@@ -320,8 +391,11 @@
       if (!isPlainObject(decision)) fail(at, "decisão inválida");
       const decisionId = id(decision.id, at + ".id");
       claimId(seen, decisionId, at + ".id");
+      const decisionBlock = decision.blockId === undefined || decision.blockId === null || decision.blockId === "" ? undefined : id(decision.blockId, at + ".blockId");
+      if (decisionBlock && !blocks.some((b) => b.id === decisionBlock)) fail(at + ".blockId", "referencia um bloco que não existe nesta sessão");
       return {
         id: decisionId,
+        ...(decisionBlock ? { blockId: decisionBlock } : {}),
         title: ddaeText(decision.title, at + ".title", LIMITS.decisionTitle, { required: true }),
         body: ddaeText(decision.body, at + ".body", LIMITS.decisionBody),
         createdAt: stamp(decision.createdAt, at + ".createdAt"),
@@ -329,7 +403,8 @@
     });
     const desiredOutcome = ddaeText(raw.desiredOutcome, where + ".desiredOutcome", LIMITS.outcome);
     const constraints = ddaeList(raw.constraints, where + ".constraints");
-    const criteria = ddaeList(raw.criteria, where + ".criteria");
+    const criteria = ddaeCriteria(raw.criteria, where + ".criteria");
+    const events = ddaeEvents(raw.events, where + ".events", seen);
     const notes = ddaeList(raw.notes, where + ".notes");
     const references = ddaeReferences(raw.references, where + ".references");
     const pauseReason = optionalDdaeText(raw.pauseReason, where + ".pauseReason", LIMITS.reason);
@@ -355,6 +430,7 @@
       createdAt: stamp(raw.createdAt, where + ".createdAt"),
       updatedAt: stamp(raw.updatedAt, where + ".updatedAt"),
       ...(completedAt ? { completedAt } : {}),
+      ...(events.length ? { events } : {}),
     };
   }
 

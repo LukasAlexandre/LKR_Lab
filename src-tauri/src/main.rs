@@ -306,8 +306,48 @@ fn ddae_add_block(
     state: State<AppState>,
     session_id: String,
     title: String,
+    description: Option<String>,
 ) -> HubResult<hub_core::ddae::Session> {
-    db(&state)?.ddae_add_block(&session_id, &title)
+    db(&state)?.ddae_add_block(&session_id, &title, description.as_deref().unwrap_or(""))
+}
+/// Renomeia um bloco pendente ou em andamento (concluído é histórico).
+#[tauri::command]
+fn ddae_rename_block(
+    state: State<AppState>,
+    session_id: String,
+    block_id: String,
+    title: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_rename_block(&session_id, &block_id, &title)
+}
+/// Remove um bloco SOMENTE se pendente.
+#[tauri::command]
+fn ddae_remove_block(
+    state: State<AppState>,
+    session_id: String,
+    block_id: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_remove_block(&session_id, &block_id)
+}
+/// Detalhe de UMA Session validando o par (Project, Session) para a rota do Concept 07.
+#[tauri::command]
+fn ddae_session_detail(
+    state: State<AppState>,
+    project_id: String,
+    session_id: String,
+) -> HubResult<hub_core::ddae::SessionView> {
+    db(&state)?.ddae_session_detail(&project_id, &session_id)
+}
+/// Referência da sessão; um caminho absoluto de arquivo do projeto vira relativo (fora = recusa).
+#[tauri::command]
+fn ddae_add_reference(
+    state: State<AppState>,
+    session_id: String,
+    kind: hub_core::ddae::ReferenceKind,
+    value: String,
+    label: Option<String>,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.ddae_add_reference(&session_id, kind, &value, label.as_deref())
 }
 #[tauri::command]
 fn ddae_start_block(
@@ -359,8 +399,9 @@ fn ddae_add_decision(
     session_id: String,
     title: String,
     body: String,
+    block_id: Option<String>,
 ) -> HubResult<hub_core::ddae::Session> {
-    db(&state)?.ddae_add_decision(&session_id, &title, &body)
+    db(&state)?.ddae_add_decision(&session_id, &title, &body, block_id.as_deref())
 }
 /// Define objetivo, resultado desejado, restrições, critérios, notas e referências da Session.
 #[tauri::command]
@@ -782,7 +823,11 @@ fn main() {
             ddae_complete,
             ddae_add_decision,
             ddae_update_details,
-            ddae_generate_context
+            ddae_generate_context,
+            ddae_rename_block,
+            ddae_remove_block,
+            ddae_session_detail,
+            ddae_add_reference
         ]))
         .build(tauri::generate_context!());
     match result {
