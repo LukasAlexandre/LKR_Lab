@@ -2,6 +2,8 @@
  * Roteador por hash com o Project na URL (Concept 05).
  *
  *   #project/<id>/<área>   contexto de um Project (a ROTA é a fonte de verdade)
+ *   #project/<id>/ddae/<session-uuid>   detalhe de uma Session DDAE (o UUID é a identidade;
+ *                          SESSION-NNN é só rótulo e nunca entra na rota)
  *   #projects              lista (Concept 03)
  *   #projects/new          cadastro (Concept 04)
  *   #projects/open         LEGADO: resolve o Project ativo e redireciona
@@ -38,7 +40,7 @@ export type ParsedRoute =
   | { kind: "new-project" }
   | { kind: "legacy-open" }
   /** `normalized` = a área da URL era inválida/ausente e caiu em overview (a URL deve ser corrigida). */
-  | { kind: "project"; projectId: string; area: ProjectArea; normalized: boolean }
+  | { kind: "project"; projectId: string; area: ProjectArea; normalized: boolean; sessionId?: string }
   | { kind: "invalid-project" };
 
 export function parseHash(hash: string, globalRoutes: readonly string[]): ParsedRoute {
@@ -48,16 +50,23 @@ export function parseHash(hash: string, globalRoutes: readonly string[]): Parsed
     const id = parts[1];
     if (!id || !ID_PATTERN.test(id)) return { kind: "invalid-project" };
     const area = parts[2];
-    return isProjectArea(area)
-      ? { kind: "project", projectId: id, area, normalized: parts.length > 3 }
-      : { kind: "project", projectId: id, area: "overview", normalized: true };
+    if (!isProjectArea(area)) return { kind: "project", projectId: id, area: "overview", normalized: true };
+    // Só o DDAE tem um 4º segmento: o id da Session. Qualquer outra forma é corrigida na URL.
+    if (area === "ddae" && parts.length === 4 && ID_PATTERN.test(parts[3])) {
+      return { kind: "project", projectId: id, area, sessionId: parts[3], normalized: false };
+    }
+    return { kind: "project", projectId: id, area, normalized: parts.length > 3 };
   }
   if (head === "projects" && parts[1] === "new") return { kind: "new-project" };
   if (head === "projects" && parts[1] === "open") return { kind: "legacy-open" };
   return { kind: "global", route: globalRoutes.includes(head) ? head : "dashboard" };
 }
 
-export const projectHash = (projectId: string, area: ProjectArea = "overview") => `#project/${projectId}/${area}`;
+export const projectHash = (projectId: string, area: ProjectArea = "overview", sessionId?: string) =>
+  sessionId && area === "ddae" ? `#project/${projectId}/${area}/${sessionId}` : `#project/${projectId}/${area}`;
+
+/** Aviso quando a Session da rota não existe (ou é de outro Project). */
+export const SESSION_NOT_FOUND = "Sessão não encontrada neste projeto.";
 
 export type RouteResolution =
   | { action: "render" }

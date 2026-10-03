@@ -21,7 +21,7 @@ function view(number: number, status: DdaeSessionStatus, extra: Partial<DdaeSess
     id: `id-${number}`, projectId: "p", number, label: `SESSION-${String(number).padStart(3, "0")}`, title: `Sessão ${number}`, objective: "Objetivo real",
     status, blocks, decisions: [], createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z",
     progress: { completed, total: blocks.length }, currentBlock: blocks.find((b) => b.status === "in_progress") ?? null,
-    nextBlock: blocks.find((b) => b.status === "pending") ?? null, canComplete: blocks.length > 0 && completed === blocks.length, recentDecision: null, readyForAi: { state: "incomplete", ready: false, missing: ["desired_outcome", "criteria"] }, ...extra,
+    nextBlock: blocks.find((b) => b.status === "pending") ?? null, canComplete: blocks.length > 0 && completed === blocks.length, completionBlockers: [], recentDecision: null, readyForAi: { state: "incomplete", ready: false, missing: ["desired_outcome", "criteria"] }, ...extra,
   };
 }
 function overview(projectId: string, sessions: DdaeSessionView[], activeId: string | null): DdaeOverview {
@@ -82,7 +82,8 @@ describe("DDAE / Sessões (dados reais)", () => {
     expect(html).toContain("Concluir bloco");
     expect(html).toContain("Congelar");
     expect(html).toContain("Parar");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>(?:(?!<\/button>).)*Abrir sessão/s);
+    // Abrir sessão leva ao detalhe (Concept 07) pela rota canônica com o UUID da Session.
+    expect(html).toMatch(/<a [^>]*href="#project\/proj-real\/ddae\/id-1"[^>]*>(?:(?!<\/a>).)*Abrir sessão/s);
     expect(html).toContain("Próxima ação");
     expect(html).toContain("Continuar Concept 09 — Planejamento");
   });

@@ -12,6 +12,7 @@ import { useResource, workspace } from "../../state/workspace";
 import { ProjectRuntime } from "../ProjectRuntime";
 import { Worktrees } from "../Worktrees";
 import { DdaeSessions } from "./DdaeSessions";
+import { SessionDetail } from "./SessionDetail";
 import { ProjectLogs } from "./ProjectLogs";
 import { ProjectOverviewArea } from "./ProjectOverviewArea";
 
@@ -35,9 +36,11 @@ interface Views {
  * O Project vem da ROTA; as telas reaproveitadas leem o Project ativo, que o App sincroniza
  * com a URL antes de montar este componente.
  */
-export function ProjectControlCenter({ projectId, area, views, launch, generateContext, report, notify, contextVersion }: {
+export function ProjectControlCenter({ projectId, area, sessionId, views, launch, generateContext, report, notify, contextVersion }: {
   projectId: string;
   area: ProjectArea;
+  /** Só no DDAE: abre o detalhe de UMA Session (o UUID da rota). */
+  sessionId?: string;
   views: Views;
   launch: (id: string, action: string) => void;
   generateContext: () => void;
@@ -121,7 +124,9 @@ export function ProjectControlCenter({ projectId, area, views, launch, generateC
     );
   } else if (area === "ddae") {
     // Sessões pertencem ao Project (estado portátil): não dependem da pasta nesta máquina.
-    content = <DdaeSessions key={projectId} projectId={projectId} notify={notify} />;
+    content = sessionId
+      ? <SessionDetail key={`${projectId}/${sessionId}`} projectId={projectId} sessionId={sessionId} notify={notify} />
+      : <DdaeSessions key={projectId} projectId={projectId} notify={notify} />;
   } else if (NEEDS_FOLDER.includes(area) && !available) {
     content = unlocatedNotice;
   } else if (area === "overview") {

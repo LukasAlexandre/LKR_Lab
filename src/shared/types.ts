@@ -544,10 +544,31 @@ export type DdaeBlockStatus = "pending" | "in_progress" | "completed";
 export interface DdaeBlock {
   id: string;
   title: string;
+  description?: string;
   status: DdaeBlockStatus;
+}
+/** Critério de conclusão marcável (NÃO é progresso de execução; isso são os Blocks). */
+export interface DdaeCriterion {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+export type DdaeEventType =
+  | "SESSION_CREATED" | "SESSION_FROZEN" | "SESSION_STOPPED" | "SESSION_RESUMED" | "SESSION_COMPLETED" | "LEGACY_IMPORTED"
+  | "BLOCK_ADDED" | "BLOCK_STARTED" | "BLOCK_COMPLETED" | "BLOCK_RENAMED" | "BLOCK_REMOVED"
+  | "CRITERION_ADDED" | "CRITERION_COMPLETED" | "CRITERION_REOPENED" | "CRITERION_REMOVED"
+  | "DECISION_ADDED" | "NOTE_ADDED" | "NOTE_REMOVED" | "DETAILS_UPDATED";
+/** Histórico semântico e PORTÁTIL da Session (append-only). */
+export interface DdaeEvent {
+  id: string;
+  type: DdaeEventType;
+  blockId?: string;
+  payload?: Record<string, string | number | boolean>;
+  createdAt: string;
 }
 export interface DdaeDecision {
   id: string;
+  blockId?: string;
   title: string;
   body: string;
   createdAt: string;
@@ -556,6 +577,7 @@ export type DdaeReferenceKind = "project_path" | "url";
 export interface DdaeReference {
   kind: DdaeReferenceKind;
   value: string;
+  label?: string;
 }
 export type DdaeContextState = "ready" | "incomplete" | "available";
 /** Derivado no backend (nunca gravado): a Session tem o necessário para um agente continuá-la? */
@@ -576,7 +598,7 @@ export interface DdaeSession {
   objective: string;
   desiredOutcome?: string;
   constraints?: string[];
-  criteria?: string[];
+  criteria?: DdaeCriterion[];
   notes?: string[];
   references?: DdaeReference[];
   status: DdaeSessionStatus;
@@ -587,6 +609,7 @@ export interface DdaeSession {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  events?: DdaeEvent[];
 }
 export interface DdaeSessionView extends DdaeSession {
   /** `SESSION-001` */
@@ -595,6 +618,8 @@ export interface DdaeSessionView extends DdaeSession {
   currentBlock: DdaeBlock | null;
   nextBlock: DdaeBlock | null;
   canComplete: boolean;
+  /** Por que não pode finalizar: no_blocks | block_in_progress | blocks_pending | criteria_pending. */
+  completionBlockers: ("no_blocks" | "block_in_progress" | "blocks_pending" | "criteria_pending")[];
   recentDecision: DdaeDecision | null;
   readyForAi: DdaeReadyForAi;
 }

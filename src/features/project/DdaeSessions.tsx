@@ -15,6 +15,7 @@ import {
   visibleSessions,
 } from "../../shared/ddae";
 import type { DdaeFilter } from "../../shared/ddae";
+import { projectHash } from "../../app/projectRoute";
 import { relativeTime } from "../../shared/projectOverview";
 import { Empty, Modal } from "../../shared/ui";
 import type { DdaeOverview, DdaeSession, DdaeSessionStatus, DdaeSessionView } from "../../shared/types";
@@ -72,12 +73,12 @@ function ProgressRing({ session }: { session: DdaeSessionView }) {
   );
 }
 
-type Pending =
+export type Pending =
   | { kind: "freeze" | "stop"; session: DdaeSessionView }
   | { kind: "complete-session"; session: DdaeSessionView }
   | { kind: "complete-block" | "start-block"; session: DdaeSessionView; blockId: string; title: string };
 
-function ReasonDialog({ pending, busy, error, submit, close }: {
+export function ReasonDialog({ pending, busy, error, submit, close }: {
   pending: { kind: "freeze" | "stop"; session: DdaeSessionView };
   busy: boolean;
   error: string | null;
@@ -95,20 +96,20 @@ function ReasonDialog({ pending, busy, error, submit, close }: {
             : "Parar é encerrar o ritmo sem retomada imediata. Ela pode ser retomada depois."}
         </p>
         <label>
-          Motivo
+          Motivo <span className="muted">(recomendado)</span>
           <textarea value={reason} maxLength={500} rows={3} autoFocus onChange={(e) => setReason(e.target.value)} placeholder={freezing ? "Ex.: Aguardando revisão do time" : "Ex.: Sem previsão de retomada"} />
         </label>
         {error && <p className="ddae-error" role="alert">{error}</p>}
         <div className="modal-actions">
           <button type="button" className="button" onClick={close}>Cancelar</button>
-          <button type="submit" className="button primary" disabled={busy || !reason.trim()}>{freezing ? "Congelar" : "Parar"}</button>
+          <button type="submit" className="button primary" disabled={busy}>{freezing ? "Congelar" : "Parar"}</button>
         </div>
       </form>
     </Modal>
   );
 }
 
-function ConfirmDialog({ title, children, confirm, busy, error, submit, close }: {
+export function ConfirmDialog({ title, children, confirm, busy, error, submit, close }: {
   title: string;
   children: ReactNode;
   confirm: string;
@@ -413,10 +414,9 @@ export function DdaeSessions({ projectId, notify }: { projectId: string; notify:
               )}
               {contextLine(selected) && <p className="ddae-reason">{contextLine(selected)}</p>}
 
-              {/* Abrir sessão leva ao Concept 07 (Detalhe da Sessão), ainda não implementado. */}
-              <button type="button" className="button primary ddae-open" disabled title="O detalhe da sessão (Concept 07) ainda não foi implementado.">
+              <a className="button primary ddae-open" href={projectHash(projectId, "ddae", selected.id)}>
                 <Play size={15} /> Abrir sessão
-              </button>
+              </a>
 
               <div className="ddae-actions" role="group" aria-label={`Ações de ${selected.label}`}>
                 {selected.status === "active" && (

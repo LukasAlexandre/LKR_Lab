@@ -44,6 +44,7 @@ import {
   NEW_PROJECT_HASH, PROJECTS_HASH, PROJECT_AREA_TITLES, parseHash, projectHash, resolveRoute, switchProjectHash,
 } from "./app/projectRoute";
 import { ProjectControlCenter } from "./features/project/ProjectControlCenter";
+import { SessionCrumb } from "./features/project/SessionCrumb";
 import { ProjectContextNav } from "./features/project/ProjectContextNav";
 import { ProjectsOverviewPage } from "./features/ProjectsOverview";
 import { WindowTitleBar } from "./shell/WindowTitleBar";
@@ -464,7 +465,13 @@ export default function App() {
               <>
                 <a href={PROJECTS_HASH}>Projetos</a> <ChevronRight size={13} />
                 <span>{selected?.name ?? "Projeto"}</span>
-                {parsed.area !== "overview" && (<> <ChevronRight size={13} /><span>{PROJECT_AREA_TITLES[parsed.area]}</span></>)}
+                {parsed.area !== "overview" && (
+                  <>
+                    {" "}<ChevronRight size={13} />
+                    {parsed.sessionId ? <a href={projectHash(parsed.projectId, parsed.area)}>{PROJECT_AREA_TITLES[parsed.area]}</a> : <span>{PROJECT_AREA_TITLES[parsed.area]}</span>}
+                  </>
+                )}
+                {parsed.sessionId && (<> <ChevronRight size={13} /><SessionCrumb projectId={parsed.projectId} sessionId={parsed.sessionId} /></>)}
               </>
             ) : (
               <span>{pageTitle}</span>
@@ -602,6 +609,7 @@ export default function App() {
             <ProjectControlCenter
               projectId={parsed.projectId}
               area={parsed.area}
+              sessionId={parsed.sessionId}
               views={{ git: gitView, context: agentsView }}
               launch={launch}
               generateContext={() => void context()}

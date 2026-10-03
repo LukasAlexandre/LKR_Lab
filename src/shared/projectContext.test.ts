@@ -98,7 +98,7 @@ function ddaeWith(blocks: DdaeBlock[], status: DdaeSessionView["status"] = "acti
     createdAt: "", updatedAt: "", progress: { completed, total: blocks.length },
     currentBlock: blocks.find((b) => b.status === "in_progress") ?? null,
     nextBlock: blocks.find((b) => b.status === "pending") ?? null,
-    canComplete: false, recentDecision: null, readyForAi: { state: "incomplete", ready: false, missing: [] },
+    canComplete: false, completionBlockers: [], recentDecision: null, readyForAi: { state: "incomplete", ready: false, missing: [] },
   };
   return { projectId: "p", sessions: [session], counts: { total: 1, active: status === "active" ? 1 : 0, frozen: 0, stopped: 0, completed: 0 }, blocksTotal: blocks.length, activeSessionId: status === "active" ? "s1" : null, legacyImport: "not_applicable" };
 }

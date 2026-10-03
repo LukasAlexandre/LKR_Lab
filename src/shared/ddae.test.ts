@@ -23,6 +23,7 @@ function session(number: number, status: DdaeSessionStatus, extra: Partial<DdaeS
     currentBlock: blocks.find((b) => b.status === "in_progress") ?? null,
     nextBlock: blocks.find((b) => b.status === "pending") ?? null,
     canComplete: blocks.length > 0 && completed === blocks.length,
+    completionBlockers: [],
     recentDecision: null,
     readyForAi: { state: "incomplete", ready: false, missing: ["desired_outcome", "criteria"] },
     ...extra,
