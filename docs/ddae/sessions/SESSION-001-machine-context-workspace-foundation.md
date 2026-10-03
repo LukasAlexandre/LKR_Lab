@@ -93,6 +93,14 @@ Integrado à `main` por fast-forward (`bf3982f`). A branch `feat/session-001-dda
 - **Próximo domínio:** Concept 07 — Detalhe da Session. **Concept 07: A INICIAR** (branch `feat/session-001-ddae-session-detail`); auditoria em [CONCEPT-07-session-detail-audit.md](../audits/CONCEPT-07-session-detail-audit.md). Nada do Concept 07 havia sido implementado neste checkpoint (estado atual: ver D05).
 - SESSION-001 continua ATIVA (9/10, bloco atual Concept 09); Concept 09 segue EM REFINAMENTO.
 
+### Checkpoint — DDAE SESSION DETAIL COMPLETE
+
+Integrado à `main` por fast-forward (`de2c605`). As branches `feat/session-001-ddae-foundation` e `feat/session-001-ddae-session-detail` foram preservadas.
+
+- **Concept 07 — Detalhe da Session:** IMPLEMENTADO E VALIDADO NO DESKTOP (ver D05).
+- **Próximo domínio:** WORKTREES. **Concept 08: A INICIAR** (branch `feat/session-001-worktrees-foundation`); auditoria em [CONCEPT-08-worktrees-audit.md](../audits/CONCEPT-08-worktrees-audit.md). Nada do Concept 08 foi implementado.
+- SESSION-001 continua ATIVA (9/10, bloco atual Concept 09); Concept 09 segue EM REFINAMENTO.
+
 ### Bloco D05 — DDAE Session Detail / Concept 07 (IMPLEMENTADO E VALIDADO NO DESKTOP)
 
 Detalhe operacional da MESMA Session DDAE (nenhuma segunda entidade nem store). Commits: `48ebd00` (histórico portátil e critérios) e `a6dd06f` (workspace de detalhe).
