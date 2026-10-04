@@ -928,11 +928,7 @@ fn gated<R: tauri::Runtime>(
 fn main() {
     let result = tauri::Builder::default()
         .setup(|app| {
-            // LKR_LAB_DATA_DIR isola o banco (validações em ambiente descartável); sem ele, o AppData real.
-            let dir = match std::env::var_os("LKR_LAB_DATA_DIR") {
-                Some(custom) if !custom.is_empty() => std::path::PathBuf::from(custom),
-                _ => app.path().app_data_dir()?,
-            };
+            let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             let database = Database::open(&dir.join("hub.db")).map_err(std::io::Error::other)?;
             let registry =
