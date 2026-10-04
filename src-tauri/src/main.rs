@@ -137,6 +137,105 @@ async fn network_security_snapshot(
     .await
     .map_err(|e| e.to_string())?
 }
+/// Alerts & Diagnostics (SESSION-002, Block 09): motor determinístico sobre os snapshots que os
+/// collectors já têm (cada um com o próprio TTL: nada é relido só porque a tela abriu) e diagnósticos
+/// explícitos, somente leitura, sob ação do usuário. Estado local da máquina.
+struct AlertsState {
+    runner: hub_core::diagnostic_runner::Runner,
+    /// Serializa as avaliações (comando da interface e avaliação periódica).
+    lock: Mutex<()>,
+}
+fn diagnostics_view(app: &tauri::AppHandle) -> HubResult<hub_core::diagnostics::DiagnosticsView> {
+    let alerts = app.state::<AlertsState>();
+    let state = app.state::<AppState>();
+    let history = db(&state)?.diagnostic_runs(20)?;
+    let elevated = alerts.runner.elevated();
+    Ok(hub_core::diagnostics::DiagnosticsView {
+        elevated,
+        catalog: hub_core::diagnostic_runner::catalog(elevated),
+        current: alerts.runner.status(),
+        history,
+    })
+}
+fn evaluate_alerts(app: &tauri::AppHandle) -> HubResult<hub_core::diagnostics::AlertsSnapshot> {
+    use hub_core::diagnostics as dx;
+    let alerts = app.state::<AlertsState>();
+    let _guard = alerts
+        .lock
+        .lock()
+        .map_err(|_| "Alertas temporariamente indisponíveis".to_string())?;
+    let now = hub_core::machine::now_ms();
+    let (ctx, managed, runs) = control_plane_inputs(app)?;
+    let mut statuses = Vec::new();
+    let mut facts = dx::Facts::default();
+    match app.state::<TelemetryState>().0.snapshot().latest {
+        Some(telemetry) => facts.machine = dx::machine_facts(&telemetry, now, &mut statuses),
+        None => dx::mark_unavailable(
+            &mut statuses,
+            &[dx::SRC_DISK, dx::SRC_CPU, dx::SRC_MEMORY, dx::SRC_THERMAL],
+            "A telemetria ainda não tem a primeira amostra.",
+        ),
+    }
+    let windows = app.state::<WindowsHealthState>().0.snapshot(now, false);
+    facts.windows = dx::windows_facts(&windows, now, &mut statuses);
+    let network = app
+        .state::<NetworkSecurityState>()
+        .0
+        .snapshot(now, false, &ctx, &managed);
+    (facts.security, facts.network) = dx::network_facts(&network, now, &mut statuses);
+    let ports = hub_core::control_plane::listening_ports().ok();
+    let processes = hub_core::system::inventory();
+    facts.runtime = Some(dx::runtime_facts(
+        &runs,
+        &ctx,
+        ports.as_deref(),
+        &processes,
+        &managed,
+        std::process::id(),
+        &mut statuses,
+    ));
+    facts.statuses = statuses;
+    let view = diagnostics_view(app)?;
+    let state = app.state::<AppState>();
+    let snapshot = db(&state)?.alerts_run(&facts, now, view);
+    snapshot
+}
+#[tauri::command]
+async fn alerts_snapshot(
+    app: tauri::AppHandle,
+) -> HubResult<hub_core::diagnostics::AlertsSnapshot> {
+    tauri::async_runtime::spawn_blocking(move || evaluate_alerts(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+/// "Reconhecer": só o ciclo de vida local do alerta; nada muda na máquina.
+#[tauri::command]
+fn alert_acknowledge(state: State<AppState>, id: String) -> HubResult<()> {
+    db(&state)?
+        .alert_acknowledge(&id, hub_core::machine::now_ms())
+        .map(|_| ())
+}
+#[tauri::command]
+fn diagnostics_status(app: tauri::AppHandle) -> HubResult<hub_core::diagnostics::DiagnosticsView> {
+    diagnostics_view(&app)
+}
+/// Só ids do catálogo (allowlist): nada de comando ou argumento livre. Exige administrador; o app
+/// nunca pede UAC.
+#[tauri::command]
+fn diagnostic_start(
+    app: tauri::AppHandle,
+    id: String,
+    target: Option<String>,
+) -> HubResult<hub_core::diagnostic_runner::RunRecord> {
+    app.state::<AlertsState>()
+        .runner
+        .start(&id, target.as_deref())
+        .map_err(String::from)
+}
+#[tauri::command]
+fn diagnostic_cancel(app: tauri::AppHandle) -> bool {
+    app.state::<AlertsState>().runner.cancel()
+}
 #[tauri::command]
 fn list_projects(state: State<AppState>) -> HubResult<Vec<ProjectEntry>> {
     let projects = db(&state)?.projects()?;
@@ -1025,6 +1124,21 @@ fn main() {
             app.manage(NetworkSecurityState(
                 hub_core::network_security::Collector::new(hub_core::network_security::LiveSources),
             ));
+            let history_sink = app.handle().clone();
+            app.manage(AlertsState {
+                runner: hub_core::diagnostic_runner::Runner::new(
+                    Box::new(hub_core::diagnostic_runner::SystemCatalog),
+                    hub_core::diagnostic_runner::is_elevated(),
+                    std::sync::Arc::new(move |record| {
+                        let state = history_sink.state::<AppState>();
+                        let guard = state.0.lock();
+                        if let Ok(database) = guard {
+                            let _ = database.diagnostic_run_save(record);
+                        }
+                    }),
+                ),
+                lock: Mutex::new(()),
+            });
             let emitter = app.handle().clone();
             let window = app.handle().clone();
             app.manage(TelemetryState(hub_core::telemetry::Service::start(
@@ -1037,6 +1151,19 @@ fn main() {
                     })
                 }),
             )));
+            // Avaliação periódica dos alertas (sem busy loop; só depois do cadastro da máquina).
+            let evaluator = app.handle().clone();
+            let _ = std::thread::Builder::new()
+                .name("lkr-alerts".into())
+                .spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(20));
+                    loop {
+                        if evaluator.state::<MachineState>().0.is_registered() {
+                            let _ = evaluate_alerts(&evaluator);
+                        }
+                        std::thread::sleep(std::time::Duration::from_secs(60));
+                    }
+                });
             Ok(())
         })
         .invoke_handler(gated(tauri::generate_handler![
@@ -1049,6 +1176,11 @@ fn main() {
             machine_telemetry_refresh,
             windows_health_snapshot,
             network_security_snapshot,
+            alerts_snapshot,
+            alert_acknowledge,
+            diagnostics_status,
+            diagnostic_start,
+            diagnostic_cancel,
             list_projects,
             project_overviews,
             save_project,

@@ -448,6 +448,7 @@ export interface MachineAlert {
   source: string;
   title: string;
   detail: string;
+  resource?: string | null;
 }
 export interface Telemetry {
   timestamp: number;

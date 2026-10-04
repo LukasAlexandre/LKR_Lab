@@ -1,11 +1,14 @@
 pub mod actions;
 pub mod agents;
+pub mod alert_store;
 pub mod bridge;
 pub mod commands;
 pub mod compose;
 pub mod control_plane;
 pub mod database;
 pub mod ddae;
+pub mod diagnostic_runner;
+pub mod diagnostics;
 pub mod git;
 pub mod github;
 pub mod health;

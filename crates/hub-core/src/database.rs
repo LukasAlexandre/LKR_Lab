@@ -57,7 +57,7 @@ impl Database {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 10 {
+        if version > 11 {
             return Err("Banco criado por versão mais recente do aplicativo.".into());
         }
         if version == 0 {
@@ -115,6 +115,12 @@ impl Database {
         if version < 10 {
             let tx = conn.transaction().map_err(|e| e.to_string())?;
             tx.execute_batch(include_str!("../migrations/010_planning.sql"))
+                .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+        }
+        if version < 11 {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            tx.execute_batch(include_str!("../migrations/011_alerts.sql"))
                 .map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
         }

@@ -7,7 +7,7 @@
 //! |---|---|---|
 //! | CPU total | ≥ 90% em TODAS as amostras dos últimos 60 s | ≥ 95% em todas as dos últimos 180 s |
 //! | Memória em uso | ≥ 90% nos últimos 30 s | ≥ 95% nos últimos 60 s |
-//! | Espaço livre de um volume fixo | < 10% | < 5% |
+//! | Espaço livre de um volume fixo | < 10% E < 20 GiB livres | < 5% E < 5 GiB livres |
 //! | Temperatura de GPU/SSD com limite conhecido | ≥ aviso nas leituras dos últimos 30 s | ≥ crítico nos últimos 30 s |
 //!
 //! "Sustentado" exige cobertura: a janela inteira precisa estar coberta por amostras (a
@@ -29,6 +29,17 @@ pub const MEMORY_ATTENTION_WINDOW_MS: i64 = 30_000;
 pub const MEMORY_CRITICAL_WINDOW_MS: i64 = 60_000;
 pub const FREE_SPACE_ATTENTION: f64 = 10.0;
 pub const FREE_SPACE_CRITICAL: f64 = 5.0;
+const GIB: u64 = 1024 * 1024 * 1024;
+/// Só a porcentagem engana (2 TB com 9% ainda tem 180 GiB) e só o valor absoluto também (um volume
+/// de 8 GiB nunca teria 20 GiB livres): os DOIS limites precisam ser cruzados.
+pub const FREE_SPACE_ATTENTION_BYTES: u64 = 20 * GIB;
+pub const FREE_SPACE_CRITICAL_BYTES: u64 = 5 * GIB;
+/// Volumes com menos que isso (recuperação, EFI) não têm o que liberar: não são avaliados.
+pub const MIN_EVALUATED_VOLUME_BYTES: u64 = GIB;
+/// Histerese: um volume que já estava em alerta só sai dele com esta folga a mais, para o estado
+/// não oscilar quando o espaço livre gira em torno do limite.
+pub const FREE_SPACE_HYSTERESIS_PERCENT: f64 = 1.0;
+pub const FREE_SPACE_HYSTERESIS_BYTES: u64 = GIB;
 pub const TEMPERATURE_WINDOW_MS: i64 = 30_000;
 pub const GPU_TEMPERATURE: (f32, f32) = (85.0, 95.0);
 
@@ -68,6 +79,8 @@ pub struct MachineAlert {
     pub source: String,
     pub title: String,
     pub detail: String,
+    /// Recurso a que o alerta se refere (volume, sensor); `None` para CPU e memória.
+    pub resource: Option<String>,
 }
 
 /// Item do checklist "Saúde e alertas". Só existe para o que foi observado de fato.
@@ -133,6 +146,39 @@ pub fn sustained<T>(
     false
 }
 
+/// Severidade do espaço livre de um volume. `previous` é o nível que o volume já tinha: aplica a
+/// histerese (só sai do alerta com folga). Volume pequeno demais não é avaliado.
+pub fn space_severity(
+    total: u64,
+    available: u64,
+    previous: Option<HealthStatus>,
+) -> Option<HealthStatus> {
+    if total < MIN_EVALUATED_VOLUME_BYTES {
+        return None;
+    }
+    let free = free_percent(total, available);
+    let margin = |level: HealthStatus| {
+        if previous.is_some_and(|p| p >= level) {
+            (FREE_SPACE_HYSTERESIS_PERCENT, FREE_SPACE_HYSTERESIS_BYTES)
+        } else {
+            (0.0, 0)
+        }
+    };
+    let (critical_pct, critical_bytes) = margin(HealthStatus::Critical);
+    if free < FREE_SPACE_CRITICAL + critical_pct
+        && available < FREE_SPACE_CRITICAL_BYTES + critical_bytes
+    {
+        return Some(HealthStatus::Critical);
+    }
+    let (attention_pct, attention_bytes) = margin(HealthStatus::Attention);
+    if free < FREE_SPACE_ATTENTION + attention_pct
+        && available < FREE_SPACE_ATTENTION_BYTES + attention_bytes
+    {
+        return Some(HealthStatus::Attention);
+    }
+    None
+}
+
 pub fn free_percent(total: u64, available: u64) -> f64 {
     if total == 0 {
         return 100.0;
@@ -156,6 +202,20 @@ fn alert(severity: HealthStatus, source: &str, title: String, detail: String) ->
         source: source.into(),
         title,
         detail,
+        resource: None,
+    }
+}
+
+fn alert_for(
+    severity: HealthStatus,
+    source: &str,
+    resource: &str,
+    title: String,
+    detail: String,
+) -> MachineAlert {
+    MachineAlert {
+        resource: Some(resource.into()),
+        ..alert(severity, source, title, detail)
     }
 }
 
@@ -230,19 +290,20 @@ pub fn evaluate(
     let mut storage_ok = true;
     for volume in volumes {
         let free = free_percent(volume.total, volume.available);
-        let severity = if free < FREE_SPACE_CRITICAL {
-            HealthStatus::Critical
-        } else if free < FREE_SPACE_ATTENTION {
-            HealthStatus::Attention
-        } else {
+        let Some(severity) = space_severity(volume.total, volume.available, None) else {
             continue;
         };
         storage_ok = false;
-        alerts.push(alert(
+        alerts.push(alert_for(
             severity,
             "storage",
+            &volume.mount,
             format!("Pouco espaço em {}", volume.mount),
-            format!("Só {free:.1}% livre."),
+            format!(
+                "Só {free:.1}% livre ({:.1} GiB de {:.1} GiB).",
+                volume.available as f64 / GIB as f64,
+                volume.total as f64 / GIB as f64
+            ),
         ));
     }
 
@@ -280,9 +341,10 @@ pub fn evaluate(
         };
         *group = Some(false);
         let current = sensor.readings.last().map(|r| r.1).unwrap_or_default();
-        alerts.push(alert(
+        alerts.push(alert_for(
             severity,
             "temperature",
+            &sensor.label,
             format!("{} quente", sensor.label),
             format!(
                 "{current:.0} °C (limite de aviso {:.0} °C).",

@@ -256,8 +256,8 @@ fn low_free_space_raises_storage_alerts() {
     let health = evaluate(
         &load(10, 10.0, 40.0),
         &[
-            volume("C:\\", 1000 * GB, 80 * GB),
-            volume("D:\\", 1000 * GB, 30 * GB),
+            volume("C:\\", 100 * GB, 9 * GB),
+            volume("D:\\", 100 * GB, 3 * GB),
         ],
         &[],
         now(10),
