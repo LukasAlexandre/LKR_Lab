@@ -451,8 +451,28 @@ fn observing_never_mutates_anything() {
 
 const SERVER: &str = "const s=require('http').createServer((q,r)=>r.end('ok')).listen(0,'127.0.0.1',()=>{console.log('listen '+s.address().port);console.error('aviso no stderr')});";
 
+/// Processo de teste que morre junto com o teste, mesmo se uma asserção falhar antes do kill manual.
+struct Sentinel(Child);
+impl std::ops::Deref for Sentinel {
+    type Target = Child;
+    fn deref(&self) -> &Child {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Sentinel {
+    fn deref_mut(&mut self) -> &mut Child {
+        &mut self.0
+    }
+}
+impl Drop for Sentinel {
+    fn drop(&mut self) {
+        self.0.kill().ok();
+        self.0.wait().ok();
+    }
+}
+
 /// Servidor Node EXTERNO (não iniciado pelo supervisor): devolve o processo e a porta.
-fn spawn_server(cwd: &std::path::Path) -> (Child, u16) {
+fn spawn_server(cwd: &std::path::Path) -> (Sentinel, u16) {
     let mut child = Command::new(hub_core::commands::resolve_tool("node").expect("node"))
         .args(["-e", SERVER])
         .current_dir(cwd)
@@ -465,7 +485,7 @@ fn spawn_server(cwd: &std::path::Path) -> (Child, u16) {
         .read_line(&mut line)
         .unwrap();
     let port = line.trim().trim_start_matches("listen ").parse().unwrap();
-    (child, port)
+    (Sentinel(child), port)
 }
 
 #[test]
