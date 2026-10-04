@@ -22,10 +22,10 @@ Construir a camada de observabilidade e controle local do LKR LAB para processos
 | 06 | Machine Telemetry Expansion | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 07 | Windows Health & Integrity | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 08 | Network & Security Visibility | IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 09 | Alerts & Diagnostics | PENDENTE |
+| 09 | Alerts & Diagnostics | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 10 | Validation & Hardening | PENDENTE |
 
-Progresso no DDAE: **8 / 10**, sem bloco em andamento; próximo: **09 — Alerts & Diagnostics** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
+Progresso no DDAE: **9 / 10**, sem bloco em andamento; próximo: **10 — Validation & Hardening** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
 
 ## Checkpoint — CONTROL PLANE MVP (Blocks 01–05)
 
@@ -269,16 +269,94 @@ Executada no app Tauri em execução, em um notebook (PC Casa). Valores são **o
 - Contagem de antivírus de terceiros falhava por um caminho de registro com barras perdidas numa edição minha (detectado na leitura real).
 
 
+## Checkpoint — ALERTS & DIAGNOSTICS (Block 09)
+
+Block 09 — Alerts & Diagnostics: **IMPLEMENTADO E VALIDADO NO DESKTOP**. SESSION-002: **ATIVA, 9 / 10**, sem bloco atual; próximo: **10 — Validation & Hardening** (não iniciado). Nada do 10 foi implementado.
+
+### Arquitetura
+
+**Deterministic Diagnostic Engine** (`diagnostics.rs`): `OBSERVATIONS → FACTS → RULES → FINDINGS → ALERTS → DIAGNOSTICS`. Não há IA, pontuação, remediation nem heurística opaca decidindo estado; cada Finding sai de uma regra pura com evidência.
+
+- **Consome, não duplica:** Machine Telemetry (incluindo as regras sustentadas de `health.rs`), Windows Health, Network & Security, Control Plane e Runtime Supervisor, sempre pelos snapshots que os collectors já têm (cada um com o próprio TTL). Abrir a tela não relê nada além do que expirou.
+- **Distinções:** *signal* (fato bruto), *finding* (interpretação determinística), *alert* (finding persistido com ciclo de vida), *diagnostic* (ação explícita para obter mais evidência) e *remediation* (não existe).
+- **Severidade** `info | attention | critical`; `unknown` não é severidade e nunca vira alerta. **Confiança** `high | medium | low`; todo crítico exige confiança alta.
+- **Explicabilidade:** id, rule_id, título, resumo, severidade, confiança, domínio, fonte, recurso, evidência (rótulo, valor e fonte), motivo, próximo passo, diagnóstico opcional e CTA de navegação.
+- **Fingerprint estável:** `rule_id@recurso` (ex.: `machine.disk.low_space@C:`). Portas de um listener não entram no fingerprint (sobem e descem).
+- **Fonte avaliada, velha ou sem dado:** só uma fonte **avaliada agora** pode resolver um alerta; fonte velha (mais de 2× o TTL), indisponível ou que exige administrador não gera alerta novo, não resolve o existente e não escala.
+- **Execução:** avaliação barata sob demanda (`alerts_snapshot`) e uma avaliação periódica de 60 s numa thread própria (sem busy loop, só depois do cadastro da máquina, sem serviço do Windows).
+
+### Ciclo de vida local (hub.db, migração 011)
+
+Tabelas `machine_alerts` e `machine_diagnostic_runs`: estado **da máquina**, fora do workspace portátil, do sync, do Git, do Planejamento e do DDAE (há testes de varredura de código).
+
+- **Ativo → Reconhecido → Resolvido.** Reconhecer só marca o alerta como visto (não altera a máquina nem resolve). Reconhecido que **piora** volta a Ativo.
+- **Resolver:** só depois de 90 s sem ser visto por uma fonte avaliada (atraso contra leituras que piscam). **Reabrir:** nova ocorrência (`occurrence_count` + 1), com a anterior preservada; no máximo uma ocorrência aberta por fingerprint (índice único).
+- Persistidos: first_seen, last_seen, acknowledged_at, resolved_at, occurrence_count e observations. Histórico resolvido visível por 7 dias e podado depois de 30 dias (ou 500 linhas).
+
+### Regras (IDs estáveis)
+
+- **Máquina:** `machine.disk.low_space`, `machine.cpu.sustained_pressure`, `machine.memory.sustained_pressure`, `machine.thermal.over_limit`.
+- **Windows:** `windows.reboot.pending`, `windows.service.not_running`, `windows.device.problem`, `windows.event.bugcheck`, `windows.event.unexpected_shutdown`, `windows.event.storage_error`, `windows.event.filesystem_error`, `windows.event.service_failures`, `windows.update.repeated_failure`, `windows.volume.problem`.
+- **Segurança:** `security.firewall.active_profile_disabled`, `security.no_active_antivirus`, `security.threat.active`, `security.defender.signatures_stale`.
+- **Rede:** `network.listener.all_interfaces` (**INFO**, nunca atenção).
+- **Runtime:** `runtime.managed.failed`, `runtime.managed.repeated_failure`, `runtime.port.collision`.
+
+Valores adotados (documentados e testados): **disco** atenção com menos de 10% **e** menos de 20 GiB livres, crítico com menos de 5% **e** menos de 5 GiB (os dois limites precisam ser cruzados: 2 TB com 9% tem 180 GiB e não alerta; um volume de 8 GiB nunca teria 20 GiB), volumes com menos de 1 GiB não são avaliados e a histerese segura o alerta até 1% e 1 GiB de folga. **CPU** 90% por 60 s (atenção) e 95% por 180 s (crítico), por amostras ininterruptas: pico isolado nunca alerta. **Memória** 90% por 120 s e 95% por 180 s, e **crítico só com o commit (RAM + pagefile) também em 90% ou mais** (RAM inclui cache); sem a medida de commit, nunca crítico. **Temperatura** só com limite declarado pelo próprio dispositivo (ou o limite conhecido da GPU): sem limite, nenhum crítico. Falhas repetidas de runtime: 3 ou mais da mesma ação em 15 minutos.
+
+Semântica que **não** gera alerta: BitLocker ou categoria da rede desconhecidos por exigirem administrador; Defender passivo com antivírus de terceiros; firewall desativado quando o Security Center informa outro firewall saudável; `0.0.0.0`/`::` (é INFO, e o texto diz que isso não significa exposição à internet); SMART e bateria (sem fonte confiável); Session congelada, Worktree parada e Planning pendente (workflow não é problema); qualquer erro comum do Event Log.
+
+**Correlação determinística:** falha de runtime gerenciado + colisão de porta declarada → o Finding de falha mostra a porta, o processo dono e o PID e diz que a falha "provavelmente foi causada por porta ocupada"; a colisão só existe se o Project tem execução ativa (ou que falhou há pouco) e o dono da porta está fora da árvore gerenciada dele. Nunca se mata o processo.
+
+### Diagnostic Runner
+
+- **Allowlist estrita:** `sfc_verifyonly`, `dism_checkhealth`, `dism_scanhealth`, `chkdsk_scan`. Cada id é um comando e argumentos **fixos** (executável do System32 por caminho absoluto), sem shell, sem argumentos livres; o único parâmetro é a letra do volume, validada (`C:`). `sfc /scannow`, `DISM /RestoreHealth`, `chkdsk /f`, `/r` e qualquer reparo **não existem**.
+- **Elevação:** todos exigem administrador. O LKR LAB **não pede UAC nem cria processo privilegiado**: sem elevação o diagnóstico fica "Requer administrador" e não é executado.
+- **Execução:** só por ação do usuário, um por vez, com PID, stdout, stderr (decodificados de UTF-16 ou da página OEM), início, fim, código de saída e cancelamento (encerra só o processo do diagnóstico). Não é um Project Runtime.
+- **Resultado:** parsers próprios, em inglês e português, por ferramenta (`clean`, `problems_found`, `inconclusive`, `failed`, `cancelled`); o código de saída sozinho nunca decide sucesso.
+- **Histórico local:** resumo, código e uma cauda curta da saída (30 linhas, 4 KB), com no máximo 50 execuções; a saída é local da máquina, não vai ao workspace portátil, ao sync nem ao contexto de IA.
+
+### VALIDAÇÃO DESKTOP REAL
+
+Executada no app Tauri em execução, em um notebook (PC Casa). Valores são **observações daquele momento**.
+
+- **Faixa e painel** no Dashboard: faixa "Alertas · 0 críticos · 0 atenção · 3 informações · Ver diagnósticos" e painel "Alertas e diagnósticos" com **15 de 15 fontes avaliadas**.
+- **Nenhum problema foi inventado.** Os 3 achados reais foram **Informação factual**: Spotify.exe, SpotifyLauncher.exe e vmms.exe escutando em todas as interfaces (com as portas na evidência, o texto "não significa exposição à internet" e o CTA "Abrir Network & Security").
+- **Ciclo de vida real:** o alerta de memória (Atenção) abriu, **resolveu e reabriu como ocorrência 2**, e voltou a resolver; no painel aparecia como "1 resolvido recentemente". "Reconhecer" foi usado num Info (vmms.exe): o estado passou a "Reconhecido" e o botão sumiu, sem alterar a máquina. As 3 observações persistem no `hub.db` (69 avaliações no mesmo alerta, sem duplicar).
+- **Diagnósticos:** os 4 do catálogo aparecem como **"Requer administrador"**, com a explicação de que o app não solicita elevação; histórico vazio. **Nenhum diagnóstico real foi executado** (o app não está elevado e não houve autorização para executar nesta etapa).
+- **Não validado no desktop (cobertos só por teste automatizado):** falha de runtime gerenciado, repetição de falhas, colisão de porta, estados Atenção/Crítico de disco, Windows e segurança, e a execução e o cancelamento de um diagnóstico. Nenhuma falha foi provocada na máquina real para demonstrar a interface.
+
+### COBERTURA AUTOMATIZADA
+
+- **Rust:** 64 testes do motor (máquina saudável sem findings, Unknown não vira alerta, disco atenção e crítico e volumes pequenos e histerese, pico de CPU sem alerta, CPU e memória sustentadas, memória transitória sem alerta, temperatura, reinício pendente, serviço crítico parado, dispositivo com problema, bugcheck, desligamento inesperado, ruído do Event Log, falhas de update, volume com problema e diagnóstico sugerido, firewall do perfil ativo, nenhum antivírus, antivírus de terceiros válido, ameaça, assinaturas, listener em todas as interfaces como INFO, runtime falhou, loop de falhas, colisão de porta, correlação, dado velho, dedup, ocorrências, resolver, reabrir, reconhecer, escalada, ordenação, privacidade, passividade e nada no workspace portátil) e 28 do runner e do armazenamento (allowlist, id desconhecido rejeitado, sem argumentos livres, sem injeção, elevação, execução real de um comando inofensivo injetado com stdout e stderr e código de saída, um por vez, cancelamento, parsers em inglês e português, decodificação UTF-16 e OEM, histórico limitado e ciclo de vida completo em SQLite real).
+- **Frontend (vitest):** 54 testes novos (estado vazio, crítico, atenção, info, reconhecido, resolvido, filtros por estado e severidade e domínio, ordenação, evidência, próximo passo, CTA de navegação, diagnóstico indisponível, requer administrador, em execução, concluído, problemas encontrados, falha, cancelado e histórico, fontes não avaliadas e a faixa do Dashboard); total do projeto: 631.
+- **Gates:** `npm test` (631), `npm run lint`, `npm run typecheck`, `npm run build`, `cargo fmt --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` e `cargo test --workspace` (sem nenhuma falha) passaram, inclusive `stacks_exec` (7/7) e `runtime` (25).
+
+### LIMITAÇÕES
+
+1. Nenhum diagnóstico real foi executado: exigem administrador e o app não eleva sozinho (decisão de segurança); a execução, o cancelamento e os parsers estão cobertos por testes com comandos inofensivos injetados e textos de exemplo.
+2. Não há regra para "execução gerenciada que desapareceu" nem para "processo associado a Project com condição inconsistente": o supervisor registra a saída como Failed, Stopped ou Completed, sem um sinal separado de desaparecimento.
+3. Ameaças ativas do Defender são "não consultadas" na leitura passiva; a regra existe, mas só dispara quando houver fonte para o dado.
+4. Temperatura só alerta com limite conhecido; sem SMART, sem saúde de bateria e sem pontuação, nada disso gera alerta.
+5. A avaliação periódica só ocorre com o app aberto (sem serviço do Windows); enquanto aberto, os collectors releem o que expirou (por exemplo o Event Log a cada 3 minutos) mesmo sem a tela de alertas aberta.
+6. A revisão formal dos 10 critérios de conclusão fica para o Block 10.
+
+### Bugs encontrados e corrigidos durante o Block 09
+
+- A regra de disco era só porcentagem (2 TB com 9% alertava); agora cruza porcentagem e valor absoluto, com volumes pequenos tratados à parte e histerese.
+- A janela de memória de 30 s e 60 s fazia o alerta abrir e fechar em minutos numa máquina que gira em torno de 90% (visto no uso real, ocorrência 2); agora 120 s e 180 s.
+- Conflito de CSS com a classe `.mh-alert` do card de saúde do Block 06 (selos e botões esticados); os cartões ganharam classe própria.
+- Testes de migração antigos assumiam `user_version` 10 e re-aplicavam a migração sobre tabelas já criadas; a migração 011 ficou idempotente e as expectativas foram atualizadas para 11.
+
 ## Critérios de conclusão
 
-Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive depois dos Blocks 06, 07 e 08: nenhum critério é marcado só porque um bloco terminou. Evidência reunida até aqui, para a revisão no fechamento da Session:
+Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive depois dos Blocks 06 a 09: nenhum critério é marcado só porque um bloco terminou. Evidência reunida até aqui, para a revisão no fechamento da Session:
 
 - Inventário de processos e mapeamento de portas: demonstrados no desktop e por teste.
 - Diferenciar runtime conhecido de processo não associado; UI sem associação falsa com confiança insuficiente: demonstrados (Unknown) e por teste.
 - Relação com Project/Worktree por evidência: Project demonstrado no desktop; Worktree só por teste.
 - stdout/stderr capturados e Console Hub com logs ao vivo: stdout no desktop; stderr por teste.
 - Coleta local e páginas de observação sem ação mutante: cobertos por teste (passividade e workspace portátil).
-- "Gates e validação desktop passam": depende da Session inteira (Blocks 09–10).
+- "Gates e validação desktop passam": depende da Session inteira (Block 10).
 
 ## Bugs corrigidos nesta Session
 
@@ -291,7 +369,8 @@ Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive 
 - `swapUsed` do sysinfo apresentado como uso de pagefile (era commit além da RAM); substituído pelo contador real do Windows (Block 06).
 - Avisos de 7 dias exibidos como "0" sem serem medidos (Block 07); agora aparecem como "não medido".
 - Interface ativa escolhida só por métrica (adaptador de VPN), gateway IPv6 e DNS repetido, "Conexões" desatualizada entre consultas e IPv6 sem colchetes (Block 08).
+- Regra de disco só por porcentagem, alerta de memória que piscava (janelas curtas), conflito de CSS e migração não idempotente (Block 09).
 
 ## Próximo bloco
 
-**09 — Alerts & Diagnostics** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
+**10 — Validation & Hardening** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
