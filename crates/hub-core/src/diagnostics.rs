@@ -1895,6 +1895,8 @@ pub struct DiagnosticsView {
     /// O app está elevado (só então os diagnósticos podem rodar; nunca se pede UAC).
     pub elevated: bool,
     pub catalog: Vec<crate::diagnostic_runner::DiagnosticInfo>,
+    /// Letras dos volumes fixos (alvos válidos do diagnóstico de volume), como `C:`.
+    pub targets: Vec<String>,
     /// O diagnóstico em andamento ou o último que terminou nesta sessão.
     pub current: Option<crate::diagnostic_runner::RunRecord>,
     pub history: Vec<crate::diagnostic_runner::RunRecord>,

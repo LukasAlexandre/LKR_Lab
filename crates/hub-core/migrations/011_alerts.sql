@@ -9,7 +9,7 @@
 --   linha com `occurrence` + 1.
 -- machine_diagnostic_runs: histórico de diagnósticos explícitos (resumo e cauda curta da saída,
 --   nunca a saída inteira).
-CREATE TABLE machine_alerts(
+CREATE TABLE IF NOT EXISTS machine_alerts(
   id TEXT PRIMARY KEY,
   fingerprint TEXT NOT NULL,
   rule_id TEXT NOT NULL,
@@ -33,12 +33,12 @@ CREATE TABLE machine_alerts(
   occurrence INTEGER NOT NULL CHECK(occurrence >= 1),
   seen_count INTEGER NOT NULL CHECK(seen_count >= 1)
 );
-CREATE INDEX idx_machine_alerts_fingerprint ON machine_alerts(fingerprint, occurrence DESC);
-CREATE INDEX idx_machine_alerts_status ON machine_alerts(status, last_seen DESC);
+CREATE INDEX IF NOT EXISTS idx_machine_alerts_fingerprint ON machine_alerts(fingerprint, occurrence DESC);
+CREATE INDEX IF NOT EXISTS idx_machine_alerts_status ON machine_alerts(status, last_seen DESC);
 -- No máximo uma ocorrência aberta por fingerprint.
-CREATE UNIQUE INDEX idx_machine_alerts_one_open ON machine_alerts(fingerprint) WHERE status <> 'resolved';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_machine_alerts_one_open ON machine_alerts(fingerprint) WHERE status <> 'resolved';
 
-CREATE TABLE machine_diagnostic_runs(
+CREATE TABLE IF NOT EXISTS machine_diagnostic_runs(
   id TEXT PRIMARY KEY,
   diagnostic TEXT NOT NULL,
   target TEXT,
@@ -49,5 +49,5 @@ CREATE TABLE machine_diagnostic_runs(
   summary TEXT NOT NULL,
   output_tail TEXT NOT NULL DEFAULT ''
 );
-CREATE INDEX idx_machine_diagnostic_runs_started ON machine_diagnostic_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_machine_diagnostic_runs_started ON machine_diagnostic_runs(started_at DESC);
 PRAGMA user_version=11;

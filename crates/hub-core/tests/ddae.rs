@@ -53,9 +53,9 @@ fn user_version(db: &Database) -> i64 {
 // ---- schema ----
 
 #[test]
-fn migration_creates_the_ddae_tables_at_version_10() {
+fn migration_creates_the_ddae_tables_at_the_current_version() {
     let (_tmp, db, _) = setup();
-    assert_eq!(user_version(&db), 10);
+    assert_eq!(user_version(&db), 11);
     for table in [
         "ddae_sessions",
         "ddae_blocks",

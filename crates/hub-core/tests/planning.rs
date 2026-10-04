@@ -129,7 +129,7 @@ fn migration_v9_to_v10_creates_the_planning_schema() {
     let c = setup();
     let path = downgrade_to_v9(c);
     let db = Database::open(&path).unwrap();
-    assert_eq!(user_version(&db), 10);
+    assert_eq!(user_version(&db), 11);
     for table in ["planning_items", "planning_events"] {
         let n: i64 = db
             .conn

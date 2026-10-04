@@ -899,6 +899,7 @@ fn view() -> DiagnosticsView {
     DiagnosticsView {
         elevated: false,
         catalog: catalog(false),
+        targets: vec![],
         current: None,
         history: vec![],
     }

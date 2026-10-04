@@ -150,9 +150,27 @@ fn diagnostics_view(app: &tauri::AppHandle) -> HubResult<hub_core::diagnostics::
     let state = app.state::<AppState>();
     let history = db(&state)?.diagnostic_runs(20)?;
     let elevated = alerts.runner.elevated();
+    let mut targets: Vec<String> = app
+        .state::<TelemetryState>()
+        .0
+        .snapshot()
+        .latest
+        .map(|t| {
+            t.volumes
+                .iter()
+                .filter(|v| !v.removable)
+                .filter_map(|v| {
+                    hub_core::diagnostic_runner::validate_volume(v.mount.get(..2)?).ok()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    targets.sort();
+    targets.dedup();
     Ok(hub_core::diagnostics::DiagnosticsView {
         elevated,
         catalog: hub_core::diagnostic_runner::catalog(elevated),
+        targets,
         current: alerts.runner.status(),
         history,
     })

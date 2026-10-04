@@ -477,7 +477,7 @@ fn migration_003_preserves_legacy_data_and_is_idempotent() {
         .conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 10);
+    assert_eq!(version, 11);
     assert_eq!(db.projects().unwrap().len(), 2);
     let pa = db.project("id-a").unwrap();
     assert_eq!(pa.local_path, a.to_string_lossy());

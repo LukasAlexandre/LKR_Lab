@@ -178,7 +178,7 @@ fn migration_009_adds_worktree_tables_and_keeps_previous_data() {
         .conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(v, 10);
+    assert_eq!(v, 11);
     assert_eq!(db.ddae_session(&session).unwrap().project_id, project);
     for t in ["managed_worktrees", "worktree_bindings", "worktree_events"] {
         let n: i64 = db
