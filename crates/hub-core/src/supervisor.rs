@@ -70,6 +70,8 @@ pub struct RunInfo {
     pub exit_code: Option<i32>,
     /// Milissegundos desde a época Unix.
     pub started_at: u64,
+    /// Instante em que o processo raiz terminou (ms desde a época Unix); `None` enquanto ativo.
+    pub ended_at: Option<u64>,
     pub last_seq: u64,
 }
 
@@ -190,6 +192,7 @@ struct Status {
     state: RunState,
     pid: Option<u32>,
     exit_code: Option<i32>,
+    ended_at: Option<u64>,
     stop_requested: bool,
 }
 
@@ -239,6 +242,7 @@ impl Run {
             pid: status.pid,
             exit_code: status.exit_code,
             started_at: self.started_at,
+            ended_at: status.ended_at,
             last_seq: self.logs.lock().unwrap_or_else(|e| e.into_inner()).next_seq,
         }
     }
@@ -445,6 +449,7 @@ impl Supervisor {
                 state: RunState::Starting,
                 pid: Some(pid),
                 exit_code: None,
+                ended_at: None,
                 stop_requested: false,
             }),
             changed: Condvar::new(),
@@ -501,6 +506,7 @@ impl Supervisor {
                 {
                     let mut status = run.status.lock().unwrap_or_else(|e| e.into_inner());
                     status.exit_code = code;
+                    status.ended_at = Some(now_ms());
                     status.state = if status.stop_requested {
                         RunState::Stopped
                     } else if code == Some(0) {
@@ -589,16 +595,18 @@ impl Supervisor {
     /// Pede o encerramento e retorna; o estado final chega por evento.
     pub fn stop(&self, run_id: &str) -> HubResult<()> {
         let run = self.find(run_id)?;
-        let live = {
+        let (live, changed) = {
             let mut status = run.status.lock().unwrap_or_else(|e| e.into_inner());
             let alive = status.state.is_active();
+            // Um segundo stop não muda nada: o evento de estado só sai na transição real.
+            let changed = alive && status.state != RunState::Stopping;
             if alive {
                 status.stop_requested = true;
                 status.state = RunState::Stopping;
             }
-            alive
+            (alive, changed)
         };
-        if live {
+        if changed {
             emit_state(&self.sink, &self.emit_lock, &run);
         }
         if live || !run.group.pids().is_empty() {
@@ -660,13 +668,10 @@ impl Supervisor {
         let run = self.find(run_id)?;
         let logs = run.logs.lock().unwrap_or_else(|e| e.into_inner());
         let first = logs.lines.front().map(|l| l.seq).unwrap_or(logs.next_seq);
+        // Os `seq` do buffer são contíguos: pula direto à primeira linha pedida (sem varrer o buffer).
+        let skip = since.saturating_sub(first).min(logs.lines.len() as u64) as usize;
         Ok(LogChunk {
-            lines: logs
-                .lines
-                .iter()
-                .filter(|l| l.seq >= since)
-                .cloned()
-                .collect(),
+            lines: logs.lines.iter().skip(skip).cloned().collect(),
             next_seq: logs.next_seq,
             truncated: since < first,
         })

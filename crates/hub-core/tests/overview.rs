@@ -163,6 +163,7 @@ fn run(project: &str, kind: ScriptKind, state: RunState, observer: bool) -> RunI
         pid: Some(1),
         exit_code: None,
         started_at: 0,
+        ended_at: None,
         last_seq: 0,
     }
 }

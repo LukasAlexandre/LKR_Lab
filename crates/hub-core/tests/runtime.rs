@@ -748,6 +748,110 @@ fn restart_waits_for_shutdown_then_starts_a_fresh_instance() {
         .unwrap();
 }
 #[test]
+fn double_stop_is_safe_passes_through_stopping_and_records_the_end() {
+    if !tools_available() {
+        return;
+    }
+    let (_t, _d, p) = fixture();
+    let (sup, events) = supervisor();
+    let run = sup.start(&p, "svc").unwrap();
+    wait_until("rodando", || state_of(&sup, &run.id) == RunState::Running);
+    let running = sup
+        .runs_for("fx")
+        .into_iter()
+        .find(|r| r.id == run.id)
+        .unwrap();
+    assert!(
+        running.ended_at.is_none(),
+        "ainda ativa: sem instante de término"
+    );
+    sup.stop(&run.id).unwrap();
+    sup.stop(&run.id).unwrap();
+    wait_until("parada", || state_of(&sup, &run.id) == RunState::Stopped);
+    wait_until("evento final entregue", || {
+        states(&events).last() == Some(&RunState::Stopped)
+    });
+    let seen = states(&events);
+    let stopping = seen.iter().position(|s| *s == RunState::Stopping).unwrap();
+    assert!(
+        stopping < seen.len() - 1,
+        "Stopping vem antes de Stopped: {seen:?}"
+    );
+    assert_eq!(seen.iter().filter(|s| **s == RunState::Stopping).count(), 1);
+    let done = sup
+        .runs_for("fx")
+        .into_iter()
+        .find(|r| r.id == run.id)
+        .unwrap();
+    assert!(done.ended_at.is_some_and(|end| end >= done.started_at));
+    // Parar uma execução que já terminou continua sendo um no-op.
+    sup.stop(&run.id).unwrap();
+    sup.stop_and_wait(&run.id, Duration::from_secs(5)).unwrap();
+    assert_eq!(state_of(&sup, &run.id), RunState::Stopped);
+}
+#[test]
+fn failed_run_records_exit_code_end_time_and_stderr() {
+    if !tools_available() {
+        return;
+    }
+    let (_t, _d, p) = fixture();
+    let (sup, _) = supervisor();
+    let run = sup.start(&p, "boom").unwrap();
+    wait_until("falhou", || state_of(&sup, &run.id) == RunState::Failed);
+    let info = sup
+        .runs_for("fx")
+        .into_iter()
+        .find(|r| r.id == run.id)
+        .unwrap();
+    assert_eq!(info.exit_code, Some(3));
+    assert!(info.ended_at.is_some());
+    wait_until("stderr capturado", || {
+        all_text(&sup, &run.id).contains("err:falhou feio")
+    });
+}
+#[test]
+fn restart_never_leaves_two_live_instances() {
+    if !tools_available() {
+        return;
+    }
+    let (_t, _d, p) = fixture();
+    let (sup, _) = supervisor();
+    let first = sup.start(&p, "svc").unwrap();
+    wait_until("rodando", || state_of(&sup, &first.id) == RunState::Running);
+    let second = sup.restart(&p, &first.id).unwrap();
+    let live = |sup: &Supervisor| {
+        sup.runs_for("fx")
+            .into_iter()
+            .filter(|r| r.state.is_active() && !r.observer)
+            .count()
+    };
+    assert_eq!(live(&sup), 1, "só a nova instância está viva");
+    // Reiniciar a execução ANTIGA (já parada) não pode criar uma segunda instância viva.
+    assert!(sup.restart(&p, &first.id).is_err());
+    assert_eq!(live(&sup), 1);
+    sup.stop_and_wait(&second.id, Duration::from_secs(15))
+        .unwrap();
+}
+#[test]
+fn logs_since_returns_only_new_lines_and_nothing_past_the_end() {
+    if !tools_available() {
+        return;
+    }
+    let (_t, _d, p) = fixture();
+    let (sup, _) = supervisor();
+    let run = sup.start(&p, "svc").unwrap();
+    wait_until("duas linhas", || {
+        sup.logs(&run.id, 0).unwrap().next_seq >= 2
+    });
+    let all = sup.logs(&run.id, 0).unwrap();
+    let tail = sup.logs(&run.id, 1).unwrap();
+    assert_eq!(tail.lines.len(), all.lines.len() - 1);
+    assert_eq!(tail.lines[0].seq, 1);
+    let past = sup.logs(&run.id, all.next_seq + 50).unwrap();
+    assert!(past.lines.is_empty() && !past.truncated);
+    sup.stop_and_wait(&run.id, Duration::from_secs(15)).unwrap();
+}
+#[test]
 fn log_buffer_is_bounded_and_ordered() {
     if !tools_available() {
         return;
