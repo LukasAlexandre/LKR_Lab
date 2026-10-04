@@ -14,6 +14,7 @@ pub mod locator;
 pub mod machine;
 pub mod models;
 pub mod overview;
+pub mod planning;
 pub mod portable;
 pub mod ports;
 pub mod projects;

@@ -155,8 +155,15 @@ fn migration_009_adds_worktree_tables_and_keeps_previous_data() {
         let mut db = Database::open(&path).unwrap();
         let p = db.save(None, input("P", &folder)).unwrap().id;
         let s = db.ddae_create_session(&p, "Antes", "").unwrap().id;
-        // Simula um banco na v8: sem as tabelas/gatilhos de worktrees.
+        // Simula um banco na v8: sem as tabelas/gatilhos de worktrees nem de planejamento.
         for sql in [
+            "DROP TRIGGER ddae_sessions_planning_insert",
+            "DROP TRIGGER ddae_sessions_planning_update",
+            "DROP TRIGGER ddae_sessions_planning_is_write_once",
+            "DROP INDEX ddae_sessions_planning_item",
+            "DROP TABLE planning_events",
+            "DROP TABLE planning_items",
+            "ALTER TABLE ddae_sessions DROP COLUMN planning_item_id",
             "DROP TABLE worktree_bindings",
             "DROP TABLE worktree_events",
             "DROP TABLE managed_worktrees",
@@ -171,7 +178,7 @@ fn migration_009_adds_worktree_tables_and_keeps_previous_data() {
         .conn
         .pragma_query_value(None, "user_version", |r| r.get(0))
         .unwrap();
-    assert_eq!(v, 9);
+    assert_eq!(v, 10);
     assert_eq!(db.ddae_session(&session).unwrap().project_id, project);
     for t in ["managed_worktrees", "worktree_bindings", "worktree_events"] {
         let n: i64 = db
@@ -1297,7 +1304,7 @@ fn legacy_workspaces_v1_v2_v3_stay_readable_and_become_v4() {
         let mut ws: PortableWorkspace = serde_json::from_str(&text).unwrap();
         portable::validate(&ws).unwrap();
         portable::normalize(&mut ws);
-        assert_eq!(ws.version, 4);
+        assert_eq!(ws.version, 5);
         assert!(ws.managed_worktrees.is_empty());
     }
     // v3 com DDAE e critérios em texto continua legível.
@@ -1306,7 +1313,7 @@ fn legacy_workspaces_v1_v2_v3_stay_readable_and_become_v4() {
     let mut ws: PortableWorkspace = serde_json::from_str(v3).unwrap();
     portable::normalize(&mut ws);
     portable::validate(&ws).unwrap();
-    assert_eq!(ws.version, 4);
+    assert_eq!(ws.version, 5);
     // v1–v3 com a mesma metadata têm o mesmo hash de v4.
     let base = r#"{"version":V,"projects":[{"id":"p1","name":"P"}],"prompts":[],"knowledge":[]}"#;
     let hashes: Vec<String> = ["1", "2", "3", "4"]
@@ -1355,7 +1362,7 @@ fn v4_round_trip_events_and_deterministic_hash_without_bindings() {
     c.db.worktree_set_state(&a.id, St::Frozen, "pausa", "")
         .unwrap();
     let ws = c.db.export_portable().unwrap();
-    assert_eq!(ws.version, 4);
+    assert_eq!(ws.version, 5);
     portable::validate(&ws).unwrap();
     let text = serde_json::to_string(&ws).unwrap();
     let back: PortableWorkspace = serde_json::from_str(&text).unwrap();

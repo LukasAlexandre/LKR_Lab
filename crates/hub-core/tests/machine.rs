@@ -507,7 +507,7 @@ fn migration_005_preserves_legacy_data_and_is_idempotent() {
             .conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(version, 9);
+        assert_eq!(version, 10);
         let project = db.project("p1").unwrap();
         assert_eq!(project.name, "Legado");
         assert_eq!(project.local_path, "C:/legado");
@@ -537,12 +537,12 @@ fn migration_005_preserves_legacy_data_and_is_idempotent() {
 }
 
 #[test]
-fn databases_newer_than_009_are_refused() {
+fn databases_newer_than_010_are_refused() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("future.db");
     Connection::open(&path)
         .unwrap()
-        .pragma_update(None, "user_version", 10)
+        .pragma_update(None, "user_version", 11)
         .unwrap();
     assert!(Database::open(&path).is_err());
 }

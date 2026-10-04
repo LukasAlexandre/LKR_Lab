@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "projects": [
     {
       "id": "proj-a",
@@ -123,7 +123,8 @@
           "type": "LEGACY_IMPORTED",
           "createdAt": "2026-01-01T09:00:00.000Z"
         }
-      ]
+      ],
+      "planningItemId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f200003"
     },
     {
       "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1a0002",
@@ -285,6 +286,68 @@
           "createdAt": "2026-01-04T09:00:00.000Z"
         }
       ]
+    }
+  ],
+  "planningItems": [
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f200003",
+      "projectId": "proj-a",
+      "title": "Fundação concluída",
+      "description": "Item que virou a SESSION-001 do fixture.",
+      "position": 1000,
+      "storedStatus": "open",
+      "createdAt": "2026-01-01T08:00:00.000Z",
+      "updatedAt": "2026-01-04T09:00:00.000Z"
+    },
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f200001",
+      "projectId": "proj-a",
+      "title": "Configuração de ambientes por projeto",
+      "description": "Permitir presets locais — com acentuação.",
+      "position": 2000,
+      "storedStatus": "open",
+      "createdAt": "2026-01-05T08:00:00.000Z",
+      "updatedAt": "2026-01-05T08:00:00.000Z"
+    },
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f200002",
+      "projectId": "proj-a",
+      "title": "Segurança e hardening",
+      "position": 3000,
+      "storedStatus": "cancelled",
+      "cancelReason": "Fora do escopo agora.",
+      "createdAt": "2026-01-05T09:00:00.000Z",
+      "updatedAt": "2026-01-06T09:00:00.000Z",
+      "cancelledAt": "2026-01-06T09:00:00.000Z"
+    }
+  ],
+  "planningEvents": [
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f210001",
+      "itemId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f200003",
+      "type": "PLANNING_ITEM_CREATED",
+      "payload": {
+        "title": "Fundação concluída"
+      },
+      "createdAt": "2026-01-01T08:00:00.000Z"
+    },
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f210002",
+      "itemId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f200003",
+      "type": "PLANNING_ITEM_SESSION_LINKED",
+      "payload": {
+        "label": "SESSION-001"
+      },
+      "createdAt": "2026-01-01T09:00:00.000Z"
+    },
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f210003",
+      "itemId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f200002",
+      "type": "PLANNING_ITEM_CANCELLED",
+      "payload": {
+        "reason": "Fora do escopo agora."
+      },
+      "createdAt": "2026-01-06T09:00:00.000Z"
     }
   ]
 }

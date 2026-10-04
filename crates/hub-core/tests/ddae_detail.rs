@@ -175,7 +175,7 @@ fn v1_and_v2_workspaces_with_string_criteria_become_v3_objects() {
         serde_json::from_str(r#"{"version":1,"projects":[],"prompts":[],"knowledge":[]}"#).unwrap();
     portable::validate(&v1).unwrap();
     portable::normalize(&mut v1);
-    assert_eq!(v1.version, 4);
+    assert_eq!(v1.version, 5);
 }
 
 #[test]
@@ -899,7 +899,7 @@ fn v3_workspace_round_trips_with_a_deterministic_hash() {
     c.db.ddae_add_decision(&id, "Decisão", "x", Some(&a))
         .unwrap();
     let ws = c.db.export_portable().unwrap();
-    assert_eq!(ws.version, 4);
+    assert_eq!(ws.version, 5);
     portable::validate(&ws).unwrap();
     let text = serde_json::to_string(&ws).unwrap();
     let back: PortableWorkspace = serde_json::from_str(&text).unwrap();

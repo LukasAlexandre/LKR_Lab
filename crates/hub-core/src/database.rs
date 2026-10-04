@@ -57,7 +57,7 @@ impl Database {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 9 {
+        if version > 10 {
             return Err("Banco criado por versão mais recente do aplicativo.".into());
         }
         if version == 0 {
@@ -109,6 +109,12 @@ impl Database {
         if version < 9 {
             let tx = conn.transaction().map_err(|e| e.to_string())?;
             tx.execute_batch(include_str!("../migrations/009_worktrees.sql"))
+                .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
+        }
+        if version < 10 {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            tx.execute_batch(include_str!("../migrations/010_planning.sql"))
                 .map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
         }
@@ -555,6 +561,7 @@ impl Database {
     }
     /// Dados portáteis do SQLite: projetos sem caminho, prompts e knowledge.
     pub fn export_portable(&self) -> HubResult<PortableWorkspace> {
+        let planning = crate::planning::export(&self.conn)?;
         let mut ws = PortableWorkspace {
             version: crate::portable::SCHEMA_VERSION,
             projects: self.projects()?.iter().map(PortableProject::from).collect(),
@@ -563,6 +570,8 @@ impl Database {
             preferences: self.preferences()?,
             ddae: crate::ddae::export(&self.conn)?,
             managed_worktrees: crate::worktrees::export(&self.conn)?,
+            planning_items: planning.0,
+            planning_events: planning.1,
         };
         crate::portable::normalize(&mut ws);
         Ok(ws)
@@ -594,6 +603,8 @@ impl Database {
             preferences: prefs,
             ddae: vec![],
             managed_worktrees: vec![],
+            planning_items: vec![],
+            planning_events: vec![],
         };
         crate::portable::normalize(&mut ws);
         let prefs = ws.preferences;
@@ -691,6 +702,8 @@ impl Database {
         }
         // DDAE: o workspace manda (apagar e reinserir evita estados intermediários que violariam
         // "uma ativa por projeto"). Projetos removidos levam suas sessões junto (CASCADE).
+        // Planejamento ANTES do DDAE: as Sessions apontam para os itens e os gatilhos exigem que existam.
+        crate::planning::replace_all(&tx, &ws.planning_items, &ws.planning_events)?;
         crate::ddae::replace_all(&tx, &ws.ddae)?;
         // Depois do DDAE (as relações apontam para Sessions/Blocks). Os BINDINGS locais ficam.
         crate::worktrees::replace_all(&tx, &ws.managed_worktrees)?;
@@ -717,6 +730,7 @@ impl Database {
             knowledge: ws.knowledge.len(),
             sessions: ws.ddae.len(),
             worktrees: ws.managed_worktrees.len(),
+            planning_items: ws.planning_items.len(),
             removed_projects,
         })
     }

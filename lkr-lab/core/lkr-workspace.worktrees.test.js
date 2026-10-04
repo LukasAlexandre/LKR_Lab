@@ -12,7 +12,7 @@ const session = (extra = {}) => ({
 const worktree = (extra = {}) => ({
   id: "w1", projectId: "p1", displayName: "feature/x", status: "active", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-02T00:00:00Z", ...extra,
 });
-const state = (worktrees, extra = {}) => ({ version: 4, projects: [project], prompts: [], knowledge: [], preferences: {}, ddae: [session()], managedWorktrees: worktrees, ...extra });
+const state = (worktrees, extra = {}) => ({ version: 5, projects: [project], prompts: [], knowledge: [], preferences: {}, ddae: [session()], managedWorktrees: worktrees, ...extra });
 const invalid = (input) => {
   const result = ws.validate(input);
   expect(result.ok).toBe(false);
@@ -25,7 +25,7 @@ describe("workspace v4: worktrees gerenciados", () => {
     const w = worktree({ description: "Experimento", branchHint: "feature/x", repositoryLocator: { remote: "github.com/org/lkr", path: "" }, sessionId: "s1", blockId: "b1", events: [event(1)] });
     const result = ws.validate(state([w]));
     expect(result.ok).toBe(true);
-    expect(result.state.version).toBe(4);
+    expect(result.state.version).toBe(5);
     expect(result.state.managedWorktrees[0]).toMatchObject({ id: "w1", displayName: "feature/x", sessionId: "s1", blockId: "b1", branchHint: "feature/x" });
     expect(JSON.stringify(result.state)).not.toMatch(/localPath|C:\\|\/home\//);
     expect(result.summary.worktrees).toBe(1);
@@ -36,7 +36,7 @@ describe("workspace v4: worktrees gerenciados", () => {
     const hashes = [1, 2, 3, 4].map((version) => ws.validate({ version, ...base }));
     for (const r of hashes) {
       expect(r.ok).toBe(true);
-      expect(r.state.version).toBe(4);
+      expect(r.state.version).toBe(5);
       expect("managedWorktrees" in r.state).toBe(false);
     }
     expect(new Set(hashes.map((r) => r.hash)).size).toBe(1);

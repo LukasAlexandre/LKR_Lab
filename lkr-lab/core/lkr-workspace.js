@@ -22,8 +22,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  /** v4 acrescenta `managedWorktrees` (metadata operacional dos worktrees, com eventos; NUNCA o path). v2 acrescentou `ddae`; v3 torna os critérios marcáveis ({ id, text, completed }) e traz `events`. v1/v2 continuam legíveis. */
-  const SCHEMA_VERSION = 4;
+  /** v5 acrescenta `planningItems`/`planningEvents` (fila de Planejamento, sem path) e `planningItemId` nas Sessions. v4 acrescenta `managedWorktrees` (metadata operacional dos worktrees, com eventos; NUNCA o path). v2 acrescentou `ddae`; v3 torna os critérios marcáveis ({ id, text, completed }) e traz `events`. v1/v2 continuam legíveis. */
+  const SCHEMA_VERSION = 5;
   const SOURCE = "lkr-lab";
   const MODULE = "workspace";
   const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -70,6 +70,10 @@
     worktreeName: 100,
     worktreeDescription: 1000,
     hint: 200,
+    planningTitle: 120,
+    planningDescription: 2000,
+    planningItems: 10000,
+    planningEvents: 50000,
   };
 
   // Padrões de credencial conhecidos: o sync é recusado em vez de publicar.
@@ -415,6 +419,7 @@
     const pauseReason = optionalDdaeText(raw.pauseReason, where + ".pauseReason", LIMITS.reason);
     const result = optionalDdaeText(raw.result, where + ".result", LIMITS.result);
     const completedAt = stamp(raw.completedAt, where + ".completedAt") || undefined;
+    const planningItemId = raw.planningItemId === undefined || raw.planningItemId === null || raw.planningItemId === "" ? undefined : id(raw.planningItemId, where + ".planningItemId");
     return {
       id: sessionId,
       projectId,
@@ -436,8 +441,88 @@
       updatedAt: stamp(raw.updatedAt, where + ".updatedAt"),
       ...(completedAt ? { completedAt } : {}),
       ...(events.length ? { events } : {}),
+      ...(planningItemId ? { planningItemId } : {}),
     };
   }
+
+  // ------------------------------------------------------------------ planejamento (v5)
+
+  const PLANNING_STATUSES = ["open", "cancelled"];
+  const PLANNING_EVENT_TYPES = [
+    "PLANNING_ITEM_CREATED", "PLANNING_ITEM_UPDATED", "PLANNING_ITEM_CANCELLED", "PLANNING_ITEM_RESTORED", "PLANNING_ITEM_SESSION_LINKED",
+  ];
+
+  const byTime = (a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+  /** Planning Item: fila ordenada por `position`; só `open|cancelled` são gravados (o resto é derivado da Session). */
+  function planningItem(raw, where, projectIds, seen) {
+    if (!isPlainObject(raw)) fail(where, "item de planejamento inválido");
+    const itemId = id(raw.id, where + ".id");
+    claimId(seen, itemId, where + ".id");
+    const projectId = id(raw.projectId, where + ".projectId");
+    if (!projectIds.has(projectId)) fail(where + ".projectId", "referencia um projeto que não está no workspace");
+    if (!Number.isSafeInteger(raw.position) || raw.position < 1) fail(where + ".position", "deve ser um inteiro a partir de 1");
+    if (!PLANNING_STATUSES.includes(raw.storedStatus)) fail(where + ".storedStatus", "estado desconhecido");
+    const cancelledAt = stamp(raw.cancelledAt, where + ".cancelledAt") || undefined;
+    if ((raw.storedStatus === "cancelled") !== Boolean(cancelledAt)) fail(where + ".storedStatus", "cancelado exige cancelledAt e item aberto não pode tê-lo");
+    const cancelReason = optText(raw.cancelReason, where + ".cancelReason", LIMITS.reason);
+    if (cancelReason && raw.storedStatus !== "cancelled") fail(where + ".cancelReason", "só item cancelado tem motivo");
+    const description = ddaeText(raw.description, where + ".description", LIMITS.planningDescription);
+    return {
+      id: itemId,
+      projectId,
+      title: ddaeText(raw.title, where + ".title", LIMITS.planningTitle, { required: true }),
+      ...(description ? { description } : {}),
+      position: raw.position,
+      storedStatus: raw.storedStatus,
+      ...(cancelReason ? { cancelReason } : {}),
+      createdAt: stamp(raw.createdAt, where + ".createdAt"),
+      updatedAt: stamp(raw.updatedAt, where + ".updatedAt"),
+      ...(cancelledAt ? { cancelledAt } : {}),
+    };
+  }
+
+  function planningEvent(raw, where, itemIds, seen) {
+    if (!isPlainObject(raw)) fail(where, "evento inválido");
+    const eventId = id(raw.id, where + ".id");
+    claimId(seen, eventId, where + ".id");
+    const itemId = id(raw.itemId, where + ".itemId");
+    if (!itemIds.has(itemId)) fail(where + ".itemId", "referencia um item inexistente");
+    if (!PLANNING_EVENT_TYPES.includes(raw.type)) fail(where + ".type", "tipo de evento desconhecido");
+    const payload = raw.payload === undefined || raw.payload === null ? {} : raw.payload;
+    if (!isPlainObject(payload)) fail(where + ".payload", "deve ser um objeto");
+    const clean = {};
+    for (const [key, v] of Object.entries(payload)) {
+      if (typeof v === "string") clean[key] = ddaeText(v, where + ".payload." + key, LIMITS.payload);
+      else if (typeof v === "number" || typeof v === "boolean") clean[key] = v;
+      else fail(where + ".payload." + key, "só texto, número ou booleano");
+    }
+    if (bytes(JSON.stringify(clean)) > LIMITS.payload) fail(where + ".payload", "grande demais");
+    return { id: eventId, itemId, type: raw.type, ...(Object.keys(clean).length ? { payload: clean } : {}), createdAt: stamp(raw.createdAt, where + ".createdAt") };
+  }
+
+  /** Posições únicas por Project; Session só de item aberto do mesmo Project; 1 item : 0..1 Session. */
+  function planningInvariants(items, sessions) {
+    const positions = new Set();
+    items.forEach((item, i) => {
+      const key = item.projectId + "#" + item.position;
+      if (positions.has(key)) fail("planningItems[" + i + "].position", "posição repetida no projeto");
+      positions.add(key);
+    });
+    const linked = new Set();
+    sessions.forEach((s, i) => {
+      if (!s.planningItemId) return;
+      const at = "ddae[" + i + "].planningItemId";
+      const item = items.find((x) => x.id === s.planningItemId);
+      if (!item) fail(at, "referencia um item de planejamento que não está no workspace");
+      if (item.projectId !== s.projectId) fail(at, "o item pertence a outro projeto");
+      if (item.storedStatus === "cancelled") fail(at, "item cancelado não pode ter Session");
+      if (linked.has(item.id)) fail(at, "o item já está vinculado a outra Session");
+      linked.add(item.id);
+    });
+  }
+
+  const byPosition = (a, b) => (a.projectId < b.projectId ? -1 : a.projectId > b.projectId ? 1 : a.position !== b.position ? a.position - b.position : a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
   // ------------------------------------------------------------------ worktrees gerenciados (v4)
 
@@ -574,6 +659,12 @@
     ddaeInvariants(sessions);
     const managed = list(raw.managedWorktrees, "managedWorktrees", LIMITS.worktrees).map((x, i) => managedWorktree(x, "managedWorktrees[" + i + "]", projectIds, sessions, seenDdaeIds));
     if (managed.length && raw.version < 4) fail("workspace.managedWorktrees", "worktrees gerenciados exigem a versão 4 do workspace");
+    const seenPlanningIds = new Set();
+    const planningItems = list(raw.planningItems, "planningItems", LIMITS.planningItems).map((x, i) => planningItem(x, "planningItems[" + i + "]", projectIds, seenPlanningIds));
+    const planningItemIds = new Set(planningItems.map((x) => x.id));
+    const planningEvents = list(raw.planningEvents, "planningEvents", LIMITS.planningEvents).map((x, i) => planningEvent(x, "planningEvents[" + i + "]", planningItemIds, seenPlanningIds));
+    if ((planningItems.length || planningEvents.length || sessions.some((s) => s.planningItemId)) && raw.version < 5) fail("workspace.planningItems", "Planejamento exige a versão 5 do workspace");
+    planningInvariants(planningItems, sessions);
     return {
       version: SCHEMA_VERSION,
       projects: projects.sort(byId),
@@ -584,6 +675,9 @@
       ...(sessions.length ? { ddae: sessions.sort(bySession) } : {}),
       // Só aparece quando há worktrees gerenciados (workspaces v1–v3 mantêm a mesma forma canônica).
       ...(managed.length ? { managedWorktrees: managed.sort(byId) } : {}),
+      // Só aparecem quando há itens/eventos (v1–v4 mantêm a mesma forma canônica).
+      ...(planningItems.length ? { planningItems: planningItems.sort(byPosition) } : {}),
+      ...(planningEvents.length ? { planningEvents: planningEvents.sort(byTime) } : {}),
     };
   }
 
@@ -606,7 +700,7 @@
         ok: true,
         state,
         hash: hash(state),
-        summary: { projects: state.projects.length, prompts: state.prompts.length, knowledge: state.knowledge.length, sessions: state.ddae ? state.ddae.length : 0, worktrees: state.managedWorktrees ? state.managedWorktrees.length : 0 },
+        summary: { projects: state.projects.length, prompts: state.prompts.length, knowledge: state.knowledge.length, sessions: state.ddae ? state.ddae.length : 0, worktrees: state.managedWorktrees ? state.managedWorktrees.length : 0, planningItems: state.planningItems ? state.planningItems.length : 0 },
       };
     } catch (error) {
       if (error instanceof InvalidWorkspace) return { ok: false, error: error.message };
@@ -618,7 +712,7 @@
 
   /** Máquina nova: sem projetos, sem conhecimento e só com os prompts de fábrica. */
   function isEmpty(state) {
-    return !state.projects.length && !state.knowledge.length && !(state.ddae && state.ddae.length) && !(state.managedWorktrees && state.managedWorktrees.length) && state.prompts.every((p) => SEED_PROMPT_IDS.includes(p.id));
+    return !state.projects.length && !state.knowledge.length && !(state.ddae && state.ddae.length) && !(state.managedWorktrees && state.managedWorktrees.length) && !(state.planningItems && state.planningItems.length) && state.prompts.every((p) => SEED_PROMPT_IDS.includes(p.id));
   }
 
   return { SCHEMA_VERSION, SOURCE, MODULE, SEED_PROMPT_IDS, LIMITS, validate, hash, isEmpty, isAbsolutePath, validRepository };

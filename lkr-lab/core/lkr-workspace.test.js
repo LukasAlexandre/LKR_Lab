@@ -30,7 +30,7 @@ describe("workspace portátil: formato", () => {
     const envelope = ws.validate({ source: "lkr-lab", module: "workspace", schemaVersion: 1, state: state() });
     expect(pure.ok).toBe(true);
     expect(envelope.hash).toBe(pure.hash);
-    expect(pure.summary).toEqual({ projects: 1, prompts: 0, knowledge: 0, sessions: 0, worktrees: 0 });
+    expect(pure.summary).toEqual({ projects: 1, prompts: 0, knowledge: 0, sessions: 0, worktrees: 0, planningItems: 0 });
   });
   it("não carrega caminho local: campos desconhecidos (localPath) são descartados", () => {
     const result = ws.validate(state({ projects: [project({ localPath: "C:\\Users\\x\\Dev\\p", pathAvailable: true, location: "available" })] }));
@@ -128,7 +128,7 @@ describe("workspace portátil: DDAE (v2/v3)", () => {
   it("preserva sessões, blocos e decisões na forma canônica", () => {
     const result = ws.validate(v2([session()]));
     expect(result.ok).toBe(true);
-    expect(result.state.version).toBe(4);
+    expect(result.state.version).toBe(5);
     expect(result.state.ddae).toEqual([session()]);
     expect(result.summary.sessions).toBe(1);
     expect(ws.isEmpty(result.state)).toBe(false);
@@ -136,7 +136,7 @@ describe("workspace portátil: DDAE (v2/v3)", () => {
   it("sem sessões a chave ddae não aparece e v1–v3 viram v4 com o mesmo conteúdo", () => {
     const old = ws.validate(state());
     expect(old.ok).toBe(true);
-    expect(old.state.version).toBe(4);
+    expect(old.state.version).toBe(5);
     expect("ddae" in old.state).toBe(false);
     expect(ws.validate(state({ version: 2 })).hash).toBe(old.hash);
   });

@@ -313,6 +313,10 @@ pub struct Session {
     /// Histórico semântico, append-only; ordem canônica (created_at, id).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<Event>,
+    /// Planning Item de origem (v5). Ausente nas Sessions que não nasceram do Planejamento
+    /// (a SESSION-001 legada nunca ganha um item retroativo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub planning_item_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -399,6 +403,8 @@ pub struct SessionView {
     pub recent_decision: Option<Decision>,
     /// Derivado (nunca gravado): a Session tem o necessário para um agente continuá-la?
     pub ready_for_ai: ReadyForAi,
+    /// Item de Planejamento de origem (derivado de `planning_item_id`); nulo quando a Session não nasceu do Planejamento.
+    pub planning_item: Option<crate::planning::PlanningRef>,
 }
 
 impl From<Session> for SessionView {
@@ -412,6 +418,7 @@ impl From<Session> for SessionView {
             completion_blockers: session.completion_blockers(),
             recent_decision: session.decisions.last().cloned(),
             ready_for_ai: ready_for_ai(&session),
+            planning_item: None,
             session,
         }
     }
@@ -763,6 +770,9 @@ pub fn validate_portable(sessions: &[Session], project_ids: &HashSet<&str>) -> H
         let at = label(s.number);
         let map = |e: String| format!("Workspace inválido: DDAE: {at}: {e}");
         ensure_id("sessão", &s.id).map_err(map)?;
+        if let Some(item) = &s.planning_item_id {
+            ensure_id("item de planejamento", item).map_err(map)?;
+        }
         if !ids.insert(s.id.as_str()) {
             return fail(format!("id de sessão duplicado ({})", s.id));
         }
@@ -915,6 +925,7 @@ pub fn normalize(sessions: &mut [Session]) {
         trim_opt(&mut s.pause_reason);
         trim_opt(&mut s.result);
         trim_opt(&mut s.completed_at);
+        trim_opt(&mut s.planning_item_id);
         for b in &mut s.blocks {
             b.title = b.title.trim().to_string();
         }
@@ -1018,7 +1029,7 @@ fn load_decisions(conn: &Connection, session_id: &str) -> HubResult<Vec<Decision
     Ok(rows)
 }
 
-const SESSION_COLUMNS: &str = "id,project_id,number,title,objective,desired_outcome,constraints,criteria,notes,refs,status,pause_reason,result,created_at,updated_at,completed_at";
+const SESSION_COLUMNS: &str = "id,project_id,number,title,objective,desired_outcome,constraints,criteria,notes,refs,status,pause_reason,result,created_at,updated_at,completed_at,planning_item_id";
 
 fn json_column<T: serde::de::DeserializeOwned>(
     r: &rusqlite::Row,
@@ -1060,6 +1071,7 @@ fn row_to_session(r: &rusqlite::Row) -> rusqlite::Result<Session> {
         updated_at: r.get(14)?,
         completed_at: r.get(15)?,
         events: vec![],
+        planning_item_id: r.get(16)?,
     };
     let id = session.id.clone();
     assign_criterion_ids(&id, &mut session.criteria);
@@ -1116,8 +1128,8 @@ fn json_text<T: Serialize>(value: &T) -> HubResult<String> {
 
 fn insert_session(tx: &Transaction, s: &Session) -> HubResult<()> {
     tx.execute(
-        "INSERT INTO ddae_sessions(id,project_id,number,title,objective,desired_outcome,constraints,criteria,notes,refs,status,pause_reason,result,created_at,updated_at,completed_at) \
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+        "INSERT INTO ddae_sessions(id,project_id,number,title,objective,desired_outcome,constraints,criteria,notes,refs,status,pause_reason,result,created_at,updated_at,completed_at,planning_item_id) \
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17)",
         params![
             s.id,
             s.project_id,
@@ -1134,7 +1146,8 @@ fn insert_session(tx: &Transaction, s: &Session) -> HubResult<()> {
             s.result,
             s.created_at,
             s.updated_at,
-            s.completed_at
+            s.completed_at,
+            s.planning_item_id
         ],
     )
     .map_err(|e| e.to_string())?;
@@ -1260,7 +1273,7 @@ pub fn backfill_legacy_events(conn: &Connection) -> HubResult<()> {
     Ok(())
 }
 
-fn project_exists(conn: &Connection, project_id: &str) -> HubResult<()> {
+pub(crate) fn project_exists(conn: &Connection, project_id: &str) -> HubResult<()> {
     let found: bool = conn
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM projects WHERE id=?1)",
@@ -1294,17 +1307,82 @@ fn active_of(conn: &Connection, project_id: &str) -> HubResult<Option<(String, u
     .map_err(|e| e.to_string())
 }
 
+/// Fluxo ÚNICO de criação de Session (DDAE e Planejamento): número, uma ativa por Project, evento
+/// `SESSION_CREATED` e atividade, tudo na transação de quem chama. Com `planning_item_id`, a Session
+/// nasce já vinculada ao item (o banco também recusa item de outro Project, cancelado ou já usado) e
+/// o vínculo entra no histórico da própria Session, sem um evento extra.
+pub(crate) fn create_session_in(
+    tx: &Transaction,
+    project_id: &str,
+    title: String,
+    objective: String,
+    planning_item_id: Option<&str>,
+) -> HubResult<Session> {
+    if let Some((_, number)) = active_of(tx, project_id)? {
+        return Err(format!(
+            "{} já está ativa neste projeto; congele ou pare a sessão ativa antes de criar outra.",
+            label(number)
+        ));
+    }
+    let number: u32 = tx
+        .query_row(
+            "SELECT COALESCE(MAX(number),0)+1 FROM ddae_sessions WHERE project_id=?1",
+            [project_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    let stamp = now(tx)?;
+    let session = Session {
+        id: new_id(),
+        project_id: project_id.into(),
+        number,
+        title,
+        objective,
+        status: SessionStatus::Active,
+        pause_reason: None,
+        result: None,
+        blocks: vec![],
+        decisions: vec![],
+        created_at: stamp.clone(),
+        updated_at: stamp,
+        completed_at: None,
+        desired_outcome: String::new(),
+        constraints: vec![],
+        criteria: vec![],
+        notes: vec![],
+        references: vec![],
+        events: vec![],
+        planning_item_id: planning_item_id.map(str::to_string),
+    };
+    insert_session(tx, &session)?;
+    record_event(
+        tx,
+        &session.id,
+        &ev(
+            EventType::SessionCreated,
+            None,
+            &[
+                ("title", &session.title),
+                ("planningItemId", planning_item_id.unwrap_or("")),
+            ],
+        ),
+    )?;
+    activity(tx, project_id, &format!("DDAE: {} criada", session.label()))?;
+    Ok(session)
+}
+
 impl Database {
     /// Lista e derivados de um Project (a ordem é a do número, mais recente primeiro).
     pub fn ddae_overview(&self, project_id: &str) -> HubResult<DdaeOverview> {
         project_exists(&self.conn, project_id)?;
         let mut sessions = load_sessions(&self.conn, Some(project_id))?;
         sessions.reverse();
-        Ok(build_overview(
-            project_id,
-            sessions,
-            LegacyImport::NotApplicable,
-        ))
+        let refs = crate::planning::refs_for_project(&self.conn, project_id, &sessions)?;
+        let mut overview = build_overview(project_id, sessions, LegacyImport::NotApplicable);
+        for view in &mut overview.sessions {
+            view.planning_item = refs.get(&view.session.id).cloned();
+        }
+        Ok(overview)
     }
 
     pub fn ddae_session(&self, session_id: &str) -> HubResult<Session> {
@@ -1324,7 +1402,11 @@ impl Database {
         if session.project_id != project_id {
             return Err("Sessão não encontrada neste projeto.".into());
         }
-        Ok(SessionView::from(session))
+        let mut view = SessionView::from(session);
+        let sessions = [view.session.clone()];
+        view.planning_item = crate::planning::refs_for_project(&self.conn, project_id, &sessions)?
+            .remove(&view.session.id);
+        Ok(view)
     }
 
     /// Cria uma Session `active` para o Project. Só uma ativa por Project: com outra ativa,
@@ -1339,56 +1421,7 @@ impl Database {
         let objective = check_text("Objetivo", objective, MAX_OBJECTIVE, false)?;
         project_exists(&self.conn, project_id)?;
         let tx = self.conn.transaction().map_err(|e| e.to_string())?;
-        if let Some((_, number)) = active_of(&tx, project_id)? {
-            return Err(format!(
-                "{} já está ativa neste projeto; congele ou pare a sessão ativa antes de criar outra.",
-                label(number)
-            ));
-        }
-        let number: u32 = tx
-            .query_row(
-                "SELECT COALESCE(MAX(number),0)+1 FROM ddae_sessions WHERE project_id=?1",
-                [project_id],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
-        let stamp = now(&tx)?;
-        let session = Session {
-            id: new_id(),
-            project_id: project_id.into(),
-            number,
-            title,
-            objective,
-            status: SessionStatus::Active,
-            pause_reason: None,
-            result: None,
-            blocks: vec![],
-            decisions: vec![],
-            created_at: stamp.clone(),
-            updated_at: stamp,
-            completed_at: None,
-            desired_outcome: String::new(),
-            constraints: vec![],
-            criteria: vec![],
-            notes: vec![],
-            references: vec![],
-            events: vec![],
-        };
-        insert_session(&tx, &session)?;
-        record_event(
-            &tx,
-            &session.id,
-            &ev(
-                EventType::SessionCreated,
-                None,
-                &[("title", &session.title)],
-            ),
-        )?;
-        activity(
-            &tx,
-            project_id,
-            &format!("DDAE: {} criada", session.label()),
-        )?;
+        let session = create_session_in(&tx, project_id, title, objective, None)?;
         tx.commit().map_err(|e| e.to_string())?;
         Ok(session)
     }
@@ -1921,6 +1954,7 @@ impl Database {
                 payload: serde_json::Map::new(),
                 created_at: stamp.clone(),
             }],
+            planning_item_id: None,
         };
         insert_session(&tx, &session)?;
         activity(

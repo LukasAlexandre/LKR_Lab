@@ -15,11 +15,12 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// v5 acrescenta `planningItems`/`planningEvents` (fila de Planejamento) e `planningItemId` nas Sessions.
 /// v4 acrescenta `managedWorktrees` (metadata operacional dos worktrees, com eventos; NUNCA o path).
 /// v2 acrescentou `ddae` (sessões, blocos e decisões); v3 torna os critérios de conclusão marcáveis
 /// (`{ id, text, completed }`) e traz o histórico `events` de cada sessão. v1 e v2 continuam legíveis
 /// (critérios em texto viram objetos não concluídos; eventos ausentes = nenhum) e viram v3 ao normalizar.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 const MIN_SCHEMA_VERSION: u32 = 1;
 /// Prompts criados pela migration 001: não contam como conteúdo do usuário.
 const SEED_PROMPT_IDS: [&str; 6] = ["audit", "bug", "pr", "continue", "security", "gate"];
@@ -92,6 +93,11 @@ pub struct PortableWorkspace {
     /// Worktrees do LKR LAB (v4): ausente em v1–v3 e quando não há nenhum. Sem path local.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub managed_worktrees: Vec<crate::worktrees::ManagedWorktree>,
+    /// Planejamento (v5): ausente em v1–v4 e quando não há itens. Pertence ao Project; sem path local.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planning_items: Vec<crate::planning::PlanningItem>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub planning_events: Vec<crate::planning::PlanningEvent>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -102,6 +108,7 @@ pub struct ApplySummary {
     pub knowledge: usize,
     pub sessions: usize,
     pub worktrees: usize,
+    pub planning_items: usize,
     pub removed_projects: usize,
 }
 
@@ -165,6 +172,7 @@ pub fn normalize(ws: &mut PortableWorkspace) {
     }
     crate::ddae::normalize(&mut ws.ddae);
     crate::worktrees::normalize(&mut ws.managed_worktrees);
+    crate::planning::normalize(&mut ws.planning_items, &mut ws.planning_events);
     fn clean(list: &mut Vec<String>) {
         *list = list
             .iter()
@@ -295,6 +303,14 @@ pub fn content_hash(ws: &PortableWorkspace) -> String {
             strip_ddae_stamps(w);
         }
     }
+    // Planejamento: o conteúdo conta (posição, estado, vínculo); carimbos de data ficam de fora.
+    for key in ["planningItems", "planningEvents"] {
+        if let Some(list) = value[key].as_array_mut() {
+            for x in list {
+                strip_ddae_stamps(x);
+            }
+        }
+    }
     let mut text = String::new();
     write_canonical(&value, &mut text);
     Sha256::digest(text.as_bytes())
@@ -313,6 +329,7 @@ pub fn is_empty(ws: &PortableWorkspace) -> bool {
             .all(|p| SEED_PROMPT_IDS.contains(&p.id.as_str()))
         && ws.ddae.is_empty()
         && ws.managed_worktrees.is_empty()
+        && ws.planning_items.is_empty()
         && ws.preferences == PortablePreferences::default()
 }
 
@@ -468,6 +485,19 @@ pub fn validate(ws: &PortableWorkspace) -> HubResult<()> {
         "worktrees gerenciados exigem a versão 4 do workspace".into()
     })?;
     crate::worktrees::validate_portable(&ws.managed_worktrees, &project_ids, &ws.ddae)?;
+    check(
+        ws.version >= 5
+            || (ws.planning_items.is_empty()
+                && ws.planning_events.is_empty()
+                && ws.ddae.iter().all(|s| s.planning_item_id.is_none())),
+        || "Planejamento exige a versão 5 do workspace".into(),
+    )?;
+    crate::planning::validate_portable(
+        &ws.planning_items,
+        &ws.planning_events,
+        &ws.ddae,
+        &project_ids,
+    )?;
     unique(ws.knowledge.iter().map(|k| k.id.as_str()), "conhecimento")?;
     for k in &ws.knowledge {
         check(

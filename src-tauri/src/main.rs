@@ -284,6 +284,88 @@ fn bind_project(
 ) -> HubResult<BindResult> {
     db(&state)?.bind(&id, &path, confirmed)
 }
+/// Planejamento (Concept 09). Leitura agregada: 100% passiva (nada é gravado ao abrir a página).
+#[tauri::command]
+fn planning_overview(
+    state: State<AppState>,
+    project_id: String,
+) -> HubResult<hub_core::planning::PlanningOverview> {
+    db(&state)?.planning_overview(&project_id)
+}
+/// Só contagens, PRÓXIMO e Session ativa (Project Control Center / Próxima ação).
+#[tauri::command]
+fn planning_summary(
+    state: State<AppState>,
+    project_id: String,
+) -> HubResult<hub_core::planning::PlanningSummary> {
+    db(&state)?.planning_summary(&project_id)
+}
+#[tauri::command]
+fn planning_events(
+    state: State<AppState>,
+    item_id: String,
+) -> HubResult<Vec<hub_core::planning::PlanningEvent>> {
+    db(&state)?.planning_events(&item_id)
+}
+#[tauri::command]
+fn planning_create_item(
+    state: State<AppState>,
+    project_id: String,
+    title: String,
+    description: Option<String>,
+) -> HubResult<hub_core::planning::PlanningItem> {
+    db(&state)?.planning_create_item(&project_id, &title, description.as_deref().unwrap_or(""))
+}
+#[tauri::command]
+fn planning_update_item(
+    state: State<AppState>,
+    id: String,
+    title: String,
+    description: Option<String>,
+) -> HubResult<hub_core::planning::PlanningItem> {
+    db(&state)?.planning_update_item(&id, &title, description.as_deref().unwrap_or(""))
+}
+#[tauri::command]
+fn planning_cancel(
+    state: State<AppState>,
+    id: String,
+    reason: Option<String>,
+) -> HubResult<hub_core::planning::PlanningItem> {
+    db(&state)?.planning_cancel(&id, reason.as_deref())
+}
+#[tauri::command]
+fn planning_restore(
+    state: State<AppState>,
+    id: String,
+) -> HubResult<hub_core::planning::PlanningItem> {
+    db(&state)?.planning_restore(&id)
+}
+#[tauri::command]
+fn planning_move(
+    state: State<AppState>,
+    id: String,
+    to: hub_core::planning::MoveTo,
+) -> HubResult<hub_core::planning::PlanningItem> {
+    db(&state)?.planning_move(&id, to)
+}
+/// INICIAR, passo 1: o rascunho do formulário de Nova Session (não cria nada).
+#[tauri::command]
+fn planning_prepare_start(
+    state: State<AppState>,
+    id: String,
+) -> HubResult<hub_core::planning::StartDraft> {
+    db(&state)?.planning_prepare_start(&id)
+}
+/// INICIAR, passo 2 (explícito, após o usuário revisar o formulário): cria a Session já vinculada.
+#[tauri::command]
+fn planning_start_session(
+    state: State<AppState>,
+    id: String,
+    title: String,
+    objective: String,
+) -> HubResult<hub_core::ddae::Session> {
+    db(&state)?.planning_start_session(&id, &title, &objective)
+}
 /// DDAE (Concept 06): lista, derivados e importação idempotente da SESSION-001 histórica.
 #[tauri::command]
 fn ddae_overview(
@@ -931,6 +1013,16 @@ fn main() {
             worktree_set_relation,
             worktree_locate,
             worktree_git_remove,
+            planning_overview,
+            planning_summary,
+            planning_events,
+            planning_create_item,
+            planning_update_item,
+            planning_cancel,
+            planning_restore,
+            planning_move,
+            planning_prepare_start,
+            planning_start_session,
             ddae_overview,
             ddae_create_session,
             ddae_add_block,
