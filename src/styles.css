@@ -2526,3 +2526,28 @@ summary {
 .console-err { border-left: 2px solid var(--warning); padding-left: 8px; }
 .console-note { display: block; padding: 4px 12px; color: var(--muted); font-size: 11px; }
 .console-ts { margin-right: 8px; color: var(--muted); font-variant-numeric: tabular-nums; user-select: none; }
+
+/* Machine Telemetry (SESSION-002, Block 06): núcleos, memória virtual, interfaces, discos físicos e bateria. */
+.mh-domain { margin-left: 8px; padding: 1px 7px; font-size: 10.5px; font-weight: 500; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; letter-spacing: 0.2px; }
+.mh-detail-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.mh-cores { display: grid; gap: 8px; }
+.mh-core-bars { display: flex; align-items: flex-end; gap: 4px; height: 56px; }
+.mh-core { position: relative; flex: 1 1 0; height: 100%; min-width: 6px; max-width: 28px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+.mh-core i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent, #3b82f6); border-radius: 3px; transition: height 0.4s ease-out; }
+.mh-memory-facts { display: grid; gap: 6px; margin: 0; font-size: 12px; align-content: start; }
+.mh-memory-facts div { display: flex; justify-content: space-between; gap: 10px; }
+.mh-memory-facts dt { color: var(--muted); }
+.mh-memory-facts dd { margin: 0; text-align: right; }
+.mh-gpu-id { display: block; color: var(--muted); font-size: 11px; }
+.mh-missing { margin: 8px 0 0; font-size: 11.5px; }
+.mh-ifaces { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.mh-ifaces li { display: grid; gap: 2px; padding: 8px 10px; font-size: 12px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.mh-ifaces li.active { border-color: var(--accent, #3b82f6); }
+.mh-iface-rate { color: var(--muted); font-variant-numeric: tabular-nums; }
+.mh-ifaces-idle { margin-top: 8px; font-size: 12px; color: var(--muted); }
+.mh-ifaces-idle summary { cursor: pointer; }
+.mh-devices { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.mh-devices li { display: grid; gap: 2px; padding: 8px 10px; font-size: 12px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.mh-battery-level { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; margin-bottom: 10px; }
+.mh-battery-level strong { font-size: 22px; }
+@media (max-width: 900px) { .mh-detail-grid { grid-template-columns: 1fr; } }

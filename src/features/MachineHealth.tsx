@@ -5,6 +5,8 @@ import {
   AlertTriangle,
   ArrowDown,
   ArrowUp,
+  Battery,
+  BatteryCharging,
   CheckCircle2,
   Clock,
   Cpu,
@@ -26,13 +28,24 @@ import {
   DEFAULT_PROCESS_TAB,
   HEALTH_DETAIL,
   HEALTH_LABEL,
+  INTERFACE_KIND,
   LEVEL_LABEL,
   PROCESS_TABS,
   UNAVAILABLE,
+  WARMING,
   available,
+  batteryStatus,
+  coreBars,
+  cpuClockDetail,
+  diskRows,
+  domainNote,
+  gpuIdentity,
+  memoryVirtual,
+  rateText,
+  splitInterfaces,
+  splitTemperatures,
   formatBits,
   formatCelsius,
-  formatClock,
   formatRate,
   formatSize,
   formatUptime,
@@ -46,7 +59,7 @@ import {
   sparkline,
   volumeUsage,
 } from "../shared/telemetry";
-import type { ProcessMetric, Telemetry, TelemetryPoint } from "../shared/types";
+import type { Domain, ProcessMetric, Telemetry, TelemetryPoint } from "../shared/types";
 import { useMachine } from "../state/machine";
 import { refreshTelemetry, useTelemetry, useTelemetryWatch } from "../state/telemetry";
 
@@ -95,6 +108,12 @@ function Summary({ icon, label, value, detail }: { icon: ReactNode; label: strin
 }
 
 const series = (history: TelemetryPoint[], key: keyof TelemetryPoint) => history.map((p) => p[key] as number | null);
+
+/** Selo discreto só quando o domínio é parcial/indisponível: a máquina não entrega tudo, e isso não é falha. */
+function DomainTag({ domain }: { domain: Domain | undefined }) {
+  const note = domainNote(domain);
+  return note ? <span className="mh-domain" title="O que esta máquina consegue medir; ausência de sensor não é falha.">{note}</span> : null;
+}
 
 /** Concept 02 — Dashboard da Máquina / Machine Health. */
 export function MachineHealth() {
@@ -196,12 +215,12 @@ export function MachineHealth() {
         <section className="panel">
           <div className="panel-title"><h2><Gauge size={17} />Utilização de recursos</h2></div>
           <div className="mh-rings">
-            <Ring value={t.cpu.usage} label="CPU" detail={formatClock(t.cpu.clockMhz) ?? "Uso atual"} history={series(history, "cpu")} tone="blue" />
+            <Ring value={t.cpu.ready ? t.cpu.usage : null} label="CPU" detail={cpuClockDetail(t.cpu)} history={series(history, "cpu")} tone="blue" />
             <Ring value={t.memory.percent} label="Memória" detail={`${formatSize(t.memory.used)} / ${formatSize(t.memory.total)}`} history={series(history, "memory")} tone="green" />
             <Ring
               value={available(caps.diskActivity) ? t.diskIo.activity : null}
               label="Disco I/O"
-              detail={`${diskLabel(t.diskIo.busiestDisk) ?? "Total"} · L ${formatRate(t.diskIo.readPerSec)} · E ${formatRate(t.diskIo.writePerSec)}`}
+              detail={t.diskIo.ready ? `${diskLabel(t.diskIo.busiestDisk) ?? "Total"} · L ${formatRate(t.diskIo.readPerSec)} · E ${formatRate(t.diskIo.writePerSec)}` : WARMING}
               history={series(history, "disk")}
               tone="orange"
             />
@@ -213,6 +232,31 @@ export function MachineHealth() {
               tone="purple"
             />
           </div>
+          <div className="mh-detail-grid">
+            <div className="mh-cores" aria-label="Uso por núcleo">
+              <div className="row spread">
+                <strong>Núcleos <DomainTag domain={t.availability.cpu} /></strong>
+                <small className="muted">{t.cpu.cores.length ? `${t.cpu.cores.length} processadores lógicos` : UNAVAILABLE}</small>
+              </div>
+              {t.cpu.ready && t.cpu.cores.length > 0 ? (
+                <div className="mh-core-bars">
+                  {coreBars(t.cpu.cores).map((core) => (
+                    <span key={core.index} className="mh-core" title={`Núcleo ${core.index}: ${Math.round(core.percent)}%`}>
+                      <i style={{ height: `${core.percent}%` }} />
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted mh-empty">{t.cpu.ready ? UNAVAILABLE : WARMING}</p>
+              )}
+            </div>
+            <dl className="mh-memory-facts" aria-label="Memória">
+              <div><dt>RAM em uso</dt><dd>{formatSize(t.memory.used)} / {formatSize(t.memory.total)}</dd></div>
+              <div><dt>RAM disponível</dt><dd>{formatSize(t.memory.available)}</dd></div>
+              <div><dt>Commit (RAM + pagefile)</dt><dd>{memoryVirtual(t.memory).commit ?? UNAVAILABLE}</dd></div>
+              <div><dt>Pagefile em uso</dt><dd>{memoryVirtual(t.memory).pagefile ?? UNAVAILABLE}</dd></div>
+            </dl>
+          </div>
           {t.gpus.length > 0 && (
             <table className="mh-gpus" aria-label="GPUs">
               <thead>
@@ -223,7 +267,10 @@ export function MachineHealth() {
                   const memory = gpuMemory(gpu);
                   return (
                     <tr key={gpu.id}>
-                      <td>{gpu.name}</td>
+                      <td>
+                        {gpu.name}
+                        {gpuIdentity(gpu) && <small className="mh-gpu-id">{gpuIdentity(gpu)}</small>}
+                      </td>
                       <td>{available(gpu.capabilities.usage) ? pct(gpu.usage) : UNAVAILABLE}</td>
                       <td>{memory.dedicated ?? UNAVAILABLE}</td>
                       <td>{memory.shared ?? UNAVAILABLE}</td>
@@ -234,13 +281,13 @@ export function MachineHealth() {
               </tbody>
             </table>
           )}
-          <p className="footnote">Dedicada = segmento informado pelo driver; em GPU integrada é pequeno e a GPU usa a memória compartilhada do sistema.</p>
+          <p className="footnote">Dedicada = segmento informado pelo driver; em GPU integrada é pequeno e a GPU usa a memória compartilhada do sistema. RAM, commit e pagefile são memórias diferentes: o commit inclui a memória virtual prometida aos processos.</p>
         </section>
 
         <section className="panel">
-          <div className="panel-title"><h2><Thermometer size={17} />Temperaturas</h2></div>
+          <div className="panel-title"><h2><Thermometer size={17} />Temperaturas</h2><DomainTag domain={t.availability.temperatures} /></div>
           <div className="mh-temps">
-            {t.temperatures.map((reading) => {
+            {splitTemperatures(t.temperatures).found.map((reading) => {
               const limit = reading.critical ?? 100;
               const title = reading.level === "unrated"
                 ? "Leitura do firmware sem limite conhecido: exibida, não avaliada na saúde."
@@ -255,20 +302,25 @@ export function MachineHealth() {
               );
             })}
           </div>
+          {splitTemperatures(t.temperatures).missing.length > 0 && (
+            <p className="muted mh-missing" aria-label="Sensores sem leitura">
+              {UNAVAILABLE} nesta máquina: {splitTemperatures(t.temperatures).missing.join(" · ")}.
+            </p>
+          )}
           <p className="footnote">Só sensores expostos pelo Windows. Temperatura do pacote da CPU e da placa-mãe não têm fonte sem drivers de terceiros; o sensor ACPI não é a CPU e não entra na saúde.</p>
         </section>
 
         <section className="panel">
-          <div className="panel-title"><h2><Wifi size={17} />Rede</h2></div>
+          <div className="panel-title"><h2><Wifi size={17} />Rede</h2><DomainTag domain={t.availability.network} /></div>
           <div className="mh-network">
             <div>
               <small><ArrowDown size={13} /> Download</small>
-              <strong>{formatBits(t.network.downloadBps)}</strong>
+              <strong>{rateText(t.network.downloadBps, t.network.ready, formatBits)}</strong>
               <Spark values={series(history, "downloadBps")} max={0} tone="blue" />
             </div>
             <div>
               <small><ArrowUp size={13} /> Upload</small>
-              <strong>{formatBits(t.network.uploadBps)}</strong>
+              <strong>{rateText(t.network.uploadBps, t.network.ready, formatBits)}</strong>
               <Spark values={series(history, "uploadBps")} max={0} tone="purple" />
             </div>
           </div>
@@ -276,6 +328,37 @@ export function MachineHealth() {
             <div><dt>IP local</dt><dd>{t.network.ipv4 ?? UNAVAILABLE}</dd></div>
             <div><dt>Interface</dt><dd>{t.network.interface ?? UNAVAILABLE}</dd></div>
           </dl>
+          {t.network.interfaces.length > 0 && (() => {
+            const { connected, idle } = splitInterfaces(t.network.interfaces);
+            const row = (i: Telemetry["network"]["interfaces"][number]) => (
+              <li key={i.name} className={i.active ? "active" : ""}>
+                <div className="row spread">
+                  <strong>{i.name}</strong>
+                  <small className="muted">{INTERFACE_KIND[i.kind] ?? INTERFACE_KIND.other}{i.active ? " · ativa" : ""}</small>
+                </div>
+                <div className="row spread muted">
+                  <small>{i.ipv4[0] ?? i.ipv6[0] ?? "Sem endereço"}{i.ipv6.length && i.ipv4.length ? " · IPv6" : ""}</small>
+                  <small>{i.up === true ? (formatBits(i.linkSpeedBps) ?? UNAVAILABLE) : i.up === false ? "Desconectada" : UNAVAILABLE}</small>
+                </div>
+                {i.up === true && (
+                  <small className="mh-iface-rate">
+                    ↓ {rateText(i.downloadBps, t.network.ready, formatBits)} · ↑ {rateText(i.uploadBps, t.network.ready, formatBits)}
+                  </small>
+                )}
+              </li>
+            );
+            return (
+              <>
+                <ul className="mh-ifaces" aria-label="Interfaces de rede">{connected.map(row)}</ul>
+                {idle.length > 0 && (
+                  <details className="mh-ifaces-idle">
+                    <summary>{idle.length} {idle.length === 1 ? "interface desconectada" : "interfaces desconectadas"}</summary>
+                    <ul className="mh-ifaces">{idle.map(row)}</ul>
+                  </details>
+                )}
+              </>
+            );
+          })()}
         </section>
       </div>
 
@@ -325,7 +408,24 @@ export function MachineHealth() {
         </section>
 
         <section className="panel">
-          <div className="panel-title"><h2><HardDrive size={17} />Discos e armazenamento</h2></div>
+          <div className="panel-title"><h2><HardDrive size={17} />Discos e armazenamento</h2><DomainTag domain={t.availability.disk} /></div>
+          {diskRows(t).length > 0 && (
+            <ul className="mh-devices" aria-label="Discos físicos">
+              {diskRows(t).map(({ device, label, volumes, total, available: free }) => (
+                <li key={device.instance}>
+                  <div className="row spread">
+                    <strong>{label}</strong>
+                    <small className="muted">{device.nvme ? "NVMe" : "Disco"} · {device.volumes.join(" ") || "sem letra"}{total ? ` · ${formatSize(total)}` : ""}</small>
+                  </div>
+                  <div className="row spread muted">
+                    <small>L {rateText(device.readPerSec, t.diskIo.ready, formatRate)} · E {rateText(device.writePerSec, t.diskIo.ready, formatRate)}</small>
+                    <small>{device.readOpsPerSec != null && device.writeOpsPerSec != null ? `${Math.round(device.readOpsPerSec)} / ${Math.round(device.writeOpsPerSec)} ops/s` : "ops/s —"} · {pct(device.activity) ?? "—"} ativo</small>
+                  </div>
+                  {volumes.length > 0 && <small className="muted">{formatSize(free)} livres de {formatSize(total)}</small>}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="mh-volumes">
             {t.volumes.map((volume) => {
               const usage = volumeUsage(volume.total, volume.available);
@@ -344,7 +444,7 @@ export function MachineHealth() {
               );
             })}
           </div>
-          <p className="footnote">Capacidade dos volumes. Saúde física (SMART): {UNAVAILABLE.toLowerCase()}.</p>
+          <p className="footnote">Capacidade dos volumes (acima, a atividade de cada disco físico). Saúde física (SMART): {UNAVAILABLE.toLowerCase()}.</p>
         </section>
 
         <div className="mh-side">
@@ -365,6 +465,26 @@ export function MachineHealth() {
               </div>
             ))}
           </section>
+          {t.battery.present && (() => {
+            const battery = batteryStatus(t.battery);
+            return (
+              <section className="panel mh-battery" aria-label="Bateria">
+                <div className="panel-title">
+                  <h2>{t.battery.charging ? <BatteryCharging size={17} /> : <Battery size={17} />}Bateria e energia</h2>
+                </div>
+                <div className="mh-battery-level">
+                  <strong>{battery.percent ?? UNAVAILABLE}</strong>
+                  <span className="mh-bar"><i style={{ width: `${t.battery.percent ?? 0}%` }} /></span>
+                </div>
+                <dl className="facts">
+                  <div><dt>Estado</dt><dd>{battery.state}</dd></div>
+                  <div><dt>Tomada</dt><dd>{t.battery.acOnline == null ? UNAVAILABLE : t.battery.acOnline ? "Conectada" : "Desconectada"}</dd></div>
+                  {battery.remaining && <div><dt>Autonomia</dt><dd>{battery.remaining}</dd></div>}
+                  <div><dt>Saúde da bateria</dt><dd title="O Windows não informa capacidade de projeto/carga cheia sem driver ou elevação.">{UNAVAILABLE}</dd></div>
+                </dl>
+              </section>
+            );
+          })()}
           <section className="panel">
             <div className="panel-title"><h2><Info size={17} />Informações adicionais</h2></div>
             <dl className="facts">
@@ -372,6 +492,7 @@ export function MachineHealth() {
               <div><dt>Inicialização</dt><dd>{t.bootTime ? formatDateTime(t.bootTime * 1000) : UNAVAILABLE}</dd></div>
               <div><dt>Inventário detectado</dt><dd>{machine.status?.machine?.lastDetectedAt ? formatDateTime(machine.status.machine.lastDetectedAt) : UNAVAILABLE}</dd></div>
               <div><dt>Processos</dt><dd>{t.processes?.total ?? "—"}</dd></div>
+              {!t.battery.present && <div><dt>Bateria</dt><dd>Não aplicável</dd></div>}
               <div><dt>LKR LAB</dt><dd>v0.1.0</dd></div>
             </dl>
           </section>

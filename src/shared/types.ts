@@ -372,6 +372,57 @@ export interface TelemetryCapabilities {
   networkRate: Availability;
   processDiskIo: Availability;
   storagePhysicalHealth: Availability;
+  cpuPerCore: Availability;
+  cpuBaseClock: Availability;
+  memoryCommit: Availability;
+  battery: Availability;
+  batteryHealth: Availability;
+  diskPerDevice: Availability;
+  networkInterfaces: Availability;
+}
+/** Quão completa é a leitura de um domínio: a ausência de sensor NÃO é falha. */
+export type Domain = "available" | "partial" | "unavailable";
+export interface DomainAvailability {
+  cpu: Domain;
+  memory: Domain;
+  gpu: Domain;
+  disk: Domain;
+  network: Domain;
+  battery: Domain;
+  temperatures: Domain;
+}
+export interface DiskDevice {
+  instance: string;
+  number: number;
+  model: string | null;
+  nvme: boolean;
+  volumes: string[];
+  readPerSec: number | null;
+  writePerSec: number | null;
+  readOpsPerSec: number | null;
+  writeOpsPerSec: number | null;
+  activity: number | null;
+}
+export interface NetworkInterfaceTelemetry {
+  name: string;
+  description: string | null;
+  kind: "ethernet" | "wifi" | "tunnel" | "other" | string;
+  up: boolean | null;
+  linkSpeedBps: number | null;
+  ipv4: string[];
+  ipv6: string[];
+  receivedBytes: number;
+  sentBytes: number;
+  downloadBps: number | null;
+  uploadBps: number | null;
+  active: boolean;
+}
+export interface BatteryTelemetry {
+  present: boolean;
+  percent: number | null;
+  charging: boolean | null;
+  acOnline: boolean | null;
+  remainingSecs: number | null;
 }
 export interface ProcessEntry {
   pid: number;
@@ -401,8 +452,18 @@ export interface MachineAlert {
 export interface Telemetry {
   timestamp: number;
   active: boolean;
-  cpu: { usage: number; clockMhz: number | null };
-  memory: { total: number; used: number; available: number; percent: number; swapTotal: number; swapUsed: number };
+  cpu: { usage: number; clockMhz: number | null; baseMhz: number | null; cores: number[]; ready: boolean };
+  memory: {
+    total: number;
+    used: number;
+    available: number;
+    percent: number;
+    swapTotal: number;
+    swapUsed: number;
+    commitUsed: number | null;
+    commitLimit: number | null;
+    pagefileUsed: number | null;
+  };
   gpus: {
     /** Identidade da GPU neste boot (endereço PCI): distingue placas do mesmo modelo. */
     id: string;
@@ -413,16 +474,34 @@ export interface Telemetry {
     sharedUsed: number | null;
     sharedTotal: number | null;
     temperature: number | null;
+    vendor: string | null;
+    driverVersion: string | null;
     capabilities: { usage: Availability; dedicatedMemory: Availability; sharedMemory: Availability; temperature: Availability };
   }[];
-  diskIo: { readPerSec: number; writePerSec: number; activity: number | null; busiestDisk: string | null };
+  diskIo: {
+    readPerSec: number;
+    writePerSec: number;
+    activity: number | null;
+    busiestDisk: string | null;
+    devices: DiskDevice[];
+    ready: boolean;
+  };
   volumes: { mount: string; kind: string; total: number; available: number; removable: boolean }[];
-  network: { interface: string | null; ipv4: string | null; downloadBps: number; uploadBps: number };
+  network: {
+    interface: string | null;
+    ipv4: string | null;
+    downloadBps: number;
+    uploadBps: number;
+    interfaces: NetworkInterfaceTelemetry[];
+    ready: boolean;
+  };
   temperatures: TemperatureReading[];
   processes: { cpu: ProcessEntry[]; memory: ProcessEntry[]; gpu: ProcessEntry[]; disk: ProcessEntry[]; total: number } | null;
   uptime: number;
   bootTime: number;
+  battery: BatteryTelemetry;
   capabilities: TelemetryCapabilities;
+  availability: DomainAvailability;
   health: {
     status: HealthStatus;
     alerts: MachineAlert[];

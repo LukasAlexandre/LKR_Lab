@@ -24,27 +24,11 @@ import {
   volumeUsage,
 } from "./telemetry";
 import { appendPoint } from "../state/telemetry";
-import type { ProcessEntry, Telemetry, TelemetryCapabilities } from "./types";
+import { caps, gpuOf, telemetry } from "./telemetry.fixtures";
+import type { ProcessEntry } from "./types";
 
-const caps = (patch: Partial<TelemetryCapabilities> = {}): TelemetryCapabilities => ({
-  cpuUsage: "available", cpuClock: "available", memoryUsage: "available", gpuUsage: "available",
-  gpuMemory: "available", gpuProcessUsage: "available", cpuPackageTemperature: "unavailable",
-  gpuTemperature: "unavailable", storageTemperature: "unavailable", thermalZoneTemperature: "unavailable",
-  motherboardTemperature: "unavailable", diskIo: "available", diskActivity: "available",
-  networkRate: "available", processDiskIo: "available", storagePhysicalHealth: "unavailable", ...patch,
-});
 const row = (pid: number, patch: Partial<ProcessEntry> = {}): ProcessEntry => ({
   pid, name: `p${pid}.exe`, cpu: 0, memory: 0, gpu: 0, diskRead: 0, diskWrite: 0, ...patch,
-});
-const telemetry = (patch: Partial<Telemetry> = {}): Telemetry => ({
-  timestamp: 1000, active: true,
-  cpu: { usage: 10, clockMhz: null },
-  memory: { total: 100, used: 40, available: 60, percent: 40, swapTotal: 0, swapUsed: 0 },
-  gpus: [], diskIo: { readPerSec: 0, writePerSec: 0, activity: null, busiestDisk: null }, volumes: [],
-  network: { interface: null, ipv4: null, downloadBps: 0, uploadBps: 0 },
-  temperatures: [], processes: { cpu: [], memory: [], gpu: [], disk: [], total: 0 },
-  uptime: 0, bootTime: 0, capabilities: caps(),
-  health: { status: "healthy", alerts: [], checks: [] }, ...patch,
 });
 
 describe("telemetry formatting", () => {
@@ -146,12 +130,6 @@ describe("telemetry history", () => {
 });
 
 const GB = 1024 ** 3;
-const gpuOf = (patch: Partial<Telemetry["gpus"][number]> = {}): Telemetry["gpus"][number] => ({
-  id: "pci:0:2.0", name: "gpu", usage: null, dedicatedUsed: null, dedicatedTotal: null, sharedUsed: null, sharedTotal: null,
-  temperature: null,
-  capabilities: { usage: "available", dedicatedMemory: "available", sharedMemory: "available", temperature: "unavailable" },
-  ...patch,
-});
 
 describe("GPU semantics", () => {
   it("keeps dedicated and shared memory apart (integrated GPU)", () => {

@@ -1,9 +1,14 @@
 import type {
   Availability,
+  BatteryTelemetry,
+  DiskDevice,
+  Domain,
   HealthStatus,
+  NetworkInterfaceTelemetry,
   ProcessEntry,
   ProcessMetric,
   SensorLevel,
+  TemperatureReading,
   Telemetry,
 } from "./types";
 
@@ -162,4 +167,121 @@ export const SEVERITY_ORDER: Record<HealthStatus, number> = { healthy: 0, attent
 export function volumeUsage(total: number, available: number) {
   const used = Math.max(total - available, 0);
   return { used, percent: total > 0 ? (used / total) * 100 : 0 };
+}
+
+/* ------------------------------------------------------------------ Block 06 — telemetria expandida */
+
+/** Selo de domínio incompleto. Domínio completo não precisa de selo; ausência de sensor não é falha. */
+export const DOMAIN_LABEL: Record<Domain, string> = {
+  available: "Completo",
+  partial: "Parcial",
+  unavailable: UNAVAILABLE,
+};
+export const domainNote = (domain: Domain | undefined) =>
+  domain && domain !== "available" ? DOMAIN_LABEL[domain] : null;
+
+/** Texto padrão da primeira amostra: ainda não há intervalo para calcular uso ou taxa. */
+export const WARMING = "Calibrando…";
+
+/** Clock da CPU: efetivo e base. Primeira amostra = calibrando (nunca um 0%). */
+export function cpuClockDetail(cpu: Telemetry["cpu"]): string {
+  if (!cpu.ready) return WARMING;
+  const clock = formatClock(cpu.clockMhz);
+  const base = formatClock(cpu.baseMhz);
+  if (clock && base) return `${clock} · base ${base}`;
+  return clock ?? (base ? `base ${base}` : "Uso atual");
+}
+
+/** Um valor por processador lógico, limitado a 0–100 (o backend já limita; aqui é defesa). */
+export const coreBars = (cores: number[]) =>
+  cores.map((value, index) => ({ index, percent: Number.isFinite(value) ? Math.min(Math.max(value, 0), 100) : 0 }));
+
+/** Memória virtual separada da RAM física: commit (RAM + pagefile) e uso real do pagefile. */
+export function memoryVirtual(memory: Telemetry["memory"]): { commit: string | null; pagefile: string | null } {
+  const pair = (used: number | null, total: number | null) =>
+    used != null && total != null && total > 0 ? `${formatSize(used)} / ${formatSize(total)}` : null;
+  return {
+    commit: pair(memory.commitUsed, memory.commitLimit),
+    pagefile: pair(memory.pagefileUsed, memory.swapTotal),
+  };
+}
+
+/** Fabricante e driver da GPU, só o que o Windows informou. */
+export function gpuIdentity(gpu: Telemetry["gpus"][number]): string | null {
+  const parts = [gpu.vendor, gpu.driverVersion ? `driver ${gpu.driverVersion}` : null].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
+}
+
+/** Sensores com leitura real × os que a máquina não entrega (ficam numa linha neutra). */
+export function splitTemperatures(readings: TemperatureReading[]): { found: TemperatureReading[]; missing: string[] } {
+  return {
+    found: readings.filter((r) => r.celsius != null),
+    missing: readings.filter((r) => r.celsius == null).map((r) => r.label),
+  };
+}
+
+/** Taxa de rede/disco: primeira amostra = calibrando; sem valor = traço. */
+export function rateText(value: number | null | undefined, ready: boolean, format: (v: number) => string | null): string {
+  if (!ready) return WARMING;
+  if (value == null) return "—";
+  return format(value) ?? "—";
+}
+
+export const INTERFACE_KIND: Record<string, string> = {
+  ethernet: "Ethernet",
+  wifi: "Wi-Fi",
+  tunnel: "Túnel",
+  other: "Outra",
+};
+
+/** Interfaces conectadas (ativa primeiro, como o backend ordena) × desconectadas ou sem estado. */
+export function splitInterfaces(list: NetworkInterfaceTelemetry[]): {
+  connected: NetworkInterfaceTelemetry[];
+  idle: NetworkInterfaceTelemetry[];
+} {
+  return { connected: list.filter((i) => i.up === true), idle: list.filter((i) => i.up !== true) };
+}
+
+/** Disco físico com a capacidade dos volumes que moram nele (a atividade não é capacidade). */
+export interface DiskRow {
+  device: DiskDevice;
+  label: string;
+  volumes: { mount: string; total: number; available: number }[];
+  total: number;
+  available: number;
+}
+export function diskRows(t: Pick<Telemetry, "diskIo" | "volumes">): DiskRow[] {
+  return t.diskIo.devices.map((device) => {
+    const volumes = t.volumes
+      .filter((v) => device.volumes.some((letter) => v.mount.toUpperCase().startsWith(letter.toUpperCase())))
+      .map(({ mount, total, available }) => ({ mount, total, available }));
+    return {
+      device,
+      label: device.model ?? `Disco ${device.number}`,
+      volumes,
+      total: volumes.reduce((sum, v) => sum + v.total, 0),
+      available: volumes.reduce((sum, v) => sum + v.available, 0),
+    };
+  });
+}
+
+/** Bateria: desktop é "não aplicável", nunca 0%. Saúde (capacidade) o Windows não entrega. */
+export function batteryStatus(battery: BatteryTelemetry): {
+  applicable: boolean;
+  state: string;
+  percent: string | null;
+  remaining: string | null;
+} {
+  if (!battery.present)
+    return { applicable: false, state: "Não aplicável — este computador não tem bateria", percent: null, remaining: null };
+  let state = "Usando a bateria";
+  if (battery.charging === true) state = "Carregando";
+  else if (battery.acOnline === true) state = (battery.percent ?? 0) >= 100 ? "Carga completa · na tomada" : "Na tomada";
+  const remaining = battery.remainingSecs != null ? formatUptime(battery.remainingSecs) : null;
+  return {
+    applicable: true,
+    state,
+    percent: pct(battery.percent),
+    remaining: remaining ? `${remaining} restantes` : null,
+  };
 }
