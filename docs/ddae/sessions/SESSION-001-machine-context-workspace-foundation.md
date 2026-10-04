@@ -115,6 +115,24 @@ Integrado à `main` por fast-forward (`cfebf88`). As branches `feat/session-001-
 - **Concept 09 — Planejamento: APROVADO VISUALMENTE**, NÃO implementado. O asset `concept-09-planning.webp` foi substituído pela versão final aprovada (7 itens operacionais, bloco PRÓXIMO, Iniciar desabilitado com Session ativa, cancelado separado, sem prioridade, drag handles ou "Mais filtros"; Session ativa e Próxima ação em blocos separados). Detalhes em [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md).
 - SESSION-001 continua ATIVA (9/10, bloco atual Concept 09 — Planejamento). Ela não nasceu do Planejamento e não terá Planning Item retroativo.
 
+### Bloco D07 — Planejamento / Concept 09 (IMPLEMENTADO — VALIDAÇÃO NO DESKTOP PENDENTE)
+
+Fila ordenada de features ainda não iniciadas do Project. Commits: `de89b32` (aprovação visual), `ef97da7` (modelo portátil) e `927ea06` (workspace). Rota: `#project/<id>/planning` (sem rota de item).
+- **Invariantes:** Planning Item ≠ Session ≠ Block ≠ Worktree ≠ issue do Git; cadeia Planning → Session → Worktree (sem FK Planning→Worktree). Só `open`/`cancelled` são gravados; PLANEJADO / EM EXECUÇÃO (+ ATIVA/CONGELADA/PARADA) / CONCLUÍDO são DERIVADOS da Session vinculada (`derive_phase`). Não existe estado "concluído" persistido nem evento `PLANNING_ITEM_COMPLETED_DERIVED`: a conclusão é uma função da Session finalizada (auditado: persistir duplicaria estado).
+- **Vínculo na Session:** `ddae_sessions.planning_item_id` (nulo por padrão), índice único parcial (1 item : 0..1 Session), gatilhos (mesmo Project, item aberto, vínculo **gravado só na criação** e imutável, item com Session não cancela nem muda de Project). A SESSION-001 legada tem `planning_item_id = NULL` e **nunca** ganha item retroativo (nem por SQL: o gatilho recusa).
+- **Fila:** `position` com espaçamento (1000) e `UNIQUE(project_id, position)`; mover para cima/baixo/topo opera sobre a fila de PLANEJADOS (cancelados e itens com Session mantêm o lugar); renormaliza só se não houver espaço; reordenar **não** gera evento. Sem prioridade, sem drag-and-drop, sem exclusão destrutiva.
+- **Iniciar:** `planning_prepare_start` devolve o rascunho (título ← título, objetivo ← descrição) e a UI abre o formulário **Nova sessão** pré-preenchido; só ao confirmar `planning_start_session` cria a Session pelo **fluxo único** `ddae::create_session_in` (mesma transação, `SESSION_CREATED` com `planningItemId` no histórico DDAE, mais `PLANNING_ITEM_SESSION_LINKED`). One Active: com Session ativa o backend recusa e a UI desabilita com "Já existe uma Session ativa neste projeto." (nada é congelado).
+- **Eventos (`planning_events`, append-only, portáteis, sem path):** CREATED, UPDATED, CANCELLED, RESTORED, SESSION_LINKED.
+- **Workspace v5:** `planningItems`, `planningEvents` e `planningItemId` na Session (Rust + JS espelhados, fixture dourado compartilhado com itens); v1–v4 continuam legíveis e normalizam para v5 com o mesmo hash; hash determinístico (itens por projeto/posição/id, eventos por createdAt/id, carimbos fora do hash).
+- **PRÓXIMO ≠ Próxima ação:** PRÓXIMO é o primeiro PLANEJADO da fila (mesmo com Iniciar desabilitado). A Próxima ação do Project Control Center só devolve "Iniciar <item>" sem Session ativa e depois das regras críticas e do DDAE; com a SESSION-001 ativa continua "Continuar …".
+- **Integrações:** card Planejamento do PCC com dados reais (ou estado vazio honesto); lista DDAE e preview mostram "Origem: Planejamento — …" só quando existe; Session Detail mostra "Item de planejamento" só quando existe.
+- **Passividade:** abrir a página só lê (`planning_overview`); teste Rust confirma que ler não escreve itens, eventos, Sessions, atividades nem altera a exportação portátil.
+- **Estado real esperado no desktop:** SESSION-001 ativa e **zero** Planning Items (nada do mock é criado no banco real); a tela deve mostrar o estado vazio "Nenhum item no planejamento." com SESSION-001 (9/10) e "Continuar …" no rodapé.
+- **VALIDAÇÃO AUTOMATIZADA (executada por Claude):** 30 testes Rust em `tests/planning.rs` (migração v9→v10 preservando DDAE; criar/editar/cancelar/restaurar; mover; fases derivadas; vínculo, projeto errado, segunda Session, re-apontar, item cancelado; One Active; eventos append-only e portáteis; workspace v1–v5, round-trip, hash determinístico, sem dado local; passividade), testes JS do workspace (`lkr-workspace.planning.test.js`, golden), e testes de lógica/renderização do front (empty state, resumo, PRÓXIMO, Iniciar habilitado/desabilitado e motivo, busca, filtros, estados, subbadges, menu só com ações válidas, sem drag/prioridade/"Mais filtros", PCC, Próxima ação, DDAE, Session Detail). Renderização conferida também num harness temporário no navegador com dados simulados em memória (não é o desktop real).
+- **VALIDAÇÃO MANUAL NO DESKTOP: PENDENTE** (nenhuma confirmação do usuário registrada). Nenhum item foi criado no banco real.
+- **Limitações aceitas:** o ícone da linha é por fase (o concept mostra ícones por item, que não existem no modelo); editar só item planejado (com Session, título/objetivo vivem na Session); sem rota de item; sem importar `TASKS.md`/`ROADMAP.md`; cancelamento sem exclusão; o banco passa a `user_version = 10` e versões anteriores do app recusam abri-lo.
+- **Status:** Concept 09 — IMPLEMENTADO; validação no desktop pendente. **SESSION-001 segue ATIVA** (bloco atual Concept 09 — Planejamento, **não** concluído).
+
 ### Bloco D06 — Worktrees / Concept 08 (IMPLEMENTADO E VALIDADO NO DESKTOP)
 
 Camada operacional do LKR LAB sobre os Git worktrees REAIS. Commits: `4d72d23` (modelo operacional portátil) e `3d400fe` (workspace de worktrees do projeto). Rota: `#project/<id>/worktrees` (sem rota de detalhe).
@@ -269,7 +287,7 @@ Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como esta
 | 06 | DDAE / Sessões | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 07 | DDAE / Detalhe da Sessão | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 08 | Worktrees | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 09 | Planejamento | APROVADO VISUALMENTE (implementação em andamento) |
+| 09 | Planejamento | APROVADO VISUALMENTE / IMPLEMENTADO — validação no desktop pendente |
 
 ## Decisões de arquitetura registradas
 
