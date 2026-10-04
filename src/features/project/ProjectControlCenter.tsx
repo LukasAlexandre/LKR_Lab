@@ -10,9 +10,9 @@ import { Empty, Panel } from "../../shared/ui";
 import type { Project } from "../../shared/types";
 import { useResource, workspace } from "../../state/workspace";
 import { ProjectRuntime } from "../ProjectRuntime";
-import { Worktrees } from "../Worktrees";
 import { DdaeSessions } from "./DdaeSessions";
 import { SessionDetail } from "./SessionDetail";
+import { WorktreesWorkspace } from "./WorktreesWorkspace";
 import { ProjectLogs } from "./ProjectLogs";
 import { ProjectOverviewArea } from "./ProjectOverviewArea";
 
@@ -136,7 +136,7 @@ export function ProjectControlCenter({ projectId, area, sessionId, views, launch
   } else if (area === "git") {
     content = views.git;
   } else if (area === "worktrees") {
-    content = <Worktrees key={projectId} />;
+    content = <WorktreesWorkspace key={projectId} projectId={projectId} notify={notify} />;
   } else if (area === "logs") {
     content = <ProjectLogs projectId={projectId} />;
   } else {

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { api, desktop } from "../shared/api";
 import { preferences } from "../shared/preferences";
-import type { Activity, AgentContext, DdaeOverview, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
+import type { Activity, AgentContext, DdaeOverview, WorktreeCounts, WorktreeOverview, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
 import { createResource, type Resource } from "./resource";
 import type { KnowledgeEntry } from "../shared/types";
 import { trackOperation } from "./operations";
@@ -28,6 +28,9 @@ function projectSources(id: string) {
     agents: createResource<AgentContext | null>(null, () => api("agent_context", { id })),
     runtime: createResource<ProjectRuntime | null>(null, () => api("project_runtime", { id })),
     worktrees: createResource<Worktree[]>([], () => trackOperation("Consultando worktrees", () => api("list_worktrees", { id }), id)),
+    // Worktrees (Concept 08): leitura agregada READ-ONLY (git worktree list + git status) e só as contagens.
+    worktreeOverview: createResource<WorktreeOverview | null>(null, () => trackOperation("Consultando worktrees", () => api("project_worktree_overview", { id }), id)),
+    worktreeSummary: createResource<WorktreeCounts | null>(null, () => api("worktree_summary", { id })),
     // DDAE: lista, derivados e importação idempotente da SESSION-001 histórica (backend).
     ddae: createResource<DdaeOverview | null>(null, () => api("ddae_overview", { projectId: id })),
   };

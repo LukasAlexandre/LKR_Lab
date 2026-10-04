@@ -36,7 +36,7 @@ import { Prompts } from "./features/Prompts";
 import { Repositories } from "./features/Repositories";
 import { MachineHealth } from "./features/MachineHealth";
 import { GitSummary } from "./features/GitSummary";
-import { Worktrees } from "./features/Worktrees";
+import { WorktreesWorkspace } from "./features/project/WorktreesWorkspace";
 import { AgentProviders } from "./features/AgentProviders";
 import { Knowledge } from "./features/Knowledge";
 import { routes } from "./app/routing";
@@ -658,7 +658,7 @@ export default function App() {
           {route === "repositories" && <Repositories report={report} />}
           {route === "git" && gitView}
           {route === "agents" && agentsView}
-          {route === "worktrees" && <Worktrees key={selectedId} />}
+          {route === "worktrees" && (selectedId ? <WorktreesWorkspace key={selectedId} projectId={selectedId} notify={setToast} /> : <Panel title="Worktrees"><Empty title="Selecione um projeto"><p>Os worktrees pertencem a um projeto.</p></Empty></Panel>)}
           {route === "terminal" && (
             <Panel title="Launchers nativos" icon={<Terminal size={18} />}>
               {selected ? (

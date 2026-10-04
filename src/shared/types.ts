@@ -135,11 +135,19 @@ export interface AgentProviderStatus {
   sessionsStatus: string;
   detail: string;
 }
+/** Um Git worktree REAL (git worktree list --porcelain). O path é da máquina; nunca portátil. */
 export interface Worktree {
   path: string;
   head: string;
+  /** Vazia quando detached ou bare. */
   branch: string;
+  isPrimary: boolean;
+  detached: boolean;
+  bare: boolean;
   locked: boolean;
+  lockedReason?: string | null;
+  prunable: boolean;
+  prunableReason?: string | null;
 }
 export interface PullRequest {
   number: number;
@@ -557,7 +565,8 @@ export type DdaeEventType =
   | "SESSION_CREATED" | "SESSION_FROZEN" | "SESSION_STOPPED" | "SESSION_RESUMED" | "SESSION_COMPLETED" | "LEGACY_IMPORTED"
   | "BLOCK_ADDED" | "BLOCK_STARTED" | "BLOCK_COMPLETED" | "BLOCK_RENAMED" | "BLOCK_REMOVED"
   | "CRITERION_ADDED" | "CRITERION_COMPLETED" | "CRITERION_REOPENED" | "CRITERION_REMOVED"
-  | "DECISION_ADDED" | "NOTE_ADDED" | "NOTE_REMOVED" | "DETAILS_UPDATED";
+  | "DECISION_ADDED" | "NOTE_ADDED" | "NOTE_REMOVED" | "DETAILS_UPDATED"
+  | "WORKTREE_LINKED" | "WORKTREE_UNLINKED" | "WORKTREE_BLOCK_LINKED" | "WORKTREE_BLOCK_UNLINKED";
 /** Histórico semântico e PORTÁTIL da Session (append-only). */
 export interface DdaeEvent {
   id: string;
@@ -639,4 +648,77 @@ export interface DdaeOverview {
   blocksTotal: number;
   activeSessionId: string | null;
   legacyImport: DdaeLegacyImport;
+}
+
+/** Worktrees do LKR LAB (Concept 08): espelha hub-core::worktrees. */
+export type WorktreeStatus = "active" | "frozen" | "stopped" | "completed";
+export type WorktreeKind = "primary" | "managed_available" | "managed_missing" | "unmanaged";
+export type WorktreeEventType =
+  | "WORKTREE_ADOPTED" | "WORKTREE_CREATED" | "WORKTREE_STATE_CHANGED" | "WORKTREE_RENAMED"
+  | "WORKTREE_SESSION_LINKED" | "WORKTREE_SESSION_UNLINKED" | "WORKTREE_BLOCK_LINKED" | "WORKTREE_BLOCK_UNLINKED"
+  | "WORKTREE_COMPLETED";
+export interface WorktreeEvent {
+  id: string;
+  type: WorktreeEventType;
+  payload?: Record<string, string | number | boolean>;
+  createdAt: string;
+}
+/** Metadata PORTÁTIL (sem path). A identidade é o UUID; branch e locator são só dicas. */
+export interface ManagedWorktree {
+  id: string;
+  projectId: string;
+  displayName: string;
+  description?: string;
+  status: WorktreeStatus;
+  stateReason?: string;
+  result?: string;
+  repositoryLocator?: RepositoryLocator;
+  branchHint?: string;
+  detachedHeadHint?: string;
+  sessionId?: string;
+  blockId?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  events?: WorktreeEvent[];
+}
+export interface WorktreeManagedView extends ManagedWorktree {
+  session: { id: string; label: string; title: string; status: DdaeSessionStatus } | null;
+  block: { id: string; title: string; status: DdaeBlockStatus } | null;
+  /** Último evento OPERACIONAL (nunca mtime nem commit). */
+  lastEventAt: string | null;
+}
+export interface WorktreeItem {
+  kind: WorktreeKind;
+  git: Worktree | null;
+  managed: WorktreeManagedView | null;
+  gitSummary: Dimension<GitSummary> | null;
+  warnings: ("session_completed_worktree_open" | "worktree_completed_session_active")[];
+}
+export interface WorktreeCounts {
+  gitTotal: number;
+  /** Total GERENCIADO: active + frozen + stopped + completed fecham com ele. */
+  managed: number;
+  active: number;
+  frozen: number;
+  stopped: number;
+  completed: number;
+  missing: number;
+  unmanaged: number;
+  withChanges: number;
+}
+export interface WorktreeOverview {
+  projectId: string;
+  projectAvailable: boolean;
+  items: WorktreeItem[];
+  counts: WorktreeCounts;
+  gitError: string | null;
+}
+export interface SessionWorktree {
+  id: string;
+  displayName: string;
+  status: WorktreeStatus;
+  branchHint: string | null;
+  blockId: string | null;
+  available: boolean;
 }

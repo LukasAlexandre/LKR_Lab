@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { BookOpenCheck, Box, Circle, Clock, GitBranch, ListChecks, MapPin, Play, Sparkles } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "../../shared/api";
-import { deriveProjectNextAction, runtimeHeadline, worktreeSummary } from "../../shared/projectContext";
+import { deriveProjectNextAction, runtimeHeadline } from "../../shared/projectContext";
 import { branchLabel, displayPath, gitLabel, relativeTime, runtimeLabel, syncLabel } from "../../shared/projectOverview";
 import { Badge } from "../../shared/ui";
 import type { ProjectActivity, ProjectOverview } from "../../shared/types";
@@ -42,7 +42,7 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
   const machine = useMachine().status?.machine;
   const available = p.location === "available";
   const sources = workspace.forProject(p.id);
-  const { data: trees } = useResource(sources.worktrees);
+  const { data: wtCounts } = useResource(sources.worktreeSummary);
   const { data: runtime } = useResource(sources.runtime);
   const [activity, setActivity] = useState<ProjectActivity | null>(null);
   const { data: ddae, status: ddaeStatus } = useResource(sources.ddae);
@@ -57,7 +57,7 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
     return () => { current = false; };
   }, [p.id, refreshKey]);
   useEffect(() => {
-    if (available && desktop) void sources.worktrees.refresh(30_000);
+    if (available && desktop) void sources.worktreeSummary.refresh(30_000);
   }, [available, sources]);
   const running = p.runtime.data?.running === true;
   useEffect(() => {
@@ -66,7 +66,6 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
 
   const git = gitLabel(p);
   const runtimeText = runtimeLabel(p);
-  const wt = worktreeSummary(trees);
   const next = deriveProjectNextAction(p, activity ? activity.contextGenerated : null, ddae);
   const ddaeActive = ddae?.sessions.find((session) => session.id === ddae.activeSessionId) ?? null;
   const act = () => {
@@ -103,8 +102,15 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
         <SummaryCard icon={<Box size={16} />} title="Worktrees" cta={available ? "Abrir Worktrees" : undefined} onCta={() => go("worktrees")}>
           {available ? (
             <>
-              <strong>{wt.count} {wt.count === 1 ? "worktree Git" : "worktrees Git"}</strong>
-              <small className="mono">{wt.branches.slice(0, 2).join(" · ") || "—"}{wt.branches.length > 2 ? ` · +${wt.branches.length - 2}` : ""}</small>
+              {wtCounts ? (
+                <>
+                  <strong>{wtCounts.managed} {wtCounts.managed === 1 ? "gerenciado" : "gerenciados"}</strong>
+                  <small>{wtCounts.active} {wtCounts.active === 1 ? "ativo" : "ativos"} · {wtCounts.missing} não localizado{wtCounts.missing === 1 ? "" : "s"}</small>
+                  <small>{wtCounts.gitTotal} no Git · {wtCounts.unmanaged} não gerenciado{wtCounts.unmanaged === 1 ? "" : "s"}</small>
+                </>
+              ) : (
+                <><strong className="tone-neutral">{desktop ? "Carregando…" : "—"}</strong><small>{desktop ? "Lendo o Git" : "Disponível apenas no aplicativo desktop"}</small></>
+              )}
             </>
           ) : (
             <><strong className="tone-neutral">—</strong><small>Sem pasta nesta máquina</small></>

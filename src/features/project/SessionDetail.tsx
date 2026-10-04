@@ -4,11 +4,12 @@ import { ArrowLeft, Check, Circle, CircleCheck, Copy, FileText, Pencil, Play } f
 import { SESSION_NOT_FOUND, projectHash } from "../../app/projectRoute";
 import { api, desktop, errorText } from "../../shared/api";
 import { contextStatus, deriveDdaeNextAction, progressFraction, statusBadge } from "../../shared/ddae";
+import { STATUS_LABEL } from "../../shared/worktrees";
 import { DETAIL_TABS, criteriaSummary, eventLabel, finalizeStatus, lifecycleActions, recentEvents, referenceTitle, resolveSessionLoad, scopeProjection } from "../../shared/ddaeDetail";
 import type { DetailTab } from "../../shared/ddaeDetail";
 import { relativeTime } from "../../shared/projectOverview";
 import { Empty, Modal } from "../../shared/ui";
-import type { DdaeSessionContext, DdaeSessionView } from "../../shared/types";
+import type { DdaeSessionContext, DdaeSessionView, SessionWorktree } from "../../shared/types";
 import { notifyLocalChange } from "../../state/sync";
 import { workspace } from "../../state/workspace";
 import { ReasonDialog } from "./DdaeSessions";
@@ -117,7 +118,7 @@ function TitleDialog({ view, busy, error, submit, close }: {
 
 
 /** Visão geral (Concept 07): só projeções do estado real da Session. */
-export function SessionOverview({ view, setTab, openContext }: { view: DdaeSessionView; setTab: (tab: DetailTab) => void; openContext: () => void }) {
+export function SessionOverview({ view, setTab, openContext, worktrees = [] }: { view: DdaeSessionView; setTab: (tab: DetailTab) => void; openContext: () => void; worktrees?: SessionWorktree[] }) {
   const next = deriveDdaeNextAction({ projectId: view.projectId, sessions: [view], counts: { total: 1, active: view.status === "active" ? 1 : 0, frozen: 0, stopped: 0, completed: 0 }, blocksTotal: view.blocks.length, activeSessionId: view.status === "active" ? view.id : null, legacyImport: "not_applicable" });
   const status = contextStatus(view.readyForAi);
   const scope = scopeProjection(view);
@@ -172,6 +173,18 @@ export function SessionOverview({ view, setTab, openContext }: { view: DdaeSessi
       <Card title="Arquivos e referências" action={<button type="button" className="text-button" onClick={() => setTab("files")}>Ver arquivos</button>}>
         {view.references?.length ? <ul className="sd-list">{view.references.slice(0, 4).map((r) => <li key={r.kind + r.value} className="mono">{referenceTitle(r)}</li>)}</ul> : <p className="muted">Nenhuma referência.</p>}
       </Card>
+      <Card title="Worktrees relacionados" action={<a className="text-button" href={projectHash(view.projectId, "worktrees")}>Ver worktrees</a>}>
+          {worktrees.length ? (
+            <ul className="sd-scope">
+              {worktrees.map((w) => (
+                <li key={w.id}>
+                  <span>{w.displayName}{w.branchHint ? <em> {w.branchHint}</em> : null}{!w.available ? <em> · não localizado nesta máquina</em> : null}</span>
+                  <em>{STATUS_LABEL[w.status]}</em>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="muted">Nenhum worktree vinculado.</p>}
+        </Card>
       <Card title="Histórico recente">
         {view.events?.length ? (
           <ul className="sd-history">
@@ -200,6 +213,7 @@ type Dialog = "context" | "title" | "freeze" | "stop" | "complete" | null;
 export function SessionDetail({ projectId, sessionId, notify }: { projectId: string; sessionId: string; notify: (message: string) => void }) {
   const [view, setView] = useState<DdaeSessionView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [worktrees, setWorktrees] = useState<SessionWorktree[]>([]);
   const [tab, setTab] = useState<DetailTab>("overview");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [busy, setBusy] = useState(false);
@@ -210,6 +224,8 @@ export function SessionDetail({ projectId, sessionId, notify }: { projectId: str
       const next = await api<DdaeSessionView>("ddae_session_detail", { projectId, sessionId });
       setView(next);
       setLoadError(null);
+      // Relações reais com worktrees (leve: banco, sem Git); falha aqui não esconde a Session.
+      void api<SessionWorktree[]>("worktrees_for_session", { projectId, sessionId }).then(setWorktrees, () => setWorktrees([]));
     } catch (failure) {
       const message = errorText(failure);
       if (resolveSessionLoad({ ok: false, message }) === "redirect") {
@@ -317,7 +333,7 @@ export function SessionDetail({ projectId, sessionId, notify }: { projectId: str
       </div>
 
       <div id="sd-panel" role="tabpanel" aria-labelledby={`sd-tab-${tab}`} className="sd-panel">
-        {tab === "overview" && <SessionOverview view={view} setTab={setTab} openContext={() => setDialog("context")} />}
+        {tab === "overview" && <SessionOverview view={view} setTab={setTab} openContext={() => setDialog("context")} worktrees={worktrees} />}
         {tab === "blocks" && <BlocksTab ops={ops} />}
         {tab === "plan" && <PlanTab ops={ops} />}
         {tab === "decisions" && <DecisionsTab ops={ops} />}

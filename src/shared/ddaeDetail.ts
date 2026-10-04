@@ -98,6 +98,10 @@ export function eventLabel(e: DdaeEvent): string {
     case "NOTE_ADDED": return "Anotação adicionada";
     case "NOTE_REMOVED": return "Anotação removida";
     case "DETAILS_UPDATED": return "Detalhes atualizados";
+    case "WORKTREE_LINKED": return `Worktree vinculado${quoted(text(e, "name"))}`;
+    case "WORKTREE_UNLINKED": return `Worktree desvinculado${quoted(text(e, "name"))}`;
+    case "WORKTREE_BLOCK_LINKED": return `Worktree vinculado a um bloco${quoted(text(e, "name"))}`;
+    case "WORKTREE_BLOCK_UNLINKED": return `Worktree desvinculado de um bloco${quoted(text(e, "name"))}`;
     default: return "Evento";
   }
 }

@@ -59,7 +59,7 @@ describe("Visão geral", () => {
     expect(html).toContain("Clean");
     expect(html).toContain("main");
     expect(html).toContain("Parado");
-    expect(html).toContain("0 worktrees Git");
+    expect(html).toContain("Worktrees");
     expect(html).toContain("PC Teste");
     expect(html).toContain("C:\\Dev\\app");
   });

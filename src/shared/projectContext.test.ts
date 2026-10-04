@@ -73,9 +73,9 @@ describe("deriveProjectNextAction", () => {
 describe("worktreeSummary", () => {
   it("só fatos do Git", () => {
     const s = worktreeSummary([
-      { path: "a", head: "1", branch: "main", locked: false },
-      { path: "b", head: "2", branch: "feat/x", locked: true },
-      { path: "c", head: "3", branch: "", locked: false },
+      { path: "a", head: "1", branch: "main", isPrimary: true, detached: false, bare: false, locked: false, prunable: false },
+      { path: "b", head: "2", branch: "feat/x", isPrimary: false, detached: false, bare: false, locked: true, prunable: false },
+      { path: "c", head: "3", branch: "", isPrimary: false, detached: true, bare: false, locked: false, prunable: false },
     ]);
     expect(s).toEqual({ count: 3, branches: ["main", "feat/x"], locked: 1 });
     expect(worktreeSummary([])).toEqual({ count: 0, branches: [], locked: 0 });

@@ -163,3 +163,32 @@ describe("casca do detalhe", () => {
     expect(html).not.toContain("SESSION-");
   });
 });
+
+describe("Worktrees relacionados (Session Detail)", () => {
+  it("sem vínculo real: nenhum worktree (nada é inventado para a SESSION-001)", () => {
+    const html = overview(session());
+    expect(html).toContain("Worktrees relacionados");
+    expect(html).toContain("Nenhum worktree vinculado.");
+    expect(html).toContain("Ver worktrees");
+    expect(html).toContain("#project/p/worktrees");
+  });
+  it("mostra só os vínculos reais: nome, branch, estado e disponibilidade nesta máquina", () => {
+    const html = renderToStaticMarkup(
+      <SessionOverview view={session()} setTab={() => {}} openContext={() => {}} worktrees={[
+        { id: "w1", displayName: "feature/a", status: "active", branchHint: "feature/a", blockId: null, available: true },
+        { id: "w2", displayName: "Em outra máquina", status: "frozen", branchHint: null, blockId: null, available: false },
+      ]} />,
+    );
+    expect(html).toContain("feature/a");
+    expect(html).toContain("Ativo");
+    expect(html).toContain("Congelado");
+    expect(html).toContain("não localizado nesta máquina");
+    expect(html).not.toContain("Nenhum worktree vinculado.");
+  });
+  it("o histórico da Session mostra a associação com worktree sem path", () => {
+    const view = session({ events: [{ id: "e2", type: "WORKTREE_LINKED", payload: { worktreeId: "w1", name: "feature/a" }, createdAt: "2026-10-04T10:00:00Z" }] });
+    const html = overview(view);
+    expect(html).toContain("Worktree vinculado: feature/a");
+    expect(html).not.toMatch(/[A-Za-z]:\\/);
+  });
+});
