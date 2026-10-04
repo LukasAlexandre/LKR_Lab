@@ -3,6 +3,7 @@ pub mod agents;
 pub mod bridge;
 pub mod commands;
 pub mod compose;
+pub mod control_plane;
 pub mod database;
 pub mod ddae;
 pub mod git;

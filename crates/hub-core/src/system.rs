@@ -171,6 +171,85 @@ pub fn process_usage() -> Vec<ProcessUsage> {
         })
         .collect()
 }
+/// Um processo como o sistema operacional o mostra, sem interpretação (Control Plane).
+/// Campos que o Windows não deixa ler sem elevação ficam ausentes: nunca são inventados.
+#[derive(Debug, Clone)]
+pub struct RawProcess {
+    pub pid: u32,
+    pub parent: Option<u32>,
+    pub name: String,
+    pub executable: Option<String>,
+    pub cmd: Vec<String>,
+    pub cwd: Option<String>,
+    /// Segundos desde a época Unix.
+    pub start_time: u64,
+    /// % de UM núcleo desde o refresh anterior do mesmo `System` (melhor esforço).
+    pub cpu: f32,
+    pub memory: u64,
+    pub read_bytes: u64,
+    pub written_bytes: u64,
+}
+
+type InventoryCache = Mutex<Option<(Instant, Vec<RawProcess>)>>;
+fn inventory_cache() -> &'static InventoryCache {
+    static CACHE: OnceLock<InventoryCache> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+/// Inventário completo para o Control Plane: UMA leitura (cache de 1 s) com pid, pai, exe, linha de
+/// comando, cwd, CPU, memória e E/S. 100% leitura: não encerra, não altera e não abre processos
+/// além do que o `sysinfo` já abre para ler.
+pub fn inventory() -> Vec<RawProcess> {
+    let mut cache = inventory_cache()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    if let Some((updated, list)) = cache.as_ref() {
+        if updated.elapsed() < Duration::from_secs(1) {
+            return list.clone();
+        }
+    }
+    let mut system = process_system()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing()
+            .with_cpu()
+            .with_memory()
+            .with_disk_usage()
+            .with_cwd(UpdateKind::Always)
+            .with_exe(UpdateKind::Always)
+            .with_cmd(UpdateKind::Always),
+    );
+    let list: Vec<RawProcess> = system
+        .processes()
+        .iter()
+        .map(|(pid, process)| {
+            let io = process.disk_usage();
+            RawProcess {
+                pid: pid.as_u32(),
+                parent: process.parent().map(|p| p.as_u32()),
+                name: process.name().to_string_lossy().into(),
+                executable: process.exe().map(|p| p.to_string_lossy().into()),
+                cmd: process
+                    .cmd()
+                    .iter()
+                    .map(|a| a.to_string_lossy().into())
+                    .collect(),
+                cwd: process.cwd().map(|p| p.to_string_lossy().into()),
+                start_time: process.start_time(),
+                cpu: process.cpu_usage(),
+                memory: process.memory(),
+                read_bytes: io.read_bytes,
+                written_bytes: io.written_bytes,
+            }
+        })
+        .collect();
+    *cache = Some((Instant::now(), list.clone()));
+    list
+}
+
 fn process_snapshot() -> Vec<ProcessSample> {
     let mut cache = snapshot_cache()
         .lock()

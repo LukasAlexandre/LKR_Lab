@@ -284,6 +284,41 @@ fn bind_project(
 ) -> HubResult<BindResult> {
     db(&state)?.bind(&id, &path, confirmed)
 }
+/// Control Plane (SESSION-002): observação da máquina. 100% leitura — nada é encerrado, fechado ou alterado.
+type ControlPlaneInputs = (
+    hub_core::control_plane::Context,
+    std::collections::HashMap<u32, (String, String)>,
+    Vec<hub_core::supervisor::RunInfo>,
+);
+fn control_plane_inputs(app: &tauri::AppHandle) -> HubResult<ControlPlaneInputs> {
+    let state = app.state::<AppState>();
+    let ctx = db(&state)?.control_plane_context()?;
+    let supervisor = &app.state::<RuntimeState>().0;
+    Ok((ctx, supervisor.managed_runs(), supervisor.all_runs()))
+}
+#[tauri::command]
+async fn control_plane_snapshot(
+    app: tauri::AppHandle,
+) -> HubResult<hub_core::control_plane::ControlPlaneSnapshot> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (ctx, managed, runs) = control_plane_inputs(&app)?;
+        hub_core::control_plane::observe(&ctx, managed, runs)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn control_plane_processes(
+    app: tauri::AppHandle,
+    include_all: bool,
+) -> HubResult<Vec<hub_core::control_plane::ProcessEntry>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let (ctx, managed, _) = control_plane_inputs(&app)?;
+        hub_core::control_plane::observe_processes(&ctx, &managed, include_all)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 /// Planejamento (Concept 09). Leitura agregada: 100% passiva (nada é gravado ao abrir a página).
 #[tauri::command]
 fn planning_overview(
@@ -1013,6 +1048,8 @@ fn main() {
             worktree_set_relation,
             worktree_locate,
             worktree_git_remove,
+            control_plane_snapshot,
+            control_plane_processes,
             planning_overview,
             planning_summary,
             planning_events,

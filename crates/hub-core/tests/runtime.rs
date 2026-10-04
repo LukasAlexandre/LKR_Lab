@@ -527,7 +527,7 @@ const TASK: &str = "console.log('tarefa concluida');";
 const BOOM: &str = "console.error('falhou feio'); process.exit(3);";
 const TREE: &str = "const { spawn } = require('child_process');\nconst c = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });\nconsole.log('neto ' + c.pid);\nsetInterval(() => {}, 1000);";
 const FLOOD: &str =
-    "for (let i = 0; i < 5000; i++) console.log('linha ' + i); setInterval(() => {}, 1000);";
+    "for (let i = 0; i < 25000; i++) console.log('linha ' + i); setInterval(() => {}, 1000);";
 
 fn fixture() -> (tempfile::TempDir, PathBuf, Project) {
     let (tmp, dir) = node_project(
@@ -755,11 +755,15 @@ fn log_buffer_is_bounded_and_ordered() {
     let (_t, _d, p) = fixture();
     let (sup, _) = supervisor();
     let run = sup.start(&p, "flood").unwrap();
-    wait_until("5000 linhas", || {
-        sup.logs(&run.id, 0).unwrap().next_seq >= 5000
+    wait_until("25000 linhas", || {
+        sup.logs(&run.id, 0).unwrap().next_seq >= 25000
     });
     let chunk = sup.logs(&run.id, 0).unwrap();
-    assert!(chunk.lines.len() <= 2000);
+    assert!(chunk.lines.len() <= hub_core::supervisor::MAX_LOG_LINES);
+    assert!(
+        chunk.lines.iter().all(|l| l.ts > 0),
+        "toda linha tem timestamp local"
+    );
     assert!(chunk.truncated);
     assert!(chunk.lines.windows(2).all(|w| w[0].seq + 1 == w[1].seq));
     assert!(chunk.lines.last().unwrap().text.starts_with("linha "));

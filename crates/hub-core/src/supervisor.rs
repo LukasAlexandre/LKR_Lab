@@ -23,7 +23,10 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-const MAX_LOG_LINES: usize = 2000;
+/// Ring buffer por execução (memória local; nunca vai ao workspace portátil, ao Git nem ao sync).
+/// Limite por linhas E por bytes: o que estourar primeiro descarta as linhas mais antigas.
+pub const MAX_LOG_LINES: usize = 10_000;
+pub const MAX_LOG_BYTES: usize = 8 * 1024 * 1024;
 const MAX_LINE: usize = 4000;
 const KEEP_FINISHED: usize = 10;
 
@@ -96,6 +99,8 @@ pub type EventSink = Arc<dyn Fn(RuntimeEvent) + Send + Sync>;
 #[derive(Debug, Clone, Serialize)]
 pub struct LogLine {
     pub seq: u64,
+    /// Instante (ms desde a época Unix) em que o LKR LAB recebeu a linha.
+    pub ts: u64,
     /// "out" | "err"
     pub stream: &'static str,
     pub text: String,
@@ -158,18 +163,25 @@ pub struct LogChunk {
 struct LogBuffer {
     lines: VecDeque<LogLine>,
     next_seq: u64,
+    bytes: usize,
 }
 impl LogBuffer {
     fn push(&mut self, stream: &'static str, text: String, source: Option<&'static str>) {
+        self.bytes += text.len();
         self.lines.push_back(LogLine {
             seq: self.next_seq,
+            ts: now_ms(),
             stream,
             text,
             source,
         });
         self.next_seq += 1;
-        while self.lines.len() > MAX_LOG_LINES {
-            self.lines.pop_front();
+        while self.lines.len() > MAX_LOG_LINES
+            || (self.bytes > MAX_LOG_BYTES && self.lines.len() > 1)
+        {
+            if let Some(old) = self.lines.pop_front() {
+                self.bytes = self.bytes.saturating_sub(old.text.len());
+            }
         }
     }
 }
@@ -669,6 +681,25 @@ impl Supervisor {
             .collect();
         runs.sort_by_key(|r| std::cmp::Reverse(r.started_at));
         runs
+    }
+
+    /// Todas as execuções conhecidas (qualquer projeto), mais recentes primeiro.
+    pub fn all_runs(&self) -> Vec<RunInfo> {
+        let mut runs: Vec<_> = self.all().into_iter().map(|r| r.info()).collect();
+        runs.sort_by_key(|r| std::cmp::Reverse(r.started_at));
+        runs
+    }
+
+    /// PID → (projeto, execução) de todo processo vivo nas árvores gerenciadas. É a evidência
+    /// mais forte de atribuição: o grupo (Job Object) é do LKR LAB, não um palpite.
+    pub fn managed_runs(&self) -> HashMap<u32, (String, String)> {
+        let mut map = HashMap::new();
+        for run in self.all() {
+            for pid in run.group.pids() {
+                map.insert(pid, (run.project_id.clone(), run.id.clone()));
+            }
+        }
+        map
     }
 
     /// PID → projeto de todo processo vivo nas árvores gerenciadas.
