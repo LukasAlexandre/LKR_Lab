@@ -9,7 +9,7 @@ import { workspace } from "./workspace";
  * estado das execuções gerenciadas chega por EVENTOS do backend (sem polling) e
  * os logs são buscados sob demanda, apenas para a execução que está na tela.
  */
-const MAX_LINES = 2000;
+export const MAX_LINES = 5000;
 
 interface RunLogs {
   lines: LogLine[];
@@ -48,18 +48,21 @@ export async function pullLogs(runId: string) {
   }
 }
 
-const watched = new Set<string>();
+/** Cada tela com um log aberto é um "dono"; só as execuções que algum dono vê são puxadas. */
+const watchers = new Map<string, string>();
+const isWatched = (runId: string) => [...watchers.values()].includes(runId);
+const EMPTY_LOGS: RunLogs = { lines: [], nextSeq: 0, truncated: false };
 export function useRunLogs(runId: string | null): RunLogs {
-  const empty = { lines: [], nextSeq: 0, truncated: false };
-  useSyncExternalStore(subscribe, () => version);
-  return runId ? logs.get(runId) ?? empty : empty;
+  useSyncExternalStore(subscribe, () => version, () => version);
+  return runId ? logs.get(runId) ?? EMPTY_LOGS : EMPTY_LOGS;
 }
 /** Marca a execução cujo log está aberto: só ela é atualizada pelos eventos de saída. */
-export function watchRun(runId: string | null) {
-  watched.clear();
+export function watchRun(runId: string | null, owner = "default") {
   if (runId) {
-    watched.add(runId);
+    watchers.set(owner, runId);
     void pullLogs(runId);
+  } else {
+    watchers.delete(owner);
   }
 }
 
@@ -70,12 +73,13 @@ export function startRuntimeEvents() {
   started = true;
   void listen<RuntimeEvent>("runtime://event", ({ payload }) => {
       if (payload.kind === "output") {
-        if (watched.has(payload.runId)) void pullLogs(payload.runId);
+        if (isWatched(payload.runId)) void pullLogs(payload.runId);
         return;
       }
       // Mudança de estado: o snapshot do projeto (runs, processos, portas) é refeito.
       void workspace.forProject(payload.projectId).runtime.refresh();
-      if (watched.has(payload.runId)) void pullLogs(payload.runId);
+      void workspace.controlPlane.refresh();
+      if (isWatched(payload.runId)) void pullLogs(payload.runId);
       if (payload.state === "running" || payload.state === "stopped" || payload.state === "failed" || payload.state === "completed") {
         void workspace.ports.refresh();
         void workspace.processes.refresh();

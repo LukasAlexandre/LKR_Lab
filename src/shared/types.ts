@@ -264,6 +264,7 @@ export interface RunInfo {
   pid: number | null;
   exitCode: number | null;
   startedAt: number;
+  endedAt: number | null;
   lastSeq: number;
 }
 export interface ProjectRuntime {
@@ -295,6 +296,8 @@ export interface ProjectRuntime {
 }
 export interface LogLine {
   seq: number;
+  /** Instante (ms desde a época Unix) em que o LKR LAB recebeu a linha. */
+  ts: number;
   stream: "out" | "err";
   text: string;
   /** Quem escreveu, quando reconhecível (tauri dev mistura Tauri, Vite e Cargo). */
@@ -822,3 +825,62 @@ export interface PlanningRef {
   phase: PlanningPhase;
 }
 export type PlanningMove = "up" | "down" | "top";
+
+/* ---- Control Plane (SESSION-002): espelho do contrato serializado por `hub-core::control_plane`. ---- */
+export type Confidence = "unknown" | "medium" | "high" | "exact";
+export interface Evidence { kind: string; detail: string }
+/** Relação PROCESSO → PROJECT → WORKTREE → SESSION. Campos vazios = sem evidência ("—" na tela). */
+export interface Association {
+  confidence: Confidence;
+  projectId: string | null;
+  projectName: string | null;
+  worktreeId: string | null;
+  worktreeName: string | null;
+  sessionId: string | null;
+  sessionLabel: string | null;
+  blockId: string | null;
+  blockTitle: string | null;
+  evidence: Evidence[];
+}
+export interface PortObservation {
+  port: number;
+  address: string;
+  protocol: string;
+  ipVersion: "v4" | "v6";
+  pid: number | null;
+}
+export interface TreeNode { pid: number; parentPid: number | null; name: string; depth: number; cpu: number; memory: number }
+export interface ConsoleStream { available: boolean; runId: string | null; reason: string | null }
+export interface ManagedExecution { runId: string; commandId: string; command: string; projectId: string; exitCode: number | null; observer: boolean }
+export interface RuntimeObservation {
+  id: string;
+  origin: "managed" | "discovered";
+  category: "dev" | "system" | "other";
+  label: string;
+  technology: string | null;
+  state: RunState;
+  rootPid: number | null;
+  pids: number[];
+  ports: PortObservation[];
+  tree: TreeNode[];
+  command: string;
+  cwd: string | null;
+  startedAt: number | null;
+  cpu: number;
+  memory: number;
+  association: Association;
+  console: ConsoleStream;
+  execution: ManagedExecution | null;
+  isSelf: boolean;
+}
+export interface HealthSignal { id: string; domain: string; severity: "info" | "warning" | "critical"; message: string }
+export interface Limitation { id: string; detail: string; requiresElevation: boolean }
+export interface ControlPlaneSnapshot {
+  takenAt: number;
+  scope: "local";
+  processTotal: number;
+  listeningTotal: number;
+  runtimes: RuntimeObservation[];
+  signals: HealthSignal[];
+  limitations: Limitation[];
+}

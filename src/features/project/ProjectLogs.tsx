@@ -49,7 +49,7 @@ export function ProjectLogs({ projectId }: { projectId: string }) {
                 <option key={run.id} value={run.id}>{run.command} · {run.state}</option>
               ))}
             </select>
-            {log.truncated && <small>Linhas antigas descartadas (limite de 2000)</small>}
+            {log.truncated && <small>Linhas antigas descartadas</small>}
           </div>
           <pre ref={logRef} aria-label={`Logs de ${current.command}`}>
             {log.lines.length === 0 ? <span className="muted">Sem saída ainda.</span> : log.lines.map((line) => (

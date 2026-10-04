@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { api, desktop } from "../shared/api";
 import { preferences } from "../shared/preferences";
-import type { Activity, AgentContext, DdaeOverview, PlanningOverview, PlanningSummary, WorktreeCounts, WorktreeOverview, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
+import type { ControlPlaneSnapshot, Activity, AgentContext, DdaeOverview, PlanningOverview, PlanningSummary, WorktreeCounts, WorktreeOverview, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
 import { createResource, type Resource } from "./resource";
 import type { KnowledgeEntry } from "../shared/types";
 import { trackOperation } from "./operations";
@@ -15,6 +15,8 @@ const projects = createResource<Project[]>([], () => api("list_projects"));
 const overviews = createResource<ProjectsOverview | null>(null, () => trackOperation("Consultando projetos", () => api("project_overviews")));
 const ports = createResource<PortInfo[]>([], () => trackOperation("Consultando portas", () => api("list_ports")));
 const processes = createResource<ProcessInfo[]>([], () => trackOperation("Consultando processos", () => api("list_processes")));
+// Control Plane (SESSION-002): leitura LOCAL e passiva da máquina (processos, portas, runtimes).
+const controlPlane = createResource<ControlPlaneSnapshot | null>(null, () => api("control_plane_snapshot"));
 const environment = createResource<SystemState | null>(null, () => api("system_state"));
 const activities = createResource<Activity[]>([], () => api("list_activities"));
 const prompts = createResource<Prompt[]>([], () => api("list_prompts"));
@@ -79,7 +81,7 @@ async function refreshDdae() {
 }
 
 export const workspace = {
-  projects, overviews, ports, processes, environment, activities, prompts, agentProviders, knowledge, forProject,
+  projects, overviews, ports, processes, controlPlane, environment, activities, prompts, agentProviders, knowledge, forProject,
   selectProject, loadRegistry, refreshRepositories, refreshDdae,
   async refreshEnvironment() {
     if (!desktop) return;

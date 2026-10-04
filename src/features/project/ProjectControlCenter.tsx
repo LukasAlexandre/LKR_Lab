@@ -15,6 +15,7 @@ import { SessionDetail } from "./SessionDetail";
 import { PlanningWorkspace } from "./PlanningWorkspace";
 import { WorktreesWorkspace } from "./WorktreesWorkspace";
 import { ProjectLogs } from "./ProjectLogs";
+import { RuntimeHub } from "./RuntimeHub";
 import { ProjectOverviewArea } from "./ProjectOverviewArea";
 
 /** Áreas que dependem de uma pasta nesta máquina (Git, runtime, worktrees, logs). */
@@ -123,7 +124,12 @@ export function ProjectControlCenter({ projectId, area, sessionId, views, launch
   } else if (area === "overview") {
     content = <ProjectOverviewArea project={overview} go={go} locate={() => void locate()} generateContext={generateContext} refreshKey={contextVersion} />;
   } else if (area === "runtime") {
-    content = <ProjectRuntime project={base} context={generateContext} report={report} />;
+    content = (
+      <>
+        <ProjectRuntime project={base} context={generateContext} report={report} />
+        <RuntimeHub projectId={projectId} />
+      </>
+    );
   } else if (area === "git") {
     content = views.git;
   } else if (area === "worktrees") {
