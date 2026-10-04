@@ -16,6 +16,7 @@ import {
 } from "../../shared/ddae";
 import type { DdaeFilter } from "../../shared/ddae";
 import { projectHash } from "../../app/projectRoute";
+import { originText } from "../../shared/planning";
 import { relativeTime } from "../../shared/projectOverview";
 import { Empty, Modal } from "../../shared/ui";
 import type { DdaeOverview, DdaeSession, DdaeSessionStatus, DdaeSessionView } from "../../shared/types";
@@ -132,15 +133,21 @@ export function ConfirmDialog({ title, children, confirm, busy, error, submit, c
   );
 }
 
-function NewSessionDialog({ active, busy, error, submit, close }: {
-  active: DdaeSessionView | null;
+/**
+ * Formulário de Nova sessão. O Planejamento o reutiliza (Iniciar) com título e objetivo
+ * pré-preenchidos: o usuário revisa antes de criar; nada é criado silenciosamente.
+ */
+export function NewSessionDialog({ active, busy, error, submit, close, initial, note }: {
+  active: { label: string } | null;
   busy: boolean;
   error: string | null;
   submit: (title: string, objective: string) => void;
   close: () => void;
+  initial?: { title: string; objective: string };
+  note?: string;
 }) {
-  const [title, setTitle] = useState("");
-  const [objective, setObjective] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [objective, setObjective] = useState(initial?.objective ?? "");
   return (
     <Modal title="Nova sessão" close={close}>
       <form className="ddae-form" onSubmit={(e: FormEvent) => { e.preventDefault(); submit(title, objective); }}>
@@ -157,7 +164,7 @@ function NewSessionDialog({ active, busy, error, submit, close }: {
           Objetivo <span className="muted">(opcional)</span>
           <textarea value={objective} maxLength={4000} rows={4} onChange={(e) => setObjective(e.target.value)} />
         </label>
-        <p className="muted">Uma sessão é uma feature do projeto e nasce ativa. Os blocos são adicionados depois.</p>
+        <p className="muted">{note ?? "Uma sessão é uma feature do projeto e nasce ativa. Os blocos são adicionados depois."}</p>
         {error && <p className="ddae-error" role="alert">{error}</p>}
         <div className="modal-actions">
           <button type="button" className="button" onClick={close}>Cancelar</button>
@@ -337,6 +344,7 @@ export function DdaeSessions({ projectId, notify }: { projectId: string; notify:
                         <span className="ddae-item-title">{s.title}</span>
                         <span className="ddae-item-meta">{progressText(s)} · Atualizada {relativeTime(s.updatedAt).toLowerCase()}</span>
                         {line && <span className="ddae-item-line">{line}</span>}
+                        {originText(s) && <span className="ddae-item-origin">{originText(s)}</span>}
                       </span>
                       <ChevronRight size={16} aria-hidden="true" />
                     </button>
@@ -395,6 +403,7 @@ export function DdaeSessions({ projectId, notify }: { projectId: string; notify:
                 <div><dt>Início</dt><dd>{new Date(selected.createdAt).toLocaleDateString("pt-BR")}</dd></div>
                 <div><dt>Última atualização</dt><dd>{relativeTime(selected.updatedAt)}</dd></div>
                 <div><dt>Tipo</dt><dd>Feature</dd></div>
+                {selected.planningItem && <div><dt>Origem</dt><dd><a href={projectHash(projectId, "planning")}>Planejamento</a> — {selected.planningItem.title}</dd></div>}
               </dl>
 
               <p className={`ddae-context is-${contextStatus(selected.readyForAi).tone}`} title={contextStatus(selected.readyForAi).detail}>

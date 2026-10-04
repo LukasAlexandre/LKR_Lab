@@ -2,7 +2,7 @@ import { deriveDdaeNextAction } from "./ddae";
 import { changesLabel } from "./logic";
 import { isDirty } from "./projectOverview";
 import type { ProjectArea } from "../app/projectRoute";
-import type { DdaeOverview, ProjectOverview, Worktree } from "./types";
+import type { DdaeOverview, PlanningSummary, ProjectOverview, Worktree } from "./types";
 
 /*
  * Lógica pura da Visão geral do Project Control Center (Concept 05).
@@ -16,7 +16,7 @@ export type NextActionTarget =
   | { kind: "none" };
 
 export interface NextAction {
-  id: "locate" | "conflicts" | "review-changes" | "review-runtime" | "continue-block" | "start-block" | "generate-context" | "none";
+  id: "locate" | "conflicts" | "review-changes" | "review-runtime" | "continue-block" | "start-block" | "start-planning-item" | "generate-context" | "none";
   title: string;
   description: string;
   cta: string | null;
@@ -32,15 +32,18 @@ export interface NextAction {
  *  5. DDAE: sessão ativa com bloco em andamento → Continuar <bloco>;
  *           sessão ativa sem bloco atual e com próximo → Iniciar <bloco>
  *           (só com o DDAE real carregado; `null`/ausente = a regra não dispara)
- *  6. Contexto IA nunca gerado   → Gerar contexto (só quando `contextGenerated === false`;
+ *  6. Planejamento: SEM Session ativa e com item PLANEJADO → Iniciar <item> (o PRÓXIMO da fila).
+ *           Com Session ativa a regra não dispara: o item não pode ser iniciado.
+ *  7. Contexto IA nunca gerado   → Gerar contexto (só quando `contextGenerated === false`;
  *                                  `null` = desconhecido, a regra não dispara. "Defasado" não é observável.)
- *  7. Nada urgente               → nenhuma ação pendente
- * O DDAE entra DEPOIS dos problemas prioritários (1–4). Não existe regra de Planejamento nem de IA.
+ *  8. Nada urgente               → nenhuma ação pendente
+ * O DDAE e o Planejamento entram DEPOIS dos problemas prioritários (1–4). Não existe regra de IA.
  */
 export function deriveProjectNextAction(
   project: ProjectOverview,
   contextGenerated: boolean | null,
   ddae?: DdaeOverview | null,
+  planning?: PlanningSummary | null,
 ): NextAction {
   if (project.location !== "available") {
     return {
@@ -90,6 +93,15 @@ export function deriveProjectNextAction(
       description: work.description,
       cta: "Abrir DDAE",
       target: { kind: "area", area: "ddae" },
+    };
+  }
+  if (planning?.next && !planning.activeSession) {
+    return {
+      id: "start-planning-item",
+      title: `Iniciar ${planning.next.title}`,
+      description: "É o próximo item planejado da fila e não há Session ativa neste projeto.",
+      cta: "Abrir Planejamento",
+      target: { kind: "area", area: "planning" },
     };
   }
   if (contextGenerated === false) {

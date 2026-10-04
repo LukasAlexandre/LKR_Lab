@@ -79,7 +79,7 @@ const quoted = (value: string) => (value ? `: ${value}` : "");
 /** Linha do histórico a partir do evento real (nada é inventado além do tipo e do payload). */
 export function eventLabel(e: DdaeEvent): string {
   switch (e.type) {
-    case "SESSION_CREATED": return "Sessão criada";
+    case "SESSION_CREATED": return e.payload?.planningItemId ? "Sessão criada a partir do Planejamento" : "Sessão criada";
     case "SESSION_FROZEN": return `Sessão congelada${quoted(text(e, "reason"))}`;
     case "SESSION_STOPPED": return `Sessão parada${quoted(text(e, "reason"))}`;
     case "SESSION_RESUMED": return "Sessão retomada";

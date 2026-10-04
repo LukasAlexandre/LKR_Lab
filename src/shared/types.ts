@@ -619,6 +619,8 @@ export interface DdaeSession {
   updatedAt: string;
   completedAt?: string;
   events?: DdaeEvent[];
+  /** Item de Planejamento de origem (só quando a Session nasceu do Planejamento). */
+  planningItemId?: string;
 }
 export interface DdaeSessionView extends DdaeSession {
   /** `SESSION-001` */
@@ -631,6 +633,8 @@ export interface DdaeSessionView extends DdaeSession {
   completionBlockers: ("no_blocks" | "block_in_progress" | "blocks_pending" | "criteria_pending")[];
   recentDecision: DdaeDecision | null;
   readyForAi: DdaeReadyForAi;
+  /** Item de Planejamento de origem (derivado); nulo quando a Session não nasceu do Planejamento. */
+  planningItem?: PlanningRef | null;
 }
 export interface DdaeCounts {
   total: number;
@@ -722,3 +726,99 @@ export interface SessionWorktree {
   blockId: string | null;
   available: boolean;
 }
+
+/** Planejamento (Concept 09): espelha hub-core::planning. Só `open|cancelled` são gravados; a fase é derivada. */
+export type PlanningStoredStatus = "open" | "cancelled";
+export type PlanningPhase = "planned" | "executing" | "completed" | "cancelled";
+export type PlanningEventType =
+  | "PLANNING_ITEM_CREATED"
+  | "PLANNING_ITEM_UPDATED"
+  | "PLANNING_ITEM_CANCELLED"
+  | "PLANNING_ITEM_RESTORED"
+  | "PLANNING_ITEM_SESSION_LINKED";
+export interface PlanningItem {
+  id: string;
+  projectId: string;
+  title: string;
+  description?: string;
+  position: number;
+  storedStatus: PlanningStoredStatus;
+  cancelReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  cancelledAt?: string;
+}
+export interface PlanningEvent {
+  id: string;
+  itemId: string;
+  type: PlanningEventType;
+  payload?: Record<string, string | number | boolean>;
+  createdAt: string;
+}
+/** A Session vinculada, já derivada: o progresso é o da Session, nunca do item. */
+export interface PlanningSessionRef {
+  id: string;
+  number: number;
+  label: string;
+  title: string;
+  status: DdaeSessionStatus;
+  progress: { completed: number; total: number };
+}
+export interface PlanningRow extends PlanningItem {
+  phase: PlanningPhase;
+  session: PlanningSessionRef | null;
+  canStart: boolean;
+  disabledReason: string | null;
+  canEdit: boolean;
+  canCancel: boolean;
+  canRestore: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  lastActivityAt: string;
+}
+export interface PlanningCounts {
+  /** planejados + em execução + concluídos (cancelados ficam de fora). */
+  operational: number;
+  planned: number;
+  executing: number;
+  completed: number;
+  cancelled: number;
+}
+export interface PlanningNext {
+  id: string;
+  title: string;
+  description: string;
+  canStart: boolean;
+  disabledReason: string | null;
+}
+export interface PlanningActiveSession {
+  id: string;
+  number: number;
+  label: string;
+}
+export interface PlanningOverview {
+  projectId: string;
+  items: PlanningRow[];
+  counts: PlanningCounts;
+  next: PlanningNext | null;
+  activeSession: PlanningActiveSession | null;
+}
+export interface PlanningSummary {
+  counts: PlanningCounts;
+  next: PlanningNext | null;
+  activeSession: PlanningActiveSession | null;
+}
+export interface PlanningStartDraft {
+  itemId: string;
+  title: string;
+  objective: string;
+  canStart: boolean;
+  disabledReason: string | null;
+}
+/** Origem de Planejamento mostrada na lista DDAE e no detalhe da Session. */
+export interface PlanningRef {
+  id: string;
+  title: string;
+  phase: PlanningPhase;
+}
+export type PlanningMove = "up" | "down" | "top";

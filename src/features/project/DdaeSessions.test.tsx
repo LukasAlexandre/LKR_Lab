@@ -36,6 +36,7 @@ function overview(projectId: string, sessions: DdaeSessionView[], activeId: stri
 const REAL = "proj-real";
 const EMPTY = "proj-empty";
 const MIXED = "proj-mixed";
+const ORIGIN = "proj-origin";
 
 beforeAll(async () => {
   // O LKR_Lab real: somente a SESSION-001 (nada de SESSION-002/003/004 de exemplo).
@@ -47,10 +48,26 @@ beforeAll(async () => {
     view(2, "frozen", { title: "External Process Adoption", pauseReason: "Aguardando o Runtime Manager" }),
     view(1, "completed", { title: "Portable Workspace", result: "Concluído", blocks: [block("y", "Fechar", "completed")] }),
   ], null));
-  for (const id of [REAL, EMPTY, MIXED]) await workspace.forProject(id).ddae.refresh();
+  responses.set(ORIGIN, overview(ORIGIN, [
+    view(2, "active", { title: "Sistema de Plugins", planningItem: { id: "i1", title: "Plugins", phase: "executing" } }),
+    view(1, "completed", { title: "Legada", result: "Concluído", blocks: [block("y", "Fechar", "completed")] }),
+  ], "id-2"));
+  for (const id of [REAL, EMPTY, MIXED, ORIGIN]) await workspace.forProject(id).ddae.refresh();
 });
 
 const render = (id: string) => renderToStaticMarkup(<DdaeSessions projectId={id} notify={() => {}} />);
+
+describe("DDAE × Planejamento", () => {
+  it("mostra a origem discreta só nas Sessions que nasceram do Planejamento", () => {
+    const html = render(ORIGIN);
+    expect(html).toContain("Origem: Planejamento — Plugins");
+    expect((html.match(/ddae-item-origin/g) ?? []).length).toBe(1);
+    expect(html).toContain('href="#project/proj-origin/planning"');
+  });
+  it("a SESSION-001 legada não mostra origem nenhuma", () => {
+    expect(render(REAL)).not.toMatch(/Origem|ddae-item-origin/);
+  });
+});
 
 describe("DDAE / Sessões (dados reais)", () => {
   it("mostra a SESSION-001 real com bloco atual, progresso e estado, e nenhuma sessão de exemplo", () => {

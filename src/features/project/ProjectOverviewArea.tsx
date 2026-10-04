@@ -23,14 +23,7 @@ function SummaryCard({ icon, title, tone, children, cta, onCta }: {
   );
 }
 
-const Unavailable = ({ what }: { what: string }) => (
-  <>
-    <strong className="tone-neutral">Ainda não disponível</strong>
-    <small>{what}</small>
-  </>
-);
-
-/** Visão geral (Concept 05): só dados reais. O DDAE vem do backend; Planejamento ainda não existe e diz isso. */
+/** Visão geral (Concept 05): só dados reais. DDAE e Planejamento vêm do backend; sem itens, o estado vazio é honesto. */
 export function ProjectOverviewArea({ project: p, go, locate, generateContext, refreshKey }: {
   project: ProjectOverview;
   go: (area: ProjectArea) => void;
@@ -46,8 +39,12 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
   const { data: runtime } = useResource(sources.runtime);
   const [activity, setActivity] = useState<ProjectActivity | null>(null);
   const { data: ddae, status: ddaeStatus } = useResource(sources.ddae);
+  const { data: planning, status: planningStatus } = useResource(sources.planningSummary);
   useEffect(() => {
-    if (desktop) void sources.ddae.refresh();
+    if (desktop) {
+      void sources.ddae.refresh();
+      void sources.planningSummary.refresh();
+    }
   }, [sources, refreshKey]);
 
   useEffect(() => {
@@ -66,7 +63,7 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
 
   const git = gitLabel(p);
   const runtimeText = runtimeLabel(p);
-  const next = deriveProjectNextAction(p, activity ? activity.contextGenerated : null, ddae);
+  const next = deriveProjectNextAction(p, activity ? activity.contextGenerated : null, ddae, planning);
   const ddaeActive = ddae?.sessions.find((session) => session.id === ddae.activeSessionId) ?? null;
   const act = () => {
     if (next.target.kind === "locate") locate();
@@ -134,8 +131,19 @@ export function ProjectOverviewArea({ project: p, go, locate, generateContext, r
             </>
           )}
         </SummaryCard>
-        <SummaryCard icon={<ListChecks size={16} />} title="Planejamento">
-          <Unavailable what="O módulo de Planejamento ainda não foi implementado." />
+        <SummaryCard icon={<ListChecks size={16} />} title="Planejamento" cta="Abrir Planejamento" onCta={() => go("planning")}>
+          {!desktop ? (
+            <><strong className="tone-neutral">—</strong><small>Disponível apenas no aplicativo desktop</small></>
+          ) : !planning ? (
+            <><strong className="tone-neutral">{planningStatus === "error" ? "Indisponível" : "Carregando…"}</strong><small>Fila do projeto</small></>
+          ) : planning.counts.operational + planning.counts.cancelled === 0 ? (
+            <><strong className="tone-neutral">Nenhum item</strong><small>Nenhum item no planejamento</small></>
+          ) : (
+            <>
+              <strong>{planning.next ? `Próximo: ${planning.next.title}` : "Nenhum item planejado"}</strong>
+              <small>{planning.counts.planned} {planning.counts.planned === 1 ? "planejado" : "planejados"} · {planning.counts.executing} em execução · {planning.counts.completed} {planning.counts.completed === 1 ? "concluído" : "concluídos"}</small>
+            </>
+          )}
         </SummaryCard>
       </div>
 

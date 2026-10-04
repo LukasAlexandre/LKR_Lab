@@ -34,6 +34,21 @@ function session(extra: Partial<DdaeSessionView> = {}): DdaeSessionView {
 const ops = (view: DdaeSessionView) => ({ view, busy: false, error: null, run: async () => true, setError: () => {} });
 const overview = (view: DdaeSessionView) => renderToStaticMarkup(<SessionOverview view={view} setTab={() => {}} openContext={() => {}} />);
 
+describe("Item de planejamento relacionado", () => {
+  it("aparece só quando a Session nasceu de um item", () => {
+    const linked = overview(session({ planningItem: { id: "i1", title: "Sistema de Plugins", phase: "executing" } }));
+    expect(linked).toContain("Item de planejamento");
+    expect(linked).toContain("Sistema de Plugins");
+    expect(linked).toContain("Em execução");
+    expect(linked).toContain("Ver Planejamento");
+  });
+  it("a SESSION-001 não ganha item retroativo", () => {
+    const legacy = overview(session());
+    expect(legacy).not.toContain("Item de planejamento");
+    expect(overview(session({ planningItem: null }))).not.toContain("Item de planejamento");
+  });
+});
+
 describe("Visão geral (SESSION-001 real)", () => {
   const html = overview(session());
   it("status operacional: bloco atual, progresso 9/10 e sem próximo bloco", () => {

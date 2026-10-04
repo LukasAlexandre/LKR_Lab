@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { api, desktop } from "../shared/api";
 import { preferences } from "../shared/preferences";
-import type { Activity, AgentContext, DdaeOverview, WorktreeCounts, WorktreeOverview, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
+import type { Activity, AgentContext, DdaeOverview, PlanningOverview, PlanningSummary, WorktreeCounts, WorktreeOverview, ProjectsOverview, ProjectRuntime, AgentProviderStatus, GitState, HostingState, PortInfo, ProcessInfo, Project, Prompt, SystemState, Worktree } from "../shared/types";
 import { createResource, type Resource } from "./resource";
 import type { KnowledgeEntry } from "../shared/types";
 import { trackOperation } from "./operations";
@@ -33,6 +33,9 @@ function projectSources(id: string) {
     worktreeSummary: createResource<WorktreeCounts | null>(null, () => api("worktree_summary", { id })),
     // DDAE: lista, derivados e importação idempotente da SESSION-001 histórica (backend).
     ddae: createResource<DdaeOverview | null>(null, () => api("ddae_overview", { projectId: id })),
+    // Planejamento (Concept 09): leitura PASSIVA da fila (fase derivada no backend) e só o resumo.
+    planning: createResource<PlanningOverview | null>(null, () => api("planning_overview", { projectId: id })),
+    planningSummary: createResource<PlanningSummary | null>(null, () => api("planning_summary", { projectId: id })),
   };
 }
 const repositories = new Map<string, ReturnType<typeof projectSources>>();
@@ -68,9 +71,11 @@ async function refreshRepositories(maxAgeMs = 30_000) {
   }));
 }
 
-/** Relê o DDAE de todos os Projects já carregados (depois de um sync que aplicou o workspace). */
+/** Relê o DDAE e o Planejamento de todos os Projects já carregados (depois de um sync que aplicou o workspace). */
 async function refreshDdae() {
-  await Promise.all([...repositories.values()].map((sources) => sources.ddae.getSnapshot().lastUpdated === null ? Promise.resolve() : sources.ddae.refresh()));
+  const loaded = (resource: { getSnapshot: () => { lastUpdated: number | null }; refresh: () => Promise<unknown> }) =>
+    resource.getSnapshot().lastUpdated === null ? Promise.resolve() : resource.refresh();
+  await Promise.all([...repositories.values()].flatMap((sources) => [loaded(sources.ddae), loaded(sources.planning), loaded(sources.planningSummary)]));
 }
 
 export const workspace = {

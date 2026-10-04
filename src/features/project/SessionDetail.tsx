@@ -4,6 +4,7 @@ import { ArrowLeft, Check, Circle, CircleCheck, Copy, FileText, Pencil, Play } f
 import { SESSION_NOT_FOUND, projectHash } from "../../app/projectRoute";
 import { api, desktop, errorText } from "../../shared/api";
 import { contextStatus, deriveDdaeNextAction, progressFraction, statusBadge } from "../../shared/ddae";
+import { PHASE_BADGE } from "../../shared/planning";
 import { STATUS_LABEL } from "../../shared/worktrees";
 import { DETAIL_TABS, criteriaSummary, eventLabel, finalizeStatus, lifecycleActions, recentEvents, referenceTitle, resolveSessionLoad, scopeProjection } from "../../shared/ddaeDetail";
 import type { DetailTab } from "../../shared/ddaeDetail";
@@ -173,6 +174,12 @@ export function SessionOverview({ view, setTab, openContext, worktrees = [] }: {
       <Card title="Arquivos e referências" action={<button type="button" className="text-button" onClick={() => setTab("files")}>Ver arquivos</button>}>
         {view.references?.length ? <ul className="sd-list">{view.references.slice(0, 4).map((r) => <li key={r.kind + r.value} className="mono">{referenceTitle(r)}</li>)}</ul> : <p className="muted">Nenhuma referência.</p>}
       </Card>
+      {view.planningItem && (
+        <Card title="Item de planejamento" action={<a className="text-button" href={projectHash(view.projectId, "planning")}>Ver Planejamento</a>}>
+          <p><strong>{view.planningItem.title}</strong></p>
+          <p className="muted">Fase derivada da Session: {PHASE_BADGE[view.planningItem.phase]}.</p>
+        </Card>
+      )}
       <Card title="Worktrees relacionados" action={<a className="text-button" href={projectHash(view.projectId, "worktrees")}>Ver worktrees</a>}>
           {worktrees.length ? (
             <ul className="sd-scope">

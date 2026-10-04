@@ -45,13 +45,14 @@ const render = (p: ProjectOverview) =>
   );
 
 describe("Visão geral", () => {
-  it("DDAE vem do backend (sem sessão de exemplo) e só Planejamento segue como placeholder", () => {
+  it("DDAE e Planejamento vêm do backend (sem sessão ou item de exemplo)", () => {
     const html = render(base);
     expect(html).toContain("DDAE / Sessões");
     expect(html).toContain("Planejamento");
-    // Fora do aplicativo desktop não há banco: o card diz isso em vez de inventar sessões.
-    expect(html).toContain("Disponível apenas no aplicativo desktop");
-    expect((html.match(/Ainda não disponível/g) ?? []).length).toBe(1);
+    // Fora do aplicativo desktop não há banco: os cards dizem isso em vez de inventar sessões ou itens.
+    expect((html.match(/Disponível apenas no aplicativo desktop/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(html).not.toContain("Ainda não disponível");
+    expect(html).toContain("Abrir Planejamento");
     expect(html).not.toMatch(/SESSION-|ATIVA|\d+ ?\/ ?10/);
   });
   it("projeto disponível: Git, branch, Runtime e worktrees reais", () => {

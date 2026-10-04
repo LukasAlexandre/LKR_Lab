@@ -6,20 +6,16 @@ import type { ProjectArea } from "../../app/projectRoute";
 import { desktop } from "../../shared/api";
 import { locateProject } from "../../shared/bind";
 import { displayPath, runtimeLabel } from "../../shared/projectOverview";
-import { Empty, Panel } from "../../shared/ui";
+import { Panel } from "../../shared/ui";
 import type { Project } from "../../shared/types";
 import { useResource, workspace } from "../../state/workspace";
 import { ProjectRuntime } from "../ProjectRuntime";
 import { DdaeSessions } from "./DdaeSessions";
 import { SessionDetail } from "./SessionDetail";
+import { PlanningWorkspace } from "./PlanningWorkspace";
 import { WorktreesWorkspace } from "./WorktreesWorkspace";
 import { ProjectLogs } from "./ProjectLogs";
 import { ProjectOverviewArea } from "./ProjectOverviewArea";
-
-/** Áreas que ainda não têm módulo: dizem isso, sem dados de exemplo. */
-const UNAVAILABLE: Partial<Record<ProjectArea, string>> = {
-  planning: "O módulo de Planejamento ainda não foi implementado.",
-};
 
 /** Áreas que dependem de uma pasta nesta máquina (Git, runtime, worktrees, logs). */
 const NEEDS_FOLDER: ProjectArea[] = ["worktrees", "runtime", "git", "logs", "context"];
@@ -114,14 +110,9 @@ export function ProjectControlCenter({ projectId, area, sessionId, views, launch
   );
 
   let content: ReactNode;
-  if (UNAVAILABLE[area]) {
-    content = (
-      <Panel title={PROJECT_AREA_TITLES[area]}>
-        <Empty title="Ainda não disponível">
-          <p>{UNAVAILABLE[area]}</p>
-        </Empty>
-      </Panel>
-    );
+  if (area === "planning") {
+    // Planejamento pertence ao Project (estado portátil): não depende da pasta nesta máquina.
+    content = <PlanningWorkspace key={projectId} projectId={projectId} notify={notify} />;
   } else if (area === "ddae") {
     // Sessões pertencem ao Project (estado portátil): não dependem da pasta nesta máquina.
     content = sessionId
