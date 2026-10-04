@@ -664,37 +664,148 @@ async fn list_worktrees(
     .await
     .map_err(|e| e.to_string())?
 }
+/// Worktrees do LKR LAB (Concept 08). Leitura agregada: só `git worktree list` e `git status`;
+/// NUNCA grava metadata, binding ou evento (abrir a página não escreve).
 #[tauri::command]
-async fn create_worktree(
-    state: State<'_, AppState>,
+async fn project_worktree_overview(
+    app: tauri::AppHandle,
     id: String,
-    path: String,
-    branch: String,
-) -> HubResult<()> {
-    let project = db(&state)?.project(&id)?;
+) -> HubResult<hub_core::worktrees::WorktreeOverview> {
     tauri::async_runtime::spawn_blocking(move || {
-        hub_core::git::create_worktree(&hub_core::projects::local_dir(&project)?, &path, &branch)
+        let state = app.state::<AppState>();
+        let mut overview = db(&state)?.project_worktree_overview(&id, false)?;
+        // Fora do lock do banco: cada git status pode demorar.
+        overview.attach_git();
+        Ok(overview)
     })
     .await
-    .map_err(|error| error.to_string())??;
-    db(&state)?.activity(&id, "Worktree criada")?;
-    Ok(())
+    .map_err(|e| e.to_string())?
+}
+/// Só as contagens (Project Control Center): sem estado Git de cada worktree.
+#[tauri::command]
+async fn worktree_summary(
+    app: tauri::AppHandle,
+    id: String,
+) -> HubResult<hub_core::worktrees::WorktreeCounts> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let counts = db(&state)?.project_worktree_overview(&id, false)?.counts;
+        Ok(counts)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
-async fn remove_worktree(
-    state: State<'_, AppState>,
+fn worktrees_for_session(
+    state: State<AppState>,
+    project_id: String,
+    session_id: String,
+) -> HubResult<Vec<hub_core::worktrees::SessionWorktree>> {
+    db(&state)?.worktrees_for_session(&project_id, &session_id)
+}
+/// ADOTAR (explícito): cria a metadata de um worktree adicional real. Nunca o principal.
+#[tauri::command]
+async fn worktree_adopt(
+    app: tauri::AppHandle,
+    project_id: String,
+    path: String,
+    name: Option<String>,
+    session_id: Option<String>,
+    block_id: Option<String>,
+) -> HubResult<hub_core::worktrees::ManagedWorktree> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = db(&state)?.worktree_adopt(
+            &project_id,
+            &path,
+            name.as_deref(),
+            session_id.as_deref(),
+            block_id.as_deref(),
+        );
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+/// NOVO WORKTREE (explícito e mutante): `git worktree add` + metadata ACTIVE + binding local.
+#[tauri::command]
+async fn worktree_create(
+    app: tauri::AppHandle,
+    project_id: String,
+    request: hub_core::worktrees::CreateRequest,
+) -> HubResult<hub_core::worktrees::ManagedWorktree> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = db(&state)?.worktree_create(&project_id, request);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+/// Estado operacional: metadata do LKR LAB. Não executa nenhum comando Git.
+#[tauri::command]
+fn worktree_set_state(
+    state: State<AppState>,
     id: String,
+    status: hub_core::worktrees::OperationalStatus,
+    reason: Option<String>,
+    result: Option<String>,
+) -> HubResult<hub_core::worktrees::ManagedWorktree> {
+    db(&state)?.worktree_set_state(
+        &id,
+        status,
+        reason.as_deref().unwrap_or(""),
+        result.as_deref().unwrap_or(""),
+    )
+}
+#[tauri::command]
+fn worktree_update(
+    state: State<AppState>,
+    id: String,
+    display_name: String,
+    description: Option<String>,
+) -> HubResult<hub_core::worktrees::ManagedWorktree> {
+    db(&state)?.worktree_update(&id, &display_name, description.as_deref().unwrap_or(""))
+}
+#[tauri::command]
+fn worktree_set_relation(
+    state: State<AppState>,
+    id: String,
+    session_id: Option<String>,
+    block_id: Option<String>,
+) -> HubResult<hub_core::worktrees::ManagedWorktree> {
+    db(&state)?.worktree_set_relation(&id, session_id.as_deref(), block_id.as_deref())
+}
+/// LOCALIZAR: casa um worktree real desta máquina com a metadata do workspace (UUID preservado).
+#[tauri::command]
+async fn worktree_locate(
+    app: tauri::AppHandle,
+    id: String,
+    path: String,
+) -> HubResult<hub_core::worktrees::ManagedWorktree> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        let result = db(&state)?.worktree_locate(&id, &path);
+        result
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+/// REMOVER DO GIT (explícito; diferente de FINALIZAR). Preserva metadata e eventos.
+#[tauri::command]
+async fn worktree_git_remove(
+    app: tauri::AppHandle,
+    project_id: String,
     path: String,
     confirmed: bool,
 ) -> HubResult<()> {
-    let project = db(&state)?.project(&id)?;
     tauri::async_runtime::spawn_blocking(move || {
-        hub_core::git::remove_worktree(&hub_core::projects::local_dir(&project)?, &path, confirmed)
+        let state = app.state::<AppState>();
+        let result = db(&state)?.worktree_git_remove(&project_id, &path, confirmed);
+        result
     })
     .await
-    .map_err(|error| error.to_string())??;
-    db(&state)?.activity(&id, "Worktree removida")?;
-    Ok(())
+    .map_err(|e| e.to_string())?
 }
 #[tauri::command]
 async fn launch_worktree(
@@ -809,9 +920,17 @@ fn main() {
             agent_context,
             agent_providers,
             list_worktrees,
-            create_worktree,
-            remove_worktree,
             launch_worktree,
+            project_worktree_overview,
+            worktree_summary,
+            worktrees_for_session,
+            worktree_adopt,
+            worktree_create,
+            worktree_set_state,
+            worktree_update,
+            worktree_set_relation,
+            worktree_locate,
+            worktree_git_remove,
             ddae_overview,
             ddae_create_session,
             ddae_add_block,

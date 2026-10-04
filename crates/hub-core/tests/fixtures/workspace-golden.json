@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "projects": [
     {
       "id": "proj-a",
@@ -216,6 +216,75 @@
       "decisions": [],
       "createdAt": "2026-01-06T09:00:00.000Z",
       "updatedAt": "2026-01-06T09:00:00.000Z"
+    }
+  ],
+  "managedWorktrees": [
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1f0001",
+      "projectId": "proj-a",
+      "displayName": "feature/ddae-sessions",
+      "description": "Experimento da sessão.",
+      "status": "active",
+      "repositoryLocator": {
+        "path": "",
+        "remote": "github.com/org/alpha"
+      },
+      "branchHint": "feature/ddae-sessions",
+      "sessionId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1a0002",
+      "blockId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1b0004",
+      "createdAt": "2026-01-05T11:00:00.000Z",
+      "updatedAt": "2026-01-05T11:00:00.000Z",
+      "events": [
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1f1001",
+          "type": "WORKTREE_ADOPTED",
+          "payload": {
+            "name": "feature/ddae-sessions",
+            "branch": "feature/ddae-sessions"
+          },
+          "createdAt": "2026-01-05T11:00:00.000Z"
+        },
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1f1002",
+          "type": "WORKTREE_SESSION_LINKED",
+          "payload": {
+            "sessionId": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1a0002",
+            "session": "SESSION-002"
+          },
+          "createdAt": "2026-01-05T11:00:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1f0002",
+      "projectId": "proj-a",
+      "displayName": "experimento-congelado",
+      "status": "frozen",
+      "stateReason": "Aguardando revisão.",
+      "detachedHeadHint": "a7c3e9d1b2",
+      "createdAt": "2026-01-06T09:00:00.000Z",
+      "updatedAt": "2026-01-06T10:00:00.000Z"
+    },
+    {
+      "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1f0003",
+      "projectId": "proj-a",
+      "displayName": "portable-workspace",
+      "status": "completed",
+      "result": "Concluído e integrado.",
+      "branchHint": "feature/portable-workspace",
+      "createdAt": "2026-01-02T09:00:00.000Z",
+      "updatedAt": "2026-01-04T09:00:00.000Z",
+      "completedAt": "2026-01-04T09:00:00.000Z",
+      "events": [
+        {
+          "id": "7c1d3a52-0b1e-4c52-9a52-0f0e8f1f1003",
+          "type": "WORKTREE_COMPLETED",
+          "payload": {
+            "result": "Concluído e integrado."
+          },
+          "createdAt": "2026-01-04T09:00:00.000Z"
+        }
+      ]
     }
   ]
 }

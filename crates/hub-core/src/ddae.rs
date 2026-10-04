@@ -183,6 +183,11 @@ pub enum EventType {
     NoteAdded,
     NoteRemoved,
     DetailsUpdated,
+    /// Um worktree do LKR LAB foi vinculado/desvinculado a esta Session (só UUID e nome; nunca path).
+    WorktreeLinked,
+    WorktreeUnlinked,
+    WorktreeBlockLinked,
+    WorktreeBlockUnlinked,
 }
 
 impl EventType {
@@ -211,12 +216,12 @@ pub struct Event {
 
 /// Evento a gravar na MESMA transação da mudança.
 pub struct NewEvent {
-    kind: EventType,
-    block_id: Option<String>,
-    payload: serde_json::Map<String, serde_json::Value>,
+    pub(crate) kind: EventType,
+    pub(crate) block_id: Option<String>,
+    pub(crate) payload: serde_json::Map<String, serde_json::Value>,
 }
 
-fn ev(kind: EventType, block_id: Option<&str>, pairs: &[(&str, &str)]) -> NewEvent {
+pub(crate) fn ev(kind: EventType, block_id: Option<&str>, pairs: &[(&str, &str)]) -> NewEvent {
     let mut payload = serde_json::Map::new();
     for (k, v) in pairs {
         if !v.is_empty() {
@@ -653,7 +658,7 @@ pub fn check_details(d: &Details) -> HubResult<Details> {
     })
 }
 
-fn check_payload(p: &serde_json::Map<String, serde_json::Value>) -> HubResult<()> {
+pub(crate) fn check_payload(p: &serde_json::Map<String, serde_json::Value>) -> HubResult<()> {
     let text = serde_json::to_string(p).map_err(|e| e.to_string())?;
     if text.len() > MAX_PAYLOAD {
         return Err("payload de evento grande demais".into());
@@ -698,7 +703,12 @@ pub fn has_machine_path(text: &str) -> bool {
         || text.contains("~\\")
 }
 
-fn check_text(field: &str, value: &str, max: usize, required: bool) -> HubResult<String> {
+pub(crate) fn check_text(
+    field: &str,
+    value: &str,
+    max: usize,
+    required: bool,
+) -> HubResult<String> {
     let value = value.trim().to_string();
     if required && value.is_empty() {
         return Err(format!("{field}: obrigatório."));
@@ -918,7 +928,7 @@ pub fn normalize(sessions: &mut [Session]) {
 
 // ------------------------------------------------------------------ persistência
 
-fn now(conn: &Connection) -> HubResult<String> {
+pub(crate) fn now(conn: &Connection) -> HubResult<String> {
     conn.query_row("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')", [], |r| {
         r.get(0)
     })
@@ -1076,7 +1086,10 @@ fn load_session(conn: &Connection, id: &str) -> HubResult<Session> {
     assemble(conn, row)
 }
 
-fn load_sessions(conn: &Connection, project_id: Option<&str>) -> HubResult<Vec<Session>> {
+pub(crate) fn load_sessions(
+    conn: &Connection,
+    project_id: Option<&str>,
+) -> HubResult<Vec<Session>> {
     let sql = format!(
         "SELECT {SESSION_COLUMNS} FROM ddae_sessions {} ORDER BY project_id, number",
         if project_id.is_some() {
@@ -1181,12 +1194,12 @@ pub fn replace_all(tx: &Transaction, sessions: &[Session]) -> HubResult<()> {
     Ok(())
 }
 
-fn new_id() -> String {
+pub(crate) fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
 /// Grava um evento na transação corrente (UUID próprio; `created_at` do banco).
-fn record_event(tx: &Transaction, session_id: &str, e: &NewEvent) -> HubResult<()> {
+pub(crate) fn record_event(tx: &Transaction, session_id: &str, e: &NewEvent) -> HubResult<()> {
     check_payload(&e.payload)?;
     tx.execute(
         "INSERT INTO ddae_events(id,session_id,block_id,event_type,payload,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
@@ -1593,6 +1606,12 @@ impl Database {
             let title = block.title.clone();
             tx.execute("DELETE FROM ddae_blocks WHERE id=?1", [block_id])
                 .map_err(|e| e.to_string())?;
+            // Worktrees que apontavam para o bloco removido perdem só o vínculo com o bloco.
+            tx.execute(
+                "UPDATE managed_worktrees SET block_id=NULL WHERE block_id=?1",
+                [block_id],
+            )
+            .map_err(|e| e.to_string())?;
             // Reempacota as posições (uma a uma, em ordem, para não violar UNIQUE(session, posição)).
             for (offset, later) in s.blocks[index + 1..].iter().enumerate() {
                 tx.execute(
@@ -2227,7 +2246,7 @@ fn legacy_id(project_id: &str, number: u32) -> String {
 fn legacy_child_id(session_id: &str, kind: &str, index: usize) -> String {
     deterministic_uuid(&format!("lkr-lab:ddae:{session_id}:{kind}:{index}"))
 }
-fn deterministic_uuid(name: &str) -> String {
+pub(crate) fn deterministic_uuid(name: &str) -> String {
     let digest = Sha256::digest(name.as_bytes());
     let mut bytes = [0u8; 16];
     bytes.copy_from_slice(&digest[..16]);

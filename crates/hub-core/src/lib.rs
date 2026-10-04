@@ -26,4 +26,5 @@ pub mod sync;
 pub mod system;
 pub mod telemetry;
 pub mod tools;
+pub mod worktrees;
 pub type HubResult<T> = Result<T, String>;

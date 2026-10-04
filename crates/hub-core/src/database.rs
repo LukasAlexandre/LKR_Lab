@@ -57,7 +57,7 @@ impl Database {
         let version: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(|e| e.to_string())?;
-        if version > 8 {
+        if version > 9 {
             return Err("Banco criado por versão mais recente do aplicativo.".into());
         }
         if version == 0 {
@@ -105,6 +105,12 @@ impl Database {
                 .map_err(|e| e.to_string())?;
             tx.commit().map_err(|e| e.to_string())?;
             crate::ddae::backfill_legacy_events(&conn)?;
+        }
+        if version < 9 {
+            let tx = conn.transaction().map_err(|e| e.to_string())?;
+            tx.execute_batch(include_str!("../migrations/009_worktrees.sql"))
+                .map_err(|e| e.to_string())?;
+            tx.commit().map_err(|e| e.to_string())?;
         }
         Ok(Self { conn })
     }
@@ -556,6 +562,7 @@ impl Database {
             knowledge: self.knowledge()?,
             preferences: self.preferences()?,
             ddae: crate::ddae::export(&self.conn)?,
+            managed_worktrees: crate::worktrees::export(&self.conn)?,
         };
         crate::portable::normalize(&mut ws);
         Ok(ws)
@@ -586,6 +593,7 @@ impl Database {
             knowledge: vec![],
             preferences: prefs,
             ddae: vec![],
+            managed_worktrees: vec![],
         };
         crate::portable::normalize(&mut ws);
         let prefs = ws.preferences;
@@ -684,6 +692,8 @@ impl Database {
         // DDAE: o workspace manda (apagar e reinserir evita estados intermediários que violariam
         // "uma ativa por projeto"). Projetos removidos levam suas sessões junto (CASCADE).
         crate::ddae::replace_all(&tx, &ws.ddae)?;
+        // Depois do DDAE (as relações apontam para Sessions/Blocks). Os BINDINGS locais ficam.
+        crate::worktrees::replace_all(&tx, &ws.managed_worktrees)?;
         // Por último: projetos que saíram do workspace (o vínculo vai junto, a pasta nunca).
         let removed_projects =
             delete_absent(&tx, "projects", ws.projects.iter().map(|p| p.id.as_str()))?;
@@ -706,6 +716,7 @@ impl Database {
             prompts: ws.prompts.len(),
             knowledge: ws.knowledge.len(),
             sessions: ws.ddae.len(),
+            worktrees: ws.managed_worktrees.len(),
             removed_projects,
         })
     }

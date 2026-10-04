@@ -22,8 +22,8 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  /** v2 acrescentou `ddae`; v3 torna os critérios marcáveis ({ id, text, completed }) e traz `events`. v1/v2 continuam legíveis. */
-  const SCHEMA_VERSION = 3;
+  /** v4 acrescenta `managedWorktrees` (metadata operacional dos worktrees, com eventos; NUNCA o path). v2 acrescentou `ddae`; v3 torna os critérios marcáveis ({ id, text, completed }) e traz `events`. v1/v2 continuam legíveis. */
+  const SCHEMA_VERSION = 4;
   const SOURCE = "lkr-lab";
   const MODULE = "workspace";
   const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -66,6 +66,10 @@
     events: 20000,
     payload: 2000,
     label: 100,
+    worktrees: 5000,
+    worktreeName: 100,
+    worktreeDescription: 1000,
+    hint: 200,
   };
 
   // Padrões de credencial conhecidos: o sync é recusado em vez de publicar.
@@ -311,6 +315,7 @@
     "BLOCK_ADDED", "BLOCK_STARTED", "BLOCK_COMPLETED", "BLOCK_RENAMED", "BLOCK_REMOVED",
     "CRITERION_ADDED", "CRITERION_COMPLETED", "CRITERION_REOPENED", "CRITERION_REMOVED",
     "DECISION_ADDED", "NOTE_ADDED", "NOTE_REMOVED", "DETAILS_UPDATED",
+    "WORKTREE_LINKED", "WORKTREE_UNLINKED", "WORKTREE_BLOCK_LINKED", "WORKTREE_BLOCK_UNLINKED",
   ];
 
   /** Histórico append-only da Session: ordem canônica (createdAt, id); sem caminho local nos textos. */
@@ -434,6 +439,83 @@
     };
   }
 
+  // ------------------------------------------------------------------ worktrees gerenciados (v4)
+
+  const WORKTREE_STATUSES = ["active", "frozen", "stopped", "completed"];
+  const WORKTREE_EVENT_TYPES = [
+    "WORKTREE_ADOPTED", "WORKTREE_CREATED", "WORKTREE_STATE_CHANGED", "WORKTREE_RENAMED",
+    "WORKTREE_SESSION_LINKED", "WORKTREE_SESSION_UNLINKED", "WORKTREE_BLOCK_LINKED", "WORKTREE_BLOCK_UNLINKED", "WORKTREE_COMPLETED",
+  ];
+
+  const optId = (value, where) => (value === undefined || value === null || value === "" ? undefined : id(value, where));
+  const optText = (value, where, max) => (value === undefined || value === null ? undefined : ddaeText(value, where, max) || undefined);
+
+  /**
+   * Metadata PORTÁTIL de um worktree do LKR LAB. A identidade é o UUID; branch/locator são só dicas.
+   * Nunca há path: texto com caminho local é recusado em qualquer campo e nos eventos.
+   */
+  function managedWorktree(raw, where, projectIds, sessions, seen) {
+    if (!isPlainObject(raw)) fail(where, "worktree inválido");
+    const worktreeId = id(raw.id, where + ".id");
+    claimId(seen, worktreeId, where + ".id");
+    const projectId = id(raw.projectId, where + ".projectId");
+    if (!projectIds.has(projectId)) fail(where + ".projectId", "referencia um projeto que não está no workspace");
+    if (!WORKTREE_STATUSES.includes(raw.status)) fail(where + ".status", "estado desconhecido");
+    const completedAt = stamp(raw.completedAt, where + ".completedAt") || undefined;
+    if ((raw.status === "completed") !== Boolean(completedAt)) fail(where + ".status", "finalizado exige completedAt e os demais estados não podem tê-lo");
+    const sessionId = optId(raw.sessionId, where + ".sessionId");
+    const blockId = optId(raw.blockId, where + ".blockId");
+    if (blockId && !sessionId) fail(where + ".blockId", "bloco exige Session");
+    if (sessionId) {
+      const found = sessions.find((x) => x.id === sessionId);
+      if (!found) fail(where + ".sessionId", "referencia uma Session que não está no workspace");
+      if (found.projectId !== projectId) fail(where + ".sessionId", "a Session pertence a outro projeto");
+      if (blockId && !found.blocks.some((b) => b.id === blockId)) fail(where + ".blockId", "o bloco não pertence à Session vinculada");
+    }
+    const events = list(raw.events, where + ".events", LIMITS.events).map((event, i) => {
+      const at = where + ".events[" + i + "]";
+      if (!isPlainObject(event)) fail(at, "evento inválido");
+      const eventId = id(event.id, at + ".id");
+      claimId(seen, eventId, at + ".id");
+      if (!WORKTREE_EVENT_TYPES.includes(event.type)) fail(at + ".type", "tipo de evento desconhecido");
+      const payload = event.payload === undefined || event.payload === null ? {} : event.payload;
+      if (!isPlainObject(payload)) fail(at + ".payload", "deve ser um objeto");
+      const clean = {};
+      for (const [key, v] of Object.entries(payload)) {
+        if (typeof v === "string") clean[key] = ddaeText(v, at + ".payload." + key, LIMITS.payload);
+        else if (typeof v === "number" || typeof v === "boolean") clean[key] = v;
+        else fail(at + ".payload." + key, "só texto, número ou booleano");
+      }
+      if (bytes(JSON.stringify(clean)) > LIMITS.payload) fail(at + ".payload", "grande demais");
+      return { id: eventId, type: event.type, ...(Object.keys(clean).length ? { payload: clean } : {}), createdAt: stamp(event.createdAt, at + ".createdAt") };
+    });
+    events.sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const description = ddaeText(raw.description, where + ".description", LIMITS.worktreeDescription);
+    const stateReason = optText(raw.stateReason, where + ".stateReason", LIMITS.reason);
+    const result = optText(raw.result, where + ".result", LIMITS.result);
+    const branchHint = optText(raw.branchHint, where + ".branchHint", LIMITS.hint);
+    const detachedHeadHint = optText(raw.detachedHeadHint, where + ".detachedHeadHint", LIMITS.hint);
+    const repositoryLocator = locator(raw.repositoryLocator, where + ".repositoryLocator");
+    return {
+      id: worktreeId,
+      projectId,
+      displayName: ddaeText(raw.displayName, where + ".displayName", LIMITS.worktreeName, { required: true }),
+      ...(description ? { description } : {}),
+      status: raw.status,
+      ...(stateReason ? { stateReason } : {}),
+      ...(result ? { result } : {}),
+      ...(repositoryLocator ? { repositoryLocator } : {}),
+      ...(branchHint ? { branchHint } : {}),
+      ...(detachedHeadHint ? { detachedHeadHint } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(blockId ? { blockId } : {}),
+      createdAt: stamp(raw.createdAt, where + ".createdAt"),
+      updatedAt: stamp(raw.updatedAt, where + ".updatedAt"),
+      ...(completedAt ? { completedAt } : {}),
+      ...(events.length ? { events } : {}),
+    };
+  }
+
   /** Invariantes entre sessões: numeração única por projeto e no máximo uma ativa por projeto. */
   function ddaeInvariants(sessions) {
     const numbers = new Set();
@@ -490,6 +572,8 @@
     const sessions = list(raw.ddae, "ddae", LIMITS.sessions).map((x, i) => session(x, "ddae[" + i + "]", projectIds, seenDdaeIds));
     if (sessions.length && raw.version < 2) fail("workspace.ddae", "DDAE exige a versão 2 do workspace");
     ddaeInvariants(sessions);
+    const managed = list(raw.managedWorktrees, "managedWorktrees", LIMITS.worktrees).map((x, i) => managedWorktree(x, "managedWorktrees[" + i + "]", projectIds, sessions, seenDdaeIds));
+    if (managed.length && raw.version < 4) fail("workspace.managedWorktrees", "worktrees gerenciados exigem a versão 4 do workspace");
     return {
       version: SCHEMA_VERSION,
       projects: projects.sort(byId),
@@ -498,6 +582,8 @@
       preferences: preferences(raw.preferences),
       // Só aparece quando há sessões: workspaces sem DDAE mantêm a mesma forma canônica.
       ...(sessions.length ? { ddae: sessions.sort(bySession) } : {}),
+      // Só aparece quando há worktrees gerenciados (workspaces v1–v3 mantêm a mesma forma canônica).
+      ...(managed.length ? { managedWorktrees: managed.sort(byId) } : {}),
     };
   }
 
@@ -520,7 +606,7 @@
         ok: true,
         state,
         hash: hash(state),
-        summary: { projects: state.projects.length, prompts: state.prompts.length, knowledge: state.knowledge.length, sessions: state.ddae ? state.ddae.length : 0 },
+        summary: { projects: state.projects.length, prompts: state.prompts.length, knowledge: state.knowledge.length, sessions: state.ddae ? state.ddae.length : 0, worktrees: state.managedWorktrees ? state.managedWorktrees.length : 0 },
       };
     } catch (error) {
       if (error instanceof InvalidWorkspace) return { ok: false, error: error.message };
@@ -532,7 +618,7 @@
 
   /** Máquina nova: sem projetos, sem conhecimento e só com os prompts de fábrica. */
   function isEmpty(state) {
-    return !state.projects.length && !state.knowledge.length && !(state.ddae && state.ddae.length) && state.prompts.every((p) => SEED_PROMPT_IDS.includes(p.id));
+    return !state.projects.length && !state.knowledge.length && !(state.ddae && state.ddae.length) && !(state.managedWorktrees && state.managedWorktrees.length) && state.prompts.every((p) => SEED_PROMPT_IDS.includes(p.id));
   }
 
   return { SCHEMA_VERSION, SOURCE, MODULE, SEED_PROMPT_IDS, LIMITS, validate, hash, isEmpty, isAbsolutePath, validRepository };

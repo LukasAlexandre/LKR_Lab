@@ -15,10 +15,11 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
+/// v4 acrescenta `managedWorktrees` (metadata operacional dos worktrees, com eventos; NUNCA o path).
 /// v2 acrescentou `ddae` (sessões, blocos e decisões); v3 torna os critérios de conclusão marcáveis
 /// (`{ id, text, completed }`) e traz o histórico `events` de cada sessão. v1 e v2 continuam legíveis
 /// (critérios em texto viram objetos não concluídos; eventos ausentes = nenhum) e viram v3 ao normalizar.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 const MIN_SCHEMA_VERSION: u32 = 1;
 /// Prompts criados pela migration 001: não contam como conteúdo do usuário.
 const SEED_PROMPT_IDS: [&str; 6] = ["audit", "bug", "pr", "continue", "security", "gate"];
@@ -88,6 +89,9 @@ pub struct PortableWorkspace {
     /// DDAE (v2): ausente em workspaces v1 e quando ainda não há sessões.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ddae: Vec<crate::ddae::Session>,
+    /// Worktrees do LKR LAB (v4): ausente em v1–v3 e quando não há nenhum. Sem path local.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub managed_worktrees: Vec<crate::worktrees::ManagedWorktree>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,6 +101,7 @@ pub struct ApplySummary {
     pub prompts: usize,
     pub knowledge: usize,
     pub sessions: usize,
+    pub worktrees: usize,
     pub removed_projects: usize,
 }
 
@@ -159,6 +164,7 @@ pub fn normalize(ws: &mut PortableWorkspace) {
         ws.version = SCHEMA_VERSION;
     }
     crate::ddae::normalize(&mut ws.ddae);
+    crate::worktrees::normalize(&mut ws.managed_worktrees);
     fn clean(list: &mut Vec<String>) {
         *list = list
             .iter()
@@ -284,6 +290,11 @@ pub fn content_hash(ws: &PortableWorkspace) -> String {
             strip_ddae_stamps(s);
         }
     }
+    if let Some(list) = value["managedWorktrees"].as_array_mut() {
+        for w in list {
+            strip_ddae_stamps(w);
+        }
+    }
     let mut text = String::new();
     write_canonical(&value, &mut text);
     Sha256::digest(text.as_bytes())
@@ -301,6 +312,7 @@ pub fn is_empty(ws: &PortableWorkspace) -> bool {
             .iter()
             .all(|p| SEED_PROMPT_IDS.contains(&p.id.as_str()))
         && ws.ddae.is_empty()
+        && ws.managed_worktrees.is_empty()
         && ws.preferences == PortablePreferences::default()
 }
 
@@ -452,6 +464,10 @@ pub fn validate(ws: &PortableWorkspace) -> HubResult<()> {
         || "preferências: favoritos inválidos".into(),
     )?;
     crate::ddae::validate_portable(&ws.ddae, &project_ids)?;
+    check(ws.version >= 4 || ws.managed_worktrees.is_empty(), || {
+        "worktrees gerenciados exigem a versão 4 do workspace".into()
+    })?;
+    crate::worktrees::validate_portable(&ws.managed_worktrees, &project_ids, &ws.ddae)?;
     unique(ws.knowledge.iter().map(|k| k.id.as_str()), "conhecimento")?;
     for k in &ws.knowledge {
         check(

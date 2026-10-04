@@ -53,9 +53,9 @@ fn user_version(db: &Database) -> i64 {
 // ---- schema ----
 
 #[test]
-fn migration_creates_the_ddae_tables_at_version_8() {
+fn migration_creates_the_ddae_tables_at_version_9() {
     let (_tmp, db, _) = setup();
-    assert_eq!(user_version(&db), 8);
+    assert_eq!(user_version(&db), 9);
     for table in [
         "ddae_sessions",
         "ddae_blocks",
@@ -562,7 +562,7 @@ fn v1_workspaces_without_ddae_stay_readable_and_become_v2() {
     portable::validate(&ws).unwrap();
     let h = portable::content_hash(&ws);
     portable::normalize(&mut ws);
-    assert_eq!(ws.version, 3);
+    assert_eq!(ws.version, 4);
     assert_eq!(
         portable::content_hash(&ws),
         h,
@@ -593,7 +593,7 @@ fn validation_rejects_broken_ddae_state() {
     assert!(mutate(&|_| {}).is_ok());
     assert!(mutate(&|w| w.version = 1).is_err(), "DDAE exige v2+");
     assert!(mutate(&|w| w.version = 2).is_ok(), "v2 continua legível");
-    assert!(mutate(&|w| w.version = 4).is_err());
+    assert!(mutate(&|w| w.version = 5).is_err());
     assert!(mutate(&|w| w.ddae[0].project_id = "fantasma".into()).is_err());
     assert!(mutate(&|w| w.ddae[0].title = r"C:\Users\x\proj".into()).is_err());
     assert!(mutate(&|w| w.ddae[0].objective = "/home/x/app".into()).is_err());

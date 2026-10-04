@@ -198,45 +198,86 @@ pub fn inspect(path: &Path) -> HubResult<GitState> {
     }
     Ok(state)
 }
-#[derive(Serialize)]
+/// Um Git worktree REAL, como o `git worktree list --porcelain` o descreve. É leitura do Git: não é
+/// a metadata do LKR LAB (`worktrees.rs`) e o path é da máquina (classe C).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Worktree {
     pub path: String,
     pub head: String,
+    /// Vazia quando detached ou bare (nunca inventada).
     pub branch: String,
+    /// O checkout principal: o Git sempre o lista PRIMEIRO (documentado); o campo evita depender
+    /// da posição no frontend.
+    pub is_primary: bool,
+    pub detached: bool,
+    pub bare: bool,
     pub locked: bool,
+    pub locked_reason: Option<String>,
+    pub prunable: bool,
+    pub prunable_reason: Option<String>,
 }
-pub fn worktrees(path: &Path) -> HubResult<Vec<Worktree>> {
-    let output = run("git", &["worktree", "list", "--porcelain"], Some(path))?;
-    Ok(output
-        .split("\n\n")
-        .filter_map(|block| {
-            let mut w = Worktree {
-                path: String::new(),
-                head: String::new(),
-                branch: String::new(),
-                locked: false,
-            };
-            for l in block.lines() {
-                if let Some(v) = l.strip_prefix("worktree ") {
-                    w.path = v.into();
-                }
-                if let Some(v) = l.strip_prefix("HEAD ") {
-                    w.head = v.into();
-                }
-                if let Some(v) = l.strip_prefix("branch ") {
-                    w.branch = v.trim_start_matches("refs/heads/").into();
-                }
-                if l.starts_with("locked") {
-                    w.locked = true;
-                }
-            }
-            if w.path.is_empty() {
+
+/// Interpreta a saída de `git worktree list --porcelain`: registros separados por linha em branco;
+/// só o que o Git informa (`worktree`, `HEAD`, `branch`, `detached`, `bare`, `locked [motivo]`,
+/// `prunable [motivo]`).
+pub fn parse_worktrees(text: &str) -> Vec<Worktree> {
+    let text = text.replace("\r\n", "\n");
+    let mut out: Vec<Worktree> = Vec::new();
+    for block in text.split("\n\n") {
+        let mut w = Worktree {
+            path: String::new(),
+            head: String::new(),
+            branch: String::new(),
+            is_primary: false,
+            detached: false,
+            bare: false,
+            locked: false,
+            locked_reason: None,
+            prunable: false,
+            prunable_reason: None,
+        };
+        let reason = |rest: &str| {
+            let r = rest.trim();
+            if r.is_empty() {
                 None
             } else {
-                Some(w)
+                Some(r.to_string())
             }
-        })
-        .collect())
+        };
+        for l in block.lines() {
+            if let Some(v) = l.strip_prefix("worktree ") {
+                w.path = v.into();
+            } else if let Some(v) = l.strip_prefix("HEAD ") {
+                w.head = v.into();
+            } else if let Some(v) = l.strip_prefix("branch ") {
+                w.branch = v.trim_start_matches("refs/heads/").into();
+            } else if l == "detached" {
+                w.detached = true;
+            } else if l == "bare" {
+                w.bare = true;
+            } else if l == "locked" || l.starts_with("locked ") {
+                w.locked = true;
+                w.locked_reason = reason(l.trim_start_matches("locked"));
+            } else if l == "prunable" || l.starts_with("prunable ") {
+                w.prunable = true;
+                w.prunable_reason = reason(l.trim_start_matches("prunable"));
+            }
+        }
+        if !w.path.is_empty() {
+            out.push(w);
+        }
+    }
+    if let Some(first) = out.first_mut() {
+        first.is_primary = true;
+    }
+    out
+}
+
+pub fn worktrees(path: &Path) -> HubResult<Vec<Worktree>> {
+    // Somente leitura: nunca prune, repair, fetch ou checkout.
+    let output = run("git", &["worktree", "list", "--porcelain"], Some(path))?;
+    Ok(parse_worktrees(&output))
 }
 
 /// Resolve only a worktree registered by Git for this project.
@@ -253,11 +294,28 @@ pub fn worktree_path(repo: &Path, target: &str) -> HubResult<std::path::PathBuf>
     Ok(canonical)
 }
 
-pub fn create_worktree(repo: &Path, target: &str, branch: &str) -> HubResult<()> {
+/// Como o Git deve criar o worktree (mutação explícita; nunca fetch, pull, push ou merge).
+#[derive(Debug, Clone, Copy)]
+pub enum NewWorktree<'a> {
+    /// Branch nova a partir de uma base EXPLÍCITA (qualquer commit-ish válido).
+    NewBranch { branch: &'a str, base: &'a str },
+    /// Branch que já existe localmente (o Git recusa se já estiver em outro worktree).
+    ExistingBranch { branch: &'a str },
+}
+
+fn valid_branch(repo: &Path, branch: &str) -> HubResult<()> {
     if branch.trim() != branch || branch.is_empty() || branch.starts_with('-') {
         return Err("Informe um nome de branch válido.".into());
     }
     run("git", &["check-ref-format", "--branch", branch], Some(repo))?;
+    Ok(())
+}
+
+/// Destino novo, absoluto, fora do repositório e sem `..`. Devolve (repo canônico, destino).
+fn validated_destination(
+    repo: &Path,
+    target: &str,
+) -> HubResult<(std::path::PathBuf, std::path::PathBuf)> {
     let target = Path::new(target);
     if !target.is_absolute()
         || target.exists()
@@ -280,19 +338,77 @@ pub fn create_worktree(repo: &Path, target: &str, branch: &str) -> HubResult<()>
     if destination.starts_with(&repo) {
         return Err("Crie a worktree fora da pasta do repositório atual.".into());
     }
-    run(
-        "git",
-        &[
-            "worktree",
-            "add",
-            "-b",
-            branch,
-            "--",
-            &cli_path(&destination),
-        ],
-        Some(&repo),
-    )?;
+    Ok((repo, destination))
+}
+
+pub fn add_worktree(repo: &Path, target: &str, spec: NewWorktree<'_>) -> HubResult<()> {
+    match spec {
+        NewWorktree::NewBranch { branch, base } => {
+            valid_branch(repo, branch)?;
+            let base = base.trim();
+            if base.is_empty() || base.starts_with('-') {
+                return Err("Informe a base (branch, tag ou commit) da nova branch.".into());
+            }
+            run(
+                "git",
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    &format!("{base}^{{commit}}"),
+                ],
+                Some(repo),
+            )
+            .map_err(|_| format!("A base “{base}” não existe neste repositório."))?;
+            let (repo, destination) = validated_destination(repo, target)?;
+            run(
+                "git",
+                &[
+                    "worktree",
+                    "add",
+                    "-b",
+                    branch,
+                    "--",
+                    &cli_path(&destination),
+                    base,
+                ],
+                Some(&repo),
+            )?;
+        }
+        NewWorktree::ExistingBranch { branch } => {
+            valid_branch(repo, branch)?;
+            run(
+                "git",
+                &[
+                    "show-ref",
+                    "--verify",
+                    "--quiet",
+                    &format!("refs/heads/{branch}"),
+                ],
+                Some(repo),
+            )
+            .map_err(|_| format!("A branch “{branch}” não existe neste repositório."))?;
+            let (repo, destination) = validated_destination(repo, target)?;
+            run(
+                "git",
+                &["worktree", "add", "--", &cli_path(&destination), branch],
+                Some(&repo),
+            )?;
+        }
+    }
     Ok(())
+}
+
+/// Compatível com o fluxo anterior: branch nova a partir do HEAD atual.
+pub fn create_worktree(repo: &Path, target: &str, branch: &str) -> HubResult<()> {
+    add_worktree(
+        repo,
+        target,
+        NewWorktree::NewBranch {
+            branch,
+            base: "HEAD",
+        },
+    )
 }
 
 pub fn remove_worktree(repo: &Path, target: &str, confirmed: bool) -> HubResult<()> {

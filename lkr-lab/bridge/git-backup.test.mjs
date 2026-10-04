@@ -392,7 +392,7 @@ describe("git-backup: módulo workspace", () => {
     expect(files).toEqual([WS_FILE]);
     const published = git(ctx.base, "--git-dir", ctx.remote, "show", "main:" + WS_FILE);
     expect(published).not.toMatch(/localPath|segredo/);
-    expect(JSON.parse(published)).toMatchObject({ module: "workspace", source: "lkr-lab", schemaVersion: 3 });
+    expect(JSON.parse(published)).toMatchObject({ module: "workspace", source: "lkr-lab", schemaVersion: 4 });
     const read = await ctx.backup.readState("workspace");
     expect(read.synced).toBe(true);
     expect(read.backup.state.projects[0].id).toBe("p1");
@@ -404,7 +404,7 @@ describe("git-backup: módulo workspace", () => {
     const withToken = workspaceState({ prompts: [{ id: "q", title: "T", category: "", projectId: null, body: "ghp_" + "a".repeat(36) }] });
     expect((await rejects(ctx.backup.sync("workspace", { schemaVersion: 1, state: withToken }))).code).toBe("INVALID_PAYLOAD");
     expect((await rejects(ctx.backup.sync("workspace", { schemaVersion: 1, state: { version: 9 } }))).code).toBe("INVALID_PAYLOAD");
-    expect((await rejects(ctx.backup.sync("workspace", { schemaVersion: 4, state: workspaceState() }))).code).toBe("INVALID_PAYLOAD");
+    expect((await rejects(ctx.backup.sync("workspace", { schemaVersion: 5, state: workspaceState() }))).code).toBe("INVALID_PAYLOAD");
     expect(await exists(path.join(ctx.work, "data"))).toBe(false);
   }, T);
 
