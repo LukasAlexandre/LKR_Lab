@@ -177,8 +177,8 @@ fn sampling_plan_depends_on_activity() {
     );
     assert_eq!(
         active.iter().filter(|p| p.temperatures).count(),
-        1,
-        "temperaturas a cada 10 s"
+        3,
+        "temperaturas a cada 4 s (ticks 0, 4 e 8 de 10)"
     );
     let idle: Vec<Plan> = (0..60).map(|t| Plan::for_tick(t, false)).collect();
     assert!(

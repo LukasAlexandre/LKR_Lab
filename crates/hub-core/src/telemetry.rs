@@ -20,7 +20,7 @@
 //! `None` e a capability correspondente fica `unavailable`.
 use crate::{
     health::{self, HealthStatus, Level, LoadSample, MachineHealth, SensorSeries, SpaceSample},
-    sensors::{self, Adapter, Pdh},
+    sensors::{self, Adapter, NetAdapter, Pdh, PowerStatus},
 };
 use serde::Serialize;
 use std::{
@@ -41,6 +41,11 @@ pub const TOP_PROCESSES: usize = 8;
 pub const WATCH_LEASE_MS: i64 = 15_000;
 /// Lista de adaptadores relida a cada 5 min (troca de GPU externa, driver reiniciado).
 const ADAPTERS_TTL_MS: i64 = 5 * 60_000;
+/// Temperaturas no modo ativo: a cada 4 rodadas (4 s). Leituras nativas e baratas (D3DKMT, IOCTL
+/// de armazenamento, PDH), sem processos externos.
+const ACTIVE_TEMPERATURE_TICKS: u64 = 4;
+/// Tipo/estado/velocidade das interfaces de rede mudam raramente: releitura a cada 30 s.
+const NET_ADAPTERS_TTL_MS: i64 = 30_000;
 
 /// Buffer circular limitado.
 #[derive(Debug, Clone)]
@@ -112,6 +117,40 @@ pub struct Capabilities {
     pub process_disk_io: Availability,
     /// SMART/saúde física do disco: sem fonte confiável, não é avaliada.
     pub storage_physical_health: Availability,
+    pub cpu_per_core: Availability,
+    pub cpu_base_clock: Availability,
+    /// Commit (memória virtual comprometida) e seu limite.
+    pub memory_commit: Availability,
+    /// Há bateria neste computador.
+    pub battery: Availability,
+    /// Capacidade de projeto/carga cheia: o Windows não as entrega sem driver ou elevação.
+    pub battery_health: Availability,
+    /// E/S por disco físico (taxa e operações).
+    pub disk_per_device: Availability,
+    /// Lista de interfaces com tipo, estado e velocidade de enlace.
+    pub network_interfaces: Availability,
+}
+
+/// Quão completa é a leitura de um domínio nesta máquina. A interface nunca trata ausência
+/// de sensor como falha: `Partial`/`Unavailable` descrevem o que a máquina entrega.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Domain {
+    Available,
+    Partial,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DomainAvailability {
+    pub cpu: Domain,
+    pub memory: Domain,
+    pub gpu: Domain,
+    pub disk: Domain,
+    pub network: Domain,
+    pub battery: Domain,
+    pub temperatures: Domain,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -121,6 +160,12 @@ pub struct CpuTelemetry {
     pub usage: f32,
     /// Clock efetivo (frequência × % de desempenho), quando o contador existe.
     pub clock_mhz: Option<f32>,
+    /// Clock base nominal (registro do Windows); `None` se a máquina não informa.
+    pub base_mhz: Option<f32>,
+    /// % de cada processador lógico, na ordem do sistema.
+    pub cores: Vec<f32>,
+    /// `false` na primeira amostra: ainda não há intervalo para calcular o uso.
+    pub ready: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -132,6 +177,13 @@ pub struct MemoryTelemetry {
     pub percent: f32,
     pub swap_total: u64,
     pub swap_used: u64,
+    /// Memória virtual comprometida (RAM + pagefile); separada da RAM física.
+    pub commit_used: Option<u64>,
+    /// Limite de commit (RAM + pagefile).
+    pub commit_limit: Option<u64>,
+    /// Pagefile em uso (contador "Paging File % Usage" × tamanho do pagefile). `swap_used` do
+    /// sysinfo é "commit além da RAM", não o uso real do arquivo de paginação.
+    pub pagefile_used: Option<u64>,
 }
 
 /// O que ESTA GPU informa (independe das outras GPUs da máquina).
@@ -162,6 +214,10 @@ pub struct GpuTelemetry {
     pub shared_total: Option<u64>,
     /// Só temperatura real reportada pelo driver; 0 ou ausência = `None`.
     pub temperature: Option<f32>,
+    /// Fabricante pelo VendorId PCI.
+    pub vendor: Option<String>,
+    /// Versão do driver de vídeo informada pelo registro DirectX.
+    pub driver_version: Option<String>,
     pub capabilities: GpuCapabilities,
 }
 
@@ -176,6 +232,29 @@ pub struct DiskIo {
     pub activity: Option<f32>,
     /// Instância PDH desse disco (ex.: "0 C:").
     pub busiest_disk: Option<String>,
+    /// Um item por disco FÍSICO (a capacidade dos volumes está em `volumes`).
+    pub devices: Vec<DiskDevice>,
+    /// `false` na primeira amostra: as taxas ainda não têm intervalo.
+    pub ready: bool,
+}
+
+/// Atividade de um disco físico. Taxas ausentes (`None`) = o contador ainda não tem intervalo.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskDevice {
+    /// Instância PDH (ex.: "0 C:").
+    pub instance: String,
+    pub number: u32,
+    pub model: Option<String>,
+    pub nvme: bool,
+    /// Letras dos volumes que moram neste disco.
+    pub volumes: Vec<String>,
+    pub read_per_sec: Option<f64>,
+    pub write_per_sec: Option<f64>,
+    pub read_ops_per_sec: Option<f64>,
+    pub write_ops_per_sec: Option<f64>,
+    /// % de tempo ativo (100 − % ocioso).
+    pub activity: Option<f32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -196,6 +275,42 @@ pub struct NetworkTelemetry {
     /// bits por segundo na interface ativa.
     pub download_bps: f64,
     pub upload_bps: f64,
+    /// Todas as interfaces (sem loopback), a ativa primeiro.
+    pub interfaces: Vec<NetworkInterfaceTelemetry>,
+    /// `false` na primeira amostra: as taxas ainda não têm intervalo.
+    pub ready: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkInterfaceTelemetry {
+    pub name: String,
+    pub description: Option<String>,
+    /// ethernet | wifi | tunnel | other
+    pub kind: String,
+    /// `None` se o Windows não informou o estado.
+    pub up: Option<bool>,
+    pub link_speed_bps: Option<u64>,
+    pub ipv4: Vec<String>,
+    pub ipv6: Vec<String>,
+    pub received_bytes: u64,
+    pub sent_bytes: u64,
+    pub download_bps: Option<f64>,
+    pub upload_bps: Option<f64>,
+    /// Interface da rota ativa (a que sai para a internet).
+    pub active: bool,
+}
+
+/// Bateria. Desktop = `present: false` (nunca "0%").
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BatteryTelemetry {
+    pub present: bool,
+    pub percent: Option<f32>,
+    pub charging: Option<bool>,
+    pub ac_online: Option<bool>,
+    /// Só fora da tomada e se o Windows estimar.
+    pub remaining_secs: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -272,7 +387,9 @@ pub struct Telemetry {
     pub processes: Option<TopProcesses>,
     pub uptime: u64,
     pub boot_time: u64,
+    pub battery: BatteryTelemetry,
     pub capabilities: Capabilities,
+    pub availability: DomainAvailability,
     pub health: MachineHealth,
 }
 
@@ -383,6 +500,246 @@ pub fn busiest_disk(idle: &[(String, f64)]) -> Option<(String, f32)> {
         .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
 }
 
+/// Instância PDH de `PhysicalDisk` ("0 C:", "1", "0 C: D:") → (número do disco, letras dos volumes).
+pub fn parse_disk_instance(instance: &str) -> Option<(u32, Vec<String>)> {
+    let mut parts = instance.split_whitespace();
+    let number = parts.next()?.parse::<u32>().ok()?;
+    let volumes = parts
+        .filter(|p| p.ends_with(':'))
+        .map(str::to_string)
+        .collect();
+    Some((number, volumes))
+}
+
+/// Contadores PDH por instância de disco físico, como chegam do sampler.
+pub struct DiskCounters<'a> {
+    pub read_bytes: &'a [(String, f64)],
+    pub write_bytes: &'a [(String, f64)],
+    pub read_ops: &'a [(String, f64)],
+    pub write_ops: &'a [(String, f64)],
+    pub idle: &'a [(String, f64)],
+}
+
+/// Um item por disco físico. Contador ausente vira `None` (nunca 0 inventado); o modelo vem do
+/// inventário de armazenamento (`models`: número do disco → (modelo, é NVMe)).
+pub fn build_disk_devices(
+    counters: &DiskCounters,
+    models: &HashMap<u32, (String, bool)>,
+) -> Vec<DiskDevice> {
+    let value = |list: &[(String, f64)], instance: &str| {
+        list.iter()
+            .find(|(name, _)| name == instance)
+            .map(|(_, v)| *v)
+            .filter(|v| v.is_finite())
+    };
+    let mut instances: Vec<&String> = counters
+        .read_bytes
+        .iter()
+        .chain(counters.write_bytes)
+        .chain(counters.read_ops)
+        .chain(counters.write_ops)
+        .chain(counters.idle)
+        .map(|(name, _)| name)
+        .filter(|name| !name.eq_ignore_ascii_case("_total"))
+        .collect();
+    instances.sort();
+    instances.dedup();
+    let mut devices: Vec<DiskDevice> = instances
+        .into_iter()
+        .filter_map(|instance| {
+            let (number, volumes) = parse_disk_instance(instance)?;
+            let model = models.get(&number);
+            Some(DiskDevice {
+                instance: instance.clone(),
+                number,
+                model: model.map(|(name, _)| name.clone()),
+                nvme: model.is_some_and(|(_, nvme)| *nvme),
+                volumes,
+                read_per_sec: value(counters.read_bytes, instance).map(|v| v.max(0.0)),
+                write_per_sec: value(counters.write_bytes, instance).map(|v| v.max(0.0)),
+                read_ops_per_sec: value(counters.read_ops, instance).map(|v| v.max(0.0)),
+                write_ops_per_sec: value(counters.write_ops, instance).map(|v| v.max(0.0)),
+                activity: value(counters.idle, instance)
+                    .map(|idle| (100.0 - idle).clamp(0.0, 100.0) as f32),
+            })
+        })
+        .collect();
+    devices.sort_by_key(|d| d.number);
+    devices
+}
+
+/// Contadores de uma interface (sysinfo): bytes no último intervalo e totais desde o boot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceCounters {
+    pub name: String,
+    pub received: u64,
+    pub transmitted: u64,
+    pub total_received: u64,
+    pub total_transmitted: u64,
+    pub ipv4: Vec<String>,
+}
+
+/// Junta o que o Windows diz de cada interface (tipo, estado, velocidade, endereços) com os
+/// contadores de tráfego. A ligação é por nome (ou descrição) e, na falta, por IPv4 em comum:
+/// o que não casa continua listado, só sem os dados que a máquina não deu. Loopback fica de fora.
+pub fn build_interfaces(
+    adapters: &[NetAdapter],
+    counters: &[InterfaceCounters],
+    elapsed_ms: i64,
+    active: Option<&str>,
+) -> Vec<NetworkInterfaceTelemetry> {
+    let rates = |counter: Option<&InterfaceCounters>| match counter {
+        Some(c) if elapsed_ms > 0 => (
+            Some(rate(c.received, elapsed_ms) * 8.0),
+            Some(rate(c.transmitted, elapsed_ms) * 8.0),
+        ),
+        _ => (None, None),
+    };
+    let mut used = vec![false; counters.len()];
+    let mut out: Vec<NetworkInterfaceTelemetry> = Vec::new();
+    for adapter in adapters
+        .iter()
+        .filter(|a| a.kind != sensors::AdapterKind::Loopback)
+    {
+        let found = counters.iter().position(|c| {
+            c.name == adapter.name
+                || c.name == adapter.description
+                || (!c.ipv4.is_empty() && c.ipv4.iter().any(|ip| adapter.ipv4.contains(ip)))
+        });
+        if let Some(i) = found {
+            used[i] = true;
+        }
+        let counter = found.map(|i| &counters[i]);
+        let (download_bps, upload_bps) = rates(counter);
+        out.push(NetworkInterfaceTelemetry {
+            name: adapter.name.clone(),
+            description: Some(adapter.description.clone()).filter(|d| !d.is_empty()),
+            kind: adapter.kind.as_str().into(),
+            up: Some(adapter.up),
+            link_speed_bps: adapter.link_speed_bps,
+            ipv4: adapter.ipv4.clone(),
+            ipv6: adapter.ipv6.clone(),
+            received_bytes: counter.map_or(0, |c| c.total_received),
+            sent_bytes: counter.map_or(0, |c| c.total_transmitted),
+            download_bps,
+            upload_bps,
+            active: active.is_some_and(|a| a == adapter.name)
+                || counter.is_some_and(|c| active.is_some_and(|a| a == c.name)),
+        });
+    }
+    for counter in counters
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !used[*i])
+        .map(|(_, counter)| counter)
+    {
+        if counter.name.to_lowercase().contains("loopback") {
+            continue;
+        }
+        let (download_bps, upload_bps) = rates(Some(counter));
+        out.push(NetworkInterfaceTelemetry {
+            name: counter.name.clone(),
+            description: None,
+            kind: "other".into(),
+            up: None,
+            link_speed_bps: None,
+            ipv4: counter.ipv4.clone(),
+            ipv6: Vec::new(),
+            received_bytes: counter.total_received,
+            sent_bytes: counter.total_transmitted,
+            download_bps,
+            upload_bps,
+            active: active.is_some_and(|a| a == counter.name),
+        });
+    }
+    out.sort_by(|a, b| {
+        b.active
+            .cmp(&a.active)
+            .then(b.up.unwrap_or(false).cmp(&a.up.unwrap_or(false)))
+            .then(a.name.cmp(&b.name))
+    });
+    out
+}
+
+/// Bateria a partir do estado de energia. Sem leitura ou sem bateria: `present: false`.
+pub fn battery_from(status: Option<&PowerStatus>) -> BatteryTelemetry {
+    match status {
+        Some(s) if s.battery_present => BatteryTelemetry {
+            present: true,
+            percent: s.percent.map(f32::from),
+            charging: s.charging,
+            ac_online: s.ac_online,
+            remaining_secs: s.remaining_secs.map(u64::from),
+        },
+        Some(s) => BatteryTelemetry {
+            present: false,
+            percent: None,
+            charging: None,
+            ac_online: s.ac_online,
+            remaining_secs: None,
+        },
+        None => BatteryTelemetry {
+            present: false,
+            percent: None,
+            charging: None,
+            ac_online: None,
+            remaining_secs: None,
+        },
+    }
+}
+
+/// Resume, por domínio, o que a máquina entrega: tudo, parte ou nada.
+pub fn domain_availability(c: &Capabilities, gpu_count: usize) -> DomainAvailability {
+    let ok = |a: Availability| a == Availability::Available;
+    let grade = |all: bool, any: bool| {
+        if all {
+            Domain::Available
+        } else if any {
+            Domain::Partial
+        } else {
+            Domain::Unavailable
+        }
+    };
+    let temps = [
+        ok(c.cpu_package_temperature),
+        ok(c.gpu_temperature),
+        ok(c.storage_temperature),
+    ];
+    DomainAvailability {
+        cpu: grade(
+            ok(c.cpu_usage) && ok(c.cpu_per_core) && ok(c.cpu_clock),
+            ok(c.cpu_usage),
+        ),
+        memory: grade(
+            ok(c.memory_usage) && ok(c.memory_commit),
+            ok(c.memory_usage),
+        ),
+        gpu: if gpu_count == 0 {
+            Domain::Unavailable
+        } else {
+            // Com GPU presente o nome já é conhecido: sem nenhuma métrica ainda é parcial.
+            grade(
+                ok(c.gpu_usage) && ok(c.gpu_memory) && ok(c.gpu_temperature),
+                true,
+            )
+        },
+        disk: grade(
+            ok(c.disk_io) && ok(c.disk_per_device) && ok(c.storage_temperature),
+            ok(c.disk_io) || ok(c.disk_per_device),
+        ),
+        network: grade(
+            ok(c.network_rate) && ok(c.network_interfaces),
+            ok(c.network_rate) || ok(c.network_interfaces),
+        ),
+        battery: grade(ok(c.battery), false),
+        // CPU, GPU e disco: só "tudo" se os três têm sensor; a zona ACPI sozinha é parcial.
+        temperatures: grade(
+            temps.iter().all(|t| *t),
+            temps.iter().any(|t| *t) || ok(c.thermal_zone_temperature),
+        ),
+    }
+}
+
 pub fn by_luid(values: &[(String, f64)]) -> HashMap<u64, u64> {
     by_gpu(values, &HashMap::new())
 }
@@ -482,7 +839,7 @@ impl Plan {
                 load: true,
                 io: tick.is_multiple_of(2),
                 processes: tick.is_multiple_of(2),
-                temperatures: tick.is_multiple_of(10),
+                temperatures: tick.is_multiple_of(ACTIVE_TEMPERATURE_TICKS),
             }
         } else {
             Plan {
@@ -506,7 +863,12 @@ const PDH_CPU_FREQUENCY: usize = 3;
 const PDH_CPU_PERFORMANCE: usize = 4;
 const PDH_DISK_IDLE: usize = 5;
 const PDH_THERMAL_ZONE: usize = 6;
-const PDH_PATHS: [&str; 7] = [
+const PDH_DISK_READ_BYTES: usize = 7;
+const PDH_DISK_WRITE_BYTES: usize = 8;
+const PDH_DISK_READS: usize = 9;
+const PDH_DISK_WRITES: usize = 10;
+const PDH_PAGEFILE_USAGE: usize = 11;
+const PDH_PATHS: [&str; 12] = [
     r"\GPU Engine(*)\Utilization Percentage",
     r"\GPU Adapter Memory(*)\Dedicated Usage",
     r"\GPU Adapter Memory(*)\Shared Usage",
@@ -514,6 +876,11 @@ const PDH_PATHS: [&str; 7] = [
     r"\Processor Information(_Total)\% Processor Performance",
     r"\PhysicalDisk(*)\% Idle Time",
     r"\Thermal Zone Information(*)\High Precision Temperature",
+    r"\PhysicalDisk(*)\Disk Read Bytes/sec",
+    r"\PhysicalDisk(*)\Disk Write Bytes/sec",
+    r"\PhysicalDisk(*)\Disk Reads/sec",
+    r"\PhysicalDisk(*)\Disk Writes/sec",
+    r"\Paging File(_Total)\% Usage",
 ];
 
 pub struct Sampler {
@@ -524,6 +891,17 @@ pub struct Sampler {
     threads: usize,
     adapters: Vec<Adapter>,
     adapters_at: Option<i64>,
+    net_adapters: Vec<NetAdapter>,
+    net_adapters_at: Option<i64>,
+    storage_models: HashMap<u32, (String, bool)>,
+    storage_at: Option<i64>,
+    power: Option<PowerStatus>,
+    battery: BatteryTelemetry,
+    /// % de uso do pagefile (PDH); atualizado na rodada de E/S.
+    pagefile_percent: Option<f32>,
+    /// Amostras de carga / de E/S já feitas: a primeira não tem intervalo para taxas.
+    load_samples: u32,
+    io_samples: u32,
     last_io: Option<i64>,
     last_processes: Option<i64>,
     cpu: CpuTelemetry,
@@ -563,11 +941,24 @@ impl Sampler {
             threads,
             adapters: Vec::new(),
             adapters_at: None,
+            net_adapters: Vec::new(),
+            net_adapters_at: None,
+            storage_models: HashMap::new(),
+            storage_at: None,
+            power: None,
+            battery: battery_from(None),
+            pagefile_percent: None,
+            load_samples: 0,
+            io_samples: 0,
             last_io: None,
             last_processes: None,
             cpu: CpuTelemetry {
                 usage: 0.0,
                 clock_mhz: None,
+                // Clock base: estático, lido uma vez (não muda durante a sessão).
+                base_mhz: sensors::cpu_base_mhz(),
+                cores: Vec::new(),
+                ready: false,
             },
             memory: MemoryTelemetry {
                 total: 0,
@@ -576,6 +967,9 @@ impl Sampler {
                 percent: 0.0,
                 swap_total: 0,
                 swap_used: 0,
+                commit_used: None,
+                commit_limit: None,
+                pagefile_used: None,
             },
             gpus: Vec::new(),
             gpu_by_process: HashMap::new(),
@@ -584,6 +978,8 @@ impl Sampler {
                 write_per_sec: 0.0,
                 activity: None,
                 busiest_disk: None,
+                devices: Vec::new(),
+                ready: false,
             },
             volumes: Vec::new(),
             network: NetworkTelemetry {
@@ -591,6 +987,8 @@ impl Sampler {
                 ipv4: None,
                 download_bps: 0.0,
                 upload_bps: 0.0,
+                interfaces: Vec::new(),
+                ready: false,
             },
             temperatures: Vec::new(),
             sensor_history: HashMap::new(),
@@ -619,6 +1017,16 @@ impl Sampler {
         let total = self.system.total_memory();
         let available = self.system.available_memory();
         self.cpu.usage = self.system.global_cpu_usage().clamp(0.0, 100.0);
+        self.cpu.cores = self
+            .system
+            .cpus()
+            .iter()
+            .map(|cpu| cpu.cpu_usage().clamp(0.0, 100.0))
+            .collect();
+        // O primeiro refresh depois de criar o `System` não tem intervalo: ainda não é uso real.
+        self.load_samples = self.load_samples.saturating_add(1);
+        self.cpu.ready = self.load_samples >= 2;
+        let commit = sensors::commit_charge();
         self.memory = MemoryTelemetry {
             total,
             used: total.saturating_sub(available),
@@ -626,6 +1034,11 @@ impl Sampler {
             percent: memory_percent(total, available),
             swap_total: self.system.total_swap(),
             swap_used: self.system.used_swap(),
+            commit_used: commit.map(|c| c.used),
+            commit_limit: commit.map(|c| c.limit).filter(|l| *l > 0),
+            pagefile_used: self
+                .pagefile_percent
+                .map(|p| (self.system.total_swap() as f64 * p as f64 / 100.0) as u64),
         };
         self.load.push(LoadSample {
             at: now,
@@ -668,12 +1081,33 @@ impl Sampler {
         }
         volumes.sort_by(|a, b| a.mount.cmp(&b.mount));
         self.volumes = volumes;
-        let busiest = busiest_disk(&self.pdh_values(PDH_DISK_IDLE));
+        self.io_samples = self.io_samples.saturating_add(1);
+        if self.storage_at.is_none_or(|at| now - at >= ADAPTERS_TTL_MS) {
+            self.storage_models = sensors::storage_devices()
+                .into_iter()
+                .map(|d| (d.disk, (d.model, d.nvme)))
+                .collect();
+            self.storage_at = Some(now);
+        }
+        let idle = self.pdh_values(PDH_DISK_IDLE);
+        let busiest = busiest_disk(&idle);
+        let devices = build_disk_devices(
+            &DiskCounters {
+                read_bytes: &self.pdh_values(PDH_DISK_READ_BYTES),
+                write_bytes: &self.pdh_values(PDH_DISK_WRITE_BYTES),
+                read_ops: &self.pdh_values(PDH_DISK_READS),
+                write_ops: &self.pdh_values(PDH_DISK_WRITES),
+                idle: &idle,
+            },
+            &self.storage_models,
+        );
         self.disk_io = DiskIo {
             read_per_sec: rate(read, elapsed),
             write_per_sec: rate(written, elapsed),
             activity: busiest.as_ref().map(|(_, active)| *active),
             busiest_disk: busiest.map(|(instance, _)| instance),
+            devices,
+            ready: elapsed > 0,
         };
         // Rede: interface da rota ativa.
         self.networks.refresh(true);
@@ -684,12 +1118,51 @@ impl Sampler {
             .and_then(|name| self.networks.iter().find(|(n, _)| *n == name))
             .map(|(_, data)| (data.received(), data.transmitted()))
             .unwrap_or((0, 0));
+        if self
+            .net_adapters_at
+            .is_none_or(|at| now - at >= NET_ADAPTERS_TTL_MS)
+        {
+            self.net_adapters = sensors::network_adapters();
+            self.net_adapters_at = Some(now);
+        }
+        let counters: Vec<InterfaceCounters> = self
+            .networks
+            .iter()
+            .map(|(name, data)| InterfaceCounters {
+                name: name.clone(),
+                received: data.received(),
+                transmitted: data.transmitted(),
+                total_received: data.total_received(),
+                total_transmitted: data.total_transmitted(),
+                ipv4: data
+                    .ip_networks()
+                    .iter()
+                    .filter_map(|net| match net.addr {
+                        std::net::IpAddr::V4(ip) if !ip.is_loopback() => Some(ip.to_string()),
+                        _ => None,
+                    })
+                    .collect(),
+            })
+            .collect();
         self.network = NetworkTelemetry {
+            interfaces: build_interfaces(
+                &self.net_adapters,
+                &counters,
+                elapsed,
+                interface.as_deref(),
+            ),
             interface,
             ipv4,
             download_bps: rate(rx, elapsed) * 8.0,
             upload_bps: rate(tx, elapsed) * 8.0,
+            ready: elapsed > 0,
         };
+        self.power = sensors::power_status();
+        self.battery = battery_from(self.power.as_ref());
+        self.pagefile_percent = self
+            .pdh_total(PDH_PAGEFILE_USAGE)
+            .filter(|v| v.is_finite())
+            .map(|v| v.clamp(0.0, 100.0) as f32);
         // GPU.
         if self
             .adapters_at
@@ -716,6 +1189,8 @@ impl Sampler {
                 dedicated_total: a.dedicated,
                 shared_used: memory.then(|| shared.get(&a.luid).copied().unwrap_or(0)),
                 shared_total: a.shared,
+                vendor: a.vendor.clone(),
+                driver_version: a.driver_version.clone(),
                 temperature: previous
                     .iter()
                     .find(|g| g.id == a.id)
@@ -869,6 +1344,13 @@ impl Sampler {
             network_rate: Availability::Available,
             process_disk_io: Availability::Available,
             storage_physical_health: Availability::Unavailable,
+            cpu_per_core: (!self.cpu.cores.is_empty()).into(),
+            cpu_base_clock: self.cpu.base_mhz.is_some().into(),
+            memory_commit: self.memory.commit_limit.is_some().into(),
+            battery: self.battery.present.into(),
+            battery_health: Availability::Unavailable,
+            disk_per_device: (!self.disk_io.devices.is_empty()).into(),
+            network_interfaces: (!self.network.interfaces.is_empty()).into(),
         }
     }
 
@@ -943,6 +1425,7 @@ impl Sampler {
                 upload_bps: self.network.upload_bps,
             });
         }
+        let capabilities = self.capabilities();
         Telemetry {
             timestamp: now,
             active,
@@ -956,7 +1439,9 @@ impl Sampler {
             processes: self.processes.clone(),
             uptime: sysinfo::System::uptime(),
             boot_time: sysinfo::System::boot_time(),
-            capabilities: self.capabilities(),
+            battery: self.battery.clone(),
+            availability: domain_availability(&capabilities, self.gpus.len()),
+            capabilities,
             health: self.health(now),
         }
     }

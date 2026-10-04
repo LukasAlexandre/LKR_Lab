@@ -91,6 +91,10 @@ pub struct RawAdapter {
     /// Bits de `adapter_type`; `None` se nem o driver nem o registro informaram.
     pub flags: Option<u32>,
     pub pci: Option<Pci>,
+    /// VendorId PCI informado pelo registro DirectX.
+    pub vendor_id: Option<u32>,
+    /// `DriverVersion` empacotado (4 × 16 bits) do registro DirectX.
+    pub driver_version: Option<u64>,
 }
 
 /// GPUs de verdade a partir dos adaptadores presentes.
@@ -117,6 +121,12 @@ pub fn physical_gpus(raw: Vec<RawAdapter>) -> Vec<Adapter> {
                 same.luids.push(adapter.luid);
                 same.dedicated = same.dedicated.max(adapter.dedicated);
                 same.shared = same.shared.max(adapter.shared);
+                if same.vendor.is_none() {
+                    same.vendor = adapter.vendor_id.and_then(vendor_name).map(String::from);
+                }
+                if same.driver_version.is_none() {
+                    same.driver_version = adapter.driver_version.and_then(format_driver_version);
+                }
                 continue;
             }
         }
@@ -133,6 +143,8 @@ pub fn physical_gpus(raw: Vec<RawAdapter>) -> Vec<Adapter> {
                 name: adapter.name,
                 dedicated: adapter.dedicated,
                 shared: adapter.shared,
+                vendor: adapter.vendor_id.and_then(vendor_name).map(String::from),
+                driver_version: adapter.driver_version.and_then(format_driver_version),
             },
         ));
     }
@@ -157,6 +169,124 @@ pub struct Adapter {
     pub dedicated: Option<u64>,
     /// Limite de memória do sistema que a GPU pode usar (compartilhada), segundo o driver.
     pub shared: Option<u64>,
+    /// Fabricante pelo VendorId PCI; `None` se o id não é de um fabricante conhecido.
+    pub vendor: Option<String>,
+    /// Versão do driver de vídeo (`a.b.c.d`) segundo o registro DirectX.
+    pub driver_version: Option<String>,
+}
+
+/// Fabricante a partir do VendorId PCI. Só ids de fabricantes de GPU conhecidos; o resto é `None`.
+pub fn vendor_name(vendor_id: u32) -> Option<&'static str> {
+    match vendor_id {
+        0x10DE => Some("NVIDIA"),
+        0x1002 | 0x1022 => Some("AMD"),
+        0x8086 => Some("Intel"),
+        0x5143 => Some("Qualcomm"),
+        _ => None,
+    }
+}
+
+/// `DriverVersion` do registro DirectX (4 palavras de 16 bits) → `a.b.c.d`. Zero = desconhecido.
+pub fn format_driver_version(packed: u64) -> Option<String> {
+    (packed != 0).then(|| {
+        format!(
+            "{}.{}.{}.{}",
+            (packed >> 48) & 0xFFFF,
+            (packed >> 32) & 0xFFFF,
+            (packed >> 16) & 0xFFFF,
+            packed & 0xFFFF
+        )
+    })
+}
+
+/// Estado de energia como o Windows o informa (`GetSystemPowerStatus`). Capacidade de projeto e
+/// de carga cheia NÃO fazem parte disto: o Windows não as entrega sem driver/elevação.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PowerStatus {
+    pub battery_present: bool,
+    pub ac_online: Option<bool>,
+    pub percent: Option<u8>,
+    pub charging: Option<bool>,
+    /// Segundos restantes na bateria; só existe com a máquina fora da tomada.
+    pub remaining_secs: Option<u32>,
+}
+
+/// Interpreta `SYSTEM_POWER_STATUS`. Valores "desconhecido" (255, `u32::MAX`) viram `None`:
+/// nunca são mostrados como 0%.
+pub fn interpret_power(ac_line: u8, battery_flag: u8, percent: u8, lifetime: u32) -> PowerStatus {
+    let no_battery = battery_flag & 128 != 0;
+    let unknown = battery_flag == 255;
+    let present = !no_battery && !unknown;
+    PowerStatus {
+        battery_present: present,
+        ac_online: match ac_line {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        },
+        percent: (present && percent <= 100).then_some(percent),
+        charging: present.then_some(battery_flag & 8 != 0),
+        remaining_secs: (present && ac_line == 0 && lifetime != u32::MAX).then_some(lifetime),
+    }
+}
+
+/// Memória virtual do sistema: o limite de commit (RAM + pagefile) e o que já está comprometido.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CommitCharge {
+    pub used: u64,
+    pub limit: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdapterKind {
+    Ethernet,
+    Wifi,
+    Loopback,
+    Tunnel,
+    Other,
+}
+impl AdapterKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ethernet => "ethernet",
+            Self::Wifi => "wifi",
+            Self::Loopback => "loopback",
+            Self::Tunnel => "tunnel",
+            Self::Other => "other",
+        }
+    }
+}
+
+/// `IfType` da IANA → tipo de interface. O que não é reconhecido com segurança é `Other`.
+pub fn classify_if_type(if_type: u32) -> AdapterKind {
+    match if_type {
+        6 => AdapterKind::Ethernet,
+        71 => AdapterKind::Wifi,
+        24 => AdapterKind::Loopback,
+        131 | 23 | 150 => AdapterKind::Tunnel,
+        _ => AdapterKind::Other,
+    }
+}
+
+/// Interface de rede como o Windows a descreve (`GetAdaptersAddresses`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NetAdapter {
+    pub name: String,
+    pub description: String,
+    pub kind: AdapterKind,
+    pub up: bool,
+    /// bits/s da negociação do enlace; `None` se desconectada ou se o driver não informa.
+    pub link_speed_bps: Option<u64>,
+    pub ipv4: Vec<String>,
+    pub ipv6: Vec<String>,
+}
+
+/// Disco físico presente (número do `PhysicalDriveN`, modelo e barramento).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StorageDevice {
+    pub disk: u32,
+    pub model: String,
+    pub nvme: bool,
 }
 
 /// Temperatura de um SSD/disco, com os limites declarados pelo dispositivo.
@@ -198,8 +328,25 @@ pub use windows::*;
 
 #[cfg(not(windows))]
 mod fallback {
-    use super::{Adapter, StorageTemperature};
+    use super::{
+        Adapter, CommitCharge, NetAdapter, PowerStatus, StorageDevice, StorageTemperature,
+    };
     pub fn gpu_adapters() -> Vec<Adapter> {
+        Vec::new()
+    }
+    pub fn power_status() -> Option<PowerStatus> {
+        None
+    }
+    pub fn commit_charge() -> Option<CommitCharge> {
+        None
+    }
+    pub fn network_adapters() -> Vec<NetAdapter> {
+        Vec::new()
+    }
+    pub fn cpu_base_mhz() -> Option<f32> {
+        None
+    }
+    pub fn storage_devices() -> Vec<StorageDevice> {
         Vec::new()
     }
     pub fn gpu_temperature(_luid: u64) -> Option<f32> {
@@ -228,7 +375,9 @@ pub use fallback::*;
 #[cfg(windows)]
 mod windows {
     use super::registry::Key;
-    use super::{Adapter, StorageTemperature};
+    use super::{
+        Adapter, CommitCharge, NetAdapter, PowerStatus, StorageDevice, StorageTemperature,
+    };
 
     // ---- D3DKMT (gdi32): mesmas estruturas do WDK, declaradas aqui ----
     #[repr(C)]
@@ -358,6 +507,8 @@ mod windows {
                     .adapter_type()
                     .or_else(|| key.number("AdapterType").map(|t| t as u32)),
                 pci: present.pci(),
+                vendor_id: key.number("VendorId").map(|v| v as u32),
+                driver_version: key.number("DriverVersion"),
             });
         }
         super::physical_gpus(raw)
@@ -502,6 +653,151 @@ mod windows {
             });
         }
         found
+    }
+
+    /// Discos físicos presentes (modelo e barramento), sem permissão de leitura do conteúdo.
+    pub fn storage_devices() -> Vec<StorageDevice> {
+        let mut found = Vec::new();
+        for index in 0..16 {
+            let Some(disk) = Disk::open(index) else { break };
+            let (model, nvme) = describe(&disk);
+            found.push(StorageDevice {
+                disk: index,
+                model: model.unwrap_or_else(|| format!("Disco {index}")),
+                nvme,
+            });
+        }
+        found
+    }
+
+    /// Clock base nominal da CPU (registro, MHz): o mesmo valor que o Gerenciador de Tarefas
+    /// mostra como "Velocidade base".
+    pub fn cpu_base_mhz() -> Option<f32> {
+        Key::local_machine(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")?
+            .number("~MHz")
+            .filter(|mhz| *mhz > 0)
+            .map(|mhz| mhz as f32)
+    }
+
+    /// Estado de energia (bateria, tomada, carga). `None` só se a chamada falhar.
+    pub fn power_status() -> Option<PowerStatus> {
+        use windows_sys::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
+        let mut status = SYSTEM_POWER_STATUS {
+            ACLineStatus: 255,
+            BatteryFlag: 255,
+            BatteryLifePercent: 255,
+            SystemStatusFlag: 0,
+            BatteryLifeTime: u32::MAX,
+            BatteryFullLifeTime: u32::MAX,
+        };
+        // SAFETY: estrutura válida e viva durante a chamada.
+        (unsafe { GetSystemPowerStatus(&mut status) } != 0).then(|| {
+            super::interpret_power(
+                status.ACLineStatus,
+                status.BatteryFlag,
+                status.BatteryLifePercent,
+                status.BatteryLifeTime,
+            )
+        })
+    }
+
+    /// Commit (memória virtual comprometida) e seu limite (RAM + pagefile), em bytes.
+    pub fn commit_charge() -> Option<CommitCharge> {
+        use windows_sys::Win32::System::ProcessStatus::{
+            GetPerformanceInfo, PERFORMANCE_INFORMATION,
+        };
+        // SAFETY: estrutura de saída inicializada com zeros e o tamanho correto em `cb`.
+        let mut info: PERFORMANCE_INFORMATION = unsafe { std::mem::zeroed() };
+        info.cb = std::mem::size_of::<PERFORMANCE_INFORMATION>() as u32;
+        // SAFETY: `info` válida durante a chamada.
+        if unsafe { GetPerformanceInfo(&mut info, info.cb) } == 0 || info.PageSize == 0 {
+            return None;
+        }
+        let page = info.PageSize as u64;
+        Some(CommitCharge {
+            used: (info.CommitTotal as u64).saturating_mul(page),
+            limit: (info.CommitLimit as u64).saturating_mul(page),
+        })
+    }
+
+    /// Interfaces de rede com tipo, estado, velocidade de enlace e endereços IPv4/IPv6.
+    pub fn network_adapters() -> Vec<NetAdapter> {
+        use std::net::{Ipv4Addr, Ipv6Addr};
+        use windows_sys::Win32::{
+            Foundation::ERROR_BUFFER_OVERFLOW,
+            NetworkManagement::IpHelper::{
+                GetAdaptersAddresses, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER,
+                GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
+            },
+            Networking::WinSock::{AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR_IN, SOCKADDR_IN6},
+        };
+        let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+        let mut size = 16 * 1024u32;
+        let mut buffer: Vec<u64> = Vec::new();
+        let mut status = ERROR_BUFFER_OVERFLOW;
+        for _ in 0..3 {
+            // u64: alinhamento de 8 bytes exigido pela lista encadeada.
+            buffer = vec![0u64; (size as usize).div_ceil(8)];
+            // SAFETY: buffer com pelo menos `size` bytes, vivo durante a chamada.
+            status = unsafe {
+                GetAdaptersAddresses(
+                    AF_UNSPEC as u32,
+                    flags,
+                    std::ptr::null(),
+                    buffer.as_mut_ptr().cast(),
+                    &mut size,
+                )
+            };
+            if status != ERROR_BUFFER_OVERFLOW {
+                break;
+            }
+        }
+        if status != 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut current = buffer.as_ptr().cast::<IP_ADAPTER_ADDRESSES_LH>();
+        while !current.is_null() {
+            // SAFETY: lista encadeada escrita pelo Windows dentro de `buffer`, vivo neste laço.
+            let adapter = unsafe { &*current };
+            let (mut ipv4, mut ipv6) = (Vec::new(), Vec::new());
+            let mut unicast = adapter.FirstUnicastAddress;
+            while !unicast.is_null() {
+                // SAFETY: nó da lista de endereços dentro de `buffer`.
+                let node = unsafe { &*unicast };
+                let sockaddr = node.Address.lpSockaddr;
+                if !sockaddr.is_null() {
+                    // SAFETY: `lpSockaddr` aponta para a estrutura da família indicada.
+                    let family = unsafe { (*sockaddr).sa_family };
+                    if family == AF_INET {
+                        let sin = unsafe { &*(sockaddr as *const SOCKADDR_IN) };
+                        let b = unsafe { sin.sin_addr.S_un.S_addr }.to_ne_bytes();
+                        ipv4.push(Ipv4Addr::new(b[0], b[1], b[2], b[3]).to_string());
+                    } else if family == AF_INET6 {
+                        let sin6 = unsafe { &*(sockaddr as *const SOCKADDR_IN6) };
+                        let ip = Ipv6Addr::from(unsafe { sin6.sin6_addr.u.Byte });
+                        // Link-local (fe80::/10) e loopback não identificam a máquina na rede.
+                        if (ip.segments()[0] & 0xffc0) != 0xfe80 && !ip.is_loopback() {
+                            ipv6.push(ip.to_string());
+                        }
+                    }
+                }
+                unicast = node.Next;
+            }
+            let speed = adapter.TransmitLinkSpeed;
+            out.push(NetAdapter {
+                // SAFETY: nomes são texto UTF-16 terminado em NUL dentro de `buffer`.
+                name: unsafe { wide_ptr(adapter.FriendlyName) },
+                description: unsafe { wide_ptr(adapter.Description) },
+                kind: super::classify_if_type(adapter.IfType),
+                up: adapter.OperStatus == 1,
+                link_speed_bps: (speed != 0 && speed != u64::MAX).then_some(speed),
+                ipv4,
+                ipv6,
+            });
+            current = adapter.Next as *const IP_ADAPTER_ADDRESSES_LH;
+        }
+        out
     }
 
     // ---- PDH ----

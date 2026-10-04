@@ -42,6 +42,8 @@ fn raw(
         shared: Some(shared).filter(|m| *m > 0),
         flags,
         pci,
+        vendor_id: None,
+        driver_version: None,
     }
 }
 fn igpu(luid: u64) -> RawAdapter {
