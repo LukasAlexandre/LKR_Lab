@@ -20,12 +20,12 @@ Construir a camada de observabilidade e controle local do LKR LAB para processos
 | 04 | Managed Runtime Supervisor | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 05 | Live Console Hub | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 06 | Machine Telemetry Expansion | IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 07 | Windows Health & Integrity | PENDENTE |
+| 07 | Windows Health & Integrity | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 08 | Network & Security Visibility | PENDENTE |
 | 09 | Alerts & Diagnostics | PENDENTE |
 | 10 | Validation & Hardening | PENDENTE |
 
-Progresso no DDAE: **6 / 10**, sem bloco em andamento; próximo: **07 — Windows Health & Integrity** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
+Progresso no DDAE: **7 / 10**, sem bloco em andamento; próximo: **08 — Network & Security Visibility** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
 
 ## Checkpoint — CONTROL PLANE MVP (Blocks 01–05)
 
@@ -140,9 +140,74 @@ Custo médio medido por rodada: carga ~2 ms, E/S + rede + GPU ~16 ms, temperatur
 
 O campo `swapUsed` herdado do sysinfo **não representava o uso real do pagefile** (ele mede commit além da RAM: ~12,5 GB contra ~3,4 GB reais). A interface passou a usar a medição real via contador PDH do Windows (`Paging File % Usage`), mantendo o commit como memória virtual separada da RAM física.
 
+## Checkpoint — WINDOWS HEALTH & INTEGRITY (Block 07)
+
+Block 07 — Windows Health & Integrity: **IMPLEMENTADO E VALIDADO NO DESKTOP**. SESSION-002: **ATIVA, 7 / 10**, sem bloco atual; próximo: **08 — Network & Security Visibility** (não iniciado). Nada do 08 foi implementado.
+
+### Arquitetura
+
+Coletor **passivo e somente leitura** (`windows_health.rs` + `windows_native.rs`): nada é reparado, reiniciado, instalado, iniciado, parado ou alterado, e SFC, DISM e CHKDSK **não** são executados. O estado fica só na máquina (nada vai ao workspace portátil, ao Git, ao sync, ao Planejamento ou ao DDAE; há teste).
+
+- **Fontes nativas em processo:** registro (leitura), Service Control Manager (só consulta), Configuration Manager/SetupAPI, Event Log API (consultas filtradas) e volumes. **Sem PowerShell, sem WMI e sem subprocessos**; há um teste que falha se o código passar a usar APIs de reparo, instalação, reinício ou escrita.
+- **Domínios independentes, cada um com saúde, motivo, fontes e instante próprios:** reinício pendente, Windows Update, serviços essenciais, dispositivos, eventos, volumes. Informativos (fora do estado geral): sistema, confiabilidade e integridade passiva. Falha de um domínio nunca derruba os outros.
+- **Semântica:** `healthy`, `attention`, `critical` e `unknown`, só com regra objetiva. **Ausência de informação é `unknown`, nunca `healthy`.** O estado geral é o pior entre os domínios avaliados, com os motivos visíveis e a contagem "X de Y domínios avaliados".
+- **Cache por domínio (TTL próprio):** reinício e serviços 45 s, volumes 60 s, eventos 3 min, Windows Update e dispositivos 10 min. "Atualizar agora" força a releitura. A interface consulta de 30 em 30 s com a janela visível; só o que expirou é relido. A leitura marca como "desatualizada" o domínio que passar do dobro do TTL.
+- **Permissões:** nada eleva no startup e não há UAC automático. Fonte que exige administrador vira `requires_elevation`, e a interface diz "Requer privilégio administrativo".
+- **API:** um único comando de leitura, `windows_health_snapshot(force)`, atrás do gate de máquina cadastrada.
+
+### Regras (objetivas e explicáveis)
+
+- **Reinício pendente:** duas fontes fortes (Component Based Servicing e Windows Update). Uma presente basta para "pendente". Fonte negada ou indisponível **nunca** vira "sem reinício": sem fonte presente e com alguma não consultada, o resultado é desconhecido. Renomeações pendentes de arquivo são informativas e nunca alertam sozinhas.
+- **Serviços (lista curta):** Log de Eventos, RPC, WMI, Agendador de Tarefas, Serviços de Criptografia, BITS e Windows Update. Parado só é problema quando o início é automático (crítico para Log de Eventos e RPC). Serviços sob demanda parados são normais; desabilitado é atenção. Início automático atrasado logo após o boot não é falha.
+- **Dispositivos:** só os que reportam código de problema no Gerenciador de Dispositivos. Desabilitados de propósito (códigos 22 e 29) não contam. Nenhum dispositivo enumerado é desconhecido.
+- **Eventos:** janelas de 24 h e 7 dias, consultas filtradas e com teto, guardando só provedor, ID, nível e instante (a mensagem nunca é lida). Erros e avisos comuns **não** mudam o estado. Crítico: tela azul (bugcheck) nas últimas 24 h. Atenção: bugcheck mais antigo na semana, desligamento inesperado (Kernel-Power 41 e EventLog 6008 do mesmo desligamento contam uma vez), erro de dispositivo de armazenamento, erro de NTFS, avisos de E/S repetidos (5 ou mais) e 3 ou mais falhas de serviço em 24 h. Nunca diagnostica a causa.
+- **Windows Update:** estado do serviço, falhas de instalação/download em 7 dias (Event Log do cliente) e as datas de última instalação/verificação quando existirem. Atenção para falha recente ou serviço desabilitado. Não instala nem busca atualizações.
+- **Volumes:** sistema de arquivos, somente leitura, bit "sujo" (quando acessível) e verificação de disco agendada para a próxima inicialização (`BootExecute`). Sujo, somente leitura ou verificação agendada são atenção.
+- **Integridade passiva:** reúne só sinais que as outras leituras já têm. Sem sinais fica `unknown` e explica que a integridade completa só é comprovada por verificação sob demanda. O modelo de SFC verify, DISM ScanHealth e CHKDSK scan existe, marcado como não disponível, exigindo elevação e reservado ao Block 09.
+
+### VALIDAÇÃO DESKTOP REAL
+
+Executada no app Tauri em execução, em um notebook (PC Casa). Valores são **observações daquele momento**, não requisitos.
+
+- **Windows:** Windows 11 Pro (Professional), versão 25H2, build 26200.9457, x64, ligado há ~1 dia e 13 h (uptime da máquina). O `ProductName` do registro ainda diz "Windows 10"; a build decide "Windows 11".
+- **Estado geral: Saudável, 5 de 6 domínios avaliados** (o sexto, Volumes, ficou Desconhecido por exigir administrador).
+- **Reinício pendente:** não. Há renomeações de arquivo pendentes, mostradas como informativas, sem alerta.
+- **Windows Update:** serviço em execução, início manual/sob demanda; 0 falhas em 7 dias. Última instalação, última verificação e atualizações pendentes: **Desconhecido** (o Windows não mantém mais esse registro nesta versão, o log do cliente não tem eventos de instalação, e contar pendentes exigiria uma busca que o app não dispara).
+- **Serviços essenciais:** 7 de 7 saudáveis (Log de Eventos, RPC, WMI, Agendador, Criptografia e BITS em início automático e rodando; Windows Update manual e rodando).
+- **Dispositivos:** 192 presentes, nenhum com problema, nenhum desabilitado de propósito.
+- **Eventos:** 0 críticos e 5 erros nas últimas 24 h (22 avisos, só informativos); 0 críticos e 25 erros em 7 dias; um único sinal: 1 falha de aplicativo. Nenhum bugcheck, desligamento inesperado, erro de disco/NTFS ou falha de serviço.
+- **Volumes C: e D:** NTFS, leitura e escrita. O bit "sujo" **requer privilégio administrativo**; a tela diz isso e o domínio fica Desconhecido, nunca "limpo". Não há verificação de disco agendada.
+- **Confiabilidade:** 1 falha de aplicativo e 0 travamentos em 7 dias; sem pontuação (o Monitor de Confiabilidade depende de WMI e não é consultado).
+- **Integridade passiva:** sem sinais; estado Desconhecido com a explicação.
+- **Fontes não disponíveis (4):** última instalação e última verificação do Windows Update, volume sujo (administrador) e Monitor de Confiabilidade (WMI).
+- **Custo (desta máquina, não SLA):** leitura completa forçada de todos os domínios em ~280–340 ms; nas chamadas seguintes só o que expirou é relido.
+- **A máquina estava saudável:** nenhum estado Atenção/Crítico foi inventado para provar a interface. Esses estados estão cobertos por testes.
+
+### COBERTURA AUTOMATIZADA
+
+- **Rust (`windows_health`):** 44 testes com fontes falsas (nenhum depende do Event Log, dos serviços ou dos drivers reais): versão do Windows, reinício verdadeiro/falso/parcial/desconhecido, regras de serviço (esperado rodando, parado mas válido, desabilitado, atraso pós-boot, consulta falha), dispositivos (com e sem problema, desabilitado de propósito), filtro de eventos (ruído, bugcheck crítico e antigo, desligamento inesperado deduplicado, erros de armazenamento brandos e duros, NTFS, falhas de serviço, janelas e relógio), Windows Update, interpretação de datas do registro, volumes (limpo, sujo, somente leitura, agendamento, ilegível/negado), integridade passiva, estado geral, isolamento de falhas, cache e staleness por domínio, serialização, passividade (varredura do código-fonte) e nada no workspace portátil. Testes de leitura real, só leitura, validam as fontes nativas.
+- **Frontend (vitest):** 40 testes novos (helpers e renderização do painel: saudável, atenção, crítico, desconhecido, reinício, update, eventos, dispositivos, serviços, volumes, dado parcial, requer elevação, estados vazios, última leitura, desatualizado, recolhido por padrão e ausência de qualquer ação de reparo); total do projeto: 519.
+- **Gates:** `npm test` (519), `npm run lint`, `npm run typecheck`, `npm run build`, `cargo fmt --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` e `cargo test --workspace` passaram, inclusive `stacks_exec` (7/7) e `runtime` (25).
+
+### LIMITAÇÕES
+
+1. O bit "sujo" do volume exige privilégio administrativo (o mesmo que o `fsutil dirty query`); sem ele o domínio Volumes fica Desconhecido.
+2. Última instalação/verificação do Windows Update dependem de registro ou de eventos que o Windows atual pode não manter; a contagem de atualizações pendentes não é consultada.
+3. Sem SMART nem saúde física de disco, e sem pontuação de confiabilidade (WMI).
+4. Sem driver/versão por dispositivo: só nome, classe, fabricante e o código de problema.
+5. A integridade completa (SFC, DISM, CHKDSK) só existe sob demanda, fora deste Block (Block 09).
+6. Firewall, Defender, BitLocker, Secure Boot, TPM e exposição de rede ficam para o Block 08; alertas e recomendações, para o Block 09.
+7. Event Log por janela limitada e com teto por consulta; um log muito ruidoso é truncado (a interface avisa).
+
+### Bugs encontrados e corrigidos durante o Block 07
+
+- Avisos de 7 dias apareciam como "0" mesmo sem serem medidos; agora são "não medido" (traço).
+- A leitura do bit "sujo" via handle de dispositivo falhava com erro opaco; o caminho correto (volume aberto só para leitura) devolve "requer privilégio administrativo", dito explicitamente.
+- Uma edição minha duplicou um trecho do módulo nativo e foi reconstruída antes de qualquer commit.
+
 ## Critérios de conclusão
 
-Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive depois do Block 06: nenhum critério é marcado só porque um bloco terminou. Evidência reunida até aqui, para a revisão no fechamento da Session:
+Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive depois dos Blocks 06 e 07: nenhum critério é marcado só porque um bloco terminou. Evidência reunida até aqui, para a revisão no fechamento da Session:
 
 - Inventário de processos e mapeamento de portas: demonstrados no desktop e por teste.
 - Diferenciar runtime conhecido de processo não associado; UI sem associação falsa com confiança insuficiente: demonstrados (Unknown) e por teste.
@@ -160,7 +225,8 @@ Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive 
 - Vazamento de processos Node nos testes quando uma asserção falhava.
 - Timestamps ausentes na visualização do console.
 - `swapUsed` do sysinfo apresentado como uso de pagefile (era commit além da RAM); substituído pelo contador real do Windows (Block 06).
+- Avisos de 7 dias exibidos como "0" sem serem medidos (Block 07); agora aparecem como "não medido".
 
 ## Próximo bloco
 
-**07 — Windows Health & Integrity** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
+**08 — Network & Security Visibility** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
