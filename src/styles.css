@@ -2525,3 +2525,4 @@ summary {
 .console-line { display: block; }
 .console-err { border-left: 2px solid var(--warning); padding-left: 8px; }
 .console-note { display: block; padding: 4px 12px; color: var(--muted); font-size: 11px; }
+.console-ts { margin-right: 8px; color: var(--muted); font-variant-numeric: tabular-nums; user-select: none; }

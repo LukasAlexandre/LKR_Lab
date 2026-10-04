@@ -140,6 +140,10 @@ describe("Console Hub", () => {
     expect(html).toContain('data-stream="err"');
     expect(html).toContain("console-err");
   });
+  it("cada linha mostra a hora local em que foi recebida", () => {
+    const html = body();
+    expect((html.match(/<time class="console-ts" dateTime="[^"]+">\d{2}:\d{2}:\d{2}<\/time>/g) ?? []).length).toBe(4);
+  });
   it("filtros ALL, STDOUT e STDERR", () => {
     expect(body({ ...initialConsoleView, filter: "out" })).not.toContain("Warning: deprecated");
     expect(body({ ...initialConsoleView, filter: "out" })).toContain("GET /index");

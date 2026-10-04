@@ -44,6 +44,9 @@ const REFRESH_MS = 4000;
 
 /* ------------------------------------------------------------------ console (apresentação pura) */
 
+/** Hora local em que o LKR LAB recebeu a linha (HH:MM:SS). */
+const clock = (ts: number) => new Date(ts).toLocaleTimeString("pt-BR", { hour12: false });
+
 export function ConsoleBody({ lines, view, nextSeq, truncated }: { lines: LogLine[]; view: ConsoleViewState; nextSeq: number; truncated: boolean }) {
   const shown = visibleConsole(lines, view);
   const filtering = view.filter !== "all" || view.query.trim() !== "";
@@ -64,6 +67,7 @@ export function ConsoleBody({ lines, view, nextSeq, truncated }: { lines: LogLin
       <pre className="console-body" aria-label="Saída do runtime">
         {empty ? <span className="muted">{empty}</span> : shown.lines.map((line) => (
           <span key={line.seq} className={line.stream === "err" ? "console-line console-err" : "console-line"} data-stream={line.stream}>
+            <time className="console-ts" dateTime={new Date(line.ts).toISOString()}>{clock(line.ts)}</time>
             {line.source && <i className={`log-src log-src-${line.source}`}>{line.source}</i>}
             {line.text}{"\n"}
           </span>
