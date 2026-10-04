@@ -29,7 +29,7 @@ Esta sessão combina **concepts e implementação**: 9 de 9 concepts estão apro
 | 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D06) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
 | 10 | Concept 09 — Planejamento | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D07) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
 
-**Bloco atual:** nenhum — os 10 blocos estão CONCLUÍDOS (10 / 10); a **Session continua ATIVA** (a finalização é uma decisão separada). Roadmap de concepts 01–09 completo ([CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md)).
+**Status da Session: FINALIZADA** (10 / 10, 04/10/2026). **Bloco atual:** nenhum — os 10 blocos estão CONCLUÍDOS. Roadmap de concepts 01–09 completo ([CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md)).
 
 ### Bloco 01 — Product Architecture (CONCLUÍDO)
 
@@ -109,6 +109,16 @@ Integrado à `main` por fast-forward (`cfebf88`). As branches `feat/session-001-
 - **Concept 08 — Worktrees:** IMPLEMENTADO E VALIDADO NO DESKTOP (ver D06).
 - **Próximo domínio:** PLANEJAMENTO. **Concept 09: EM REFINAMENTO** (não aprovado, não implementado); branch `feat/session-001-planning-foundation`; auditoria e especificação refinada em [CONCEPT-09-planning-refinement.md](../audits/CONCEPT-09-planning-refinement.md). Nenhum código de Planejamento foi escrito.
 - SESSION-001 continua ATIVA; bloco atual **Concept 09 — Planejamento** (não alterado).
+
+### Checkpoint — SESSION-001 FINALIZADA
+
+# SESSION-001 FINALIZADA
+
+- **Status:** FINALIZADA (`completed`, terminal) em 04/10/2026 (`completed_at` = `2026-10-04T09:37:02.453Z`). **Progresso:** 10 / 10; 10 blocos concluídos, nenhum em andamento ou pendente; sem bloco atual nem próximo. **Roadmap 01–09: COMPLETO.**
+- **Ação:** lifecycle canônico do DDAE (`ddae_complete`, o "finalizar Session"), explícita e autorizada pelo usuário; sem SQL direto, sem alterar Blocks, sem resultado/critérios/resultado desejado inventados (`result` vazio). Eventos: `LEGACY_IMPORTED`, `BLOCK_COMPLETED` e o novo `SESSION_COMPLETED`. Terminal confirmado: retomar e congelar são recusados ("Sessão finalizada é terminal e não pode ser alterada.").
+- **Ready for AI no momento da finalização: false.** Motivo: Session legada sem `desired_outcome`/critérios e sem bloco acionável. **A Session foi finalizada porque o lifecycle operacional estava completo, não porque Ready for AI estivesse true** — as duas propriedades são independentes (`eligible_for_finalize = true` desde o último bloco). Após finalizar, o estado de contexto passou a "disponível" (contexto pode ser gerado), ainda com `ready = false`.
+- **Planejamento intacto:** `planning_items = 0`, `planning_events = 0`, `planning_item_id = NULL`; nenhum item retroativo. Nenhum dado legado fictício foi criado.
+- **Project Control Center (pelo modelo):** card DDAE com SESSION-001 FINALIZADA, 10 / 10, sem atual nem próximo; Próxima ação recalculada pelas regras existentes (sem Session ativa e sem item planejado, nenhuma regra de trabalho dispara).
 
 ### Checkpoint — ROADMAP 01–09 COMPLETE
 
