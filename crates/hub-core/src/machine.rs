@@ -517,7 +517,7 @@ pub fn gpu_infos(adapters: Vec<crate::sensors::Adapter>) -> Vec<GpuInfo> {
 /// IPv4 que o sistema usaria para sair da rede local. `connect` em UDP só consulta a
 /// tabela de rotas: nenhum pacote é enviado. 192.0.2.1 é endereço de documentação
 /// (RFC 5737), nunca um servidor real.
-fn route_ipv4() -> Option<Ipv4Addr> {
+pub(crate) fn route_ipv4() -> Option<Ipv4Addr> {
     let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
     socket.connect((Ipv4Addr::new(192, 0, 2, 1), 9)).ok()?;
     match socket.local_addr().ok()?.ip() {

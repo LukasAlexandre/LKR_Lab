@@ -119,6 +119,14 @@ fn adapter(name: &str, kind: AdapterKind, up: bool, speed: Option<u64>, ip: &str
             vec![ip.into()]
         },
         ipv6: vec![],
+        if_index: 0,
+        mac: None,
+        dhcp_v4: false,
+        ipv4_metric: None,
+        ipv4_prefix: None,
+        gateways: vec![],
+        dns: vec![],
+        network_guid: None,
     }
 }
 fn counters(name: &str, rx: u64, tx: u64, ip: &str) -> InterfaceCounters {

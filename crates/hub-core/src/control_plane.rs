@@ -637,7 +637,7 @@ fn technology(process: &RawProcess) -> Option<String> {
         .map(|(_, label)| (*label).to_string())
 }
 
-fn is_system(process: &RawProcess) -> bool {
+pub(crate) fn is_system(process: &RawProcess) -> bool {
     let windir = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".into());
     let windir = norm(&windir);
     process.pid <= 4

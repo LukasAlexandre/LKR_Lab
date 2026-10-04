@@ -114,6 +114,29 @@ async fn windows_health_snapshot(
     .await
     .map_err(|e| e.to_string())
 }
+/// Network & Security (SESSION-002, Block 08): coletor passivo com cache por domínio. Só leitura:
+/// nada é ativado, bloqueado, encerrado, escaneado ou alterado, e nenhuma consulta externa é feita.
+struct NetworkSecurityState(
+    hub_core::network_security::Collector<hub_core::network_security::LiveSources>,
+);
+#[tauri::command]
+async fn network_security_snapshot(
+    app: tauri::AppHandle,
+    force: bool,
+) -> HubResult<hub_core::network_security::NetworkSecuritySnapshot> {
+    tauri::async_runtime::spawn_blocking(move || {
+        // O contexto só serve para atribuir portas em escuta a Projects; nada é gravado.
+        let (ctx, managed, _) = control_plane_inputs(&app)?;
+        Ok(app.state::<NetworkSecurityState>().0.snapshot(
+            hub_core::machine::now_ms(),
+            force,
+            &ctx,
+            &managed,
+        ))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 #[tauri::command]
 fn list_projects(state: State<AppState>) -> HubResult<Vec<ProjectEntry>> {
     let projects = db(&state)?.projects()?;
@@ -999,6 +1022,9 @@ fn main() {
             app.manage(WindowsHealthState(
                 hub_core::windows_health::Collector::new(hub_core::windows_health::WindowsSources),
             ));
+            app.manage(NetworkSecurityState(
+                hub_core::network_security::Collector::new(hub_core::network_security::LiveSources),
+            ));
             let emitter = app.handle().clone();
             let window = app.handle().clone();
             app.manage(TelemetryState(hub_core::telemetry::Service::start(
@@ -1022,6 +1048,7 @@ fn main() {
             machine_telemetry_watch,
             machine_telemetry_refresh,
             windows_health_snapshot,
+            network_security_snapshot,
             list_projects,
             project_overviews,
             save_project,

@@ -89,13 +89,13 @@ pub enum SourceError {
     RequiresElevation(String),
 }
 impl SourceError {
-    fn state(&self) -> SourceState {
+    pub(crate) fn state(&self) -> SourceState {
         match self {
             Self::Unavailable(_) => SourceState::Unavailable,
             Self::RequiresElevation(_) => SourceState::RequiresElevation,
         }
     }
-    fn reason(&self) -> &str {
+    pub(crate) fn reason(&self) -> &str {
         match self {
             Self::Unavailable(reason) | Self::RequiresElevation(reason) => reason,
         }

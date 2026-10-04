@@ -279,6 +279,19 @@ pub struct NetAdapter {
     pub link_speed_bps: Option<u64>,
     pub ipv4: Vec<String>,
     pub ipv6: Vec<String>,
+    /// Índice da interface no Windows (liga a interface às rotas).
+    pub if_index: u32,
+    /// MAC no formato `AA:BB:CC:DD:EE:FF`; `None` para interfaces sem endereço físico.
+    pub mac: Option<String>,
+    pub dhcp_v4: bool,
+    /// Métrica da interface para IPv4 (soma-se à da rota para decidir a rota padrão).
+    pub ipv4_metric: Option<u32>,
+    /// Comprimento do prefixo (máscara) do primeiro IPv4.
+    pub ipv4_prefix: Option<u8>,
+    pub gateways: Vec<String>,
+    pub dns: Vec<String>,
+    /// GUID da rede (Network List Manager); liga a interface ao perfil Público/Privado/Domínio.
+    pub network_guid: Option<String>,
 }
 
 /// Disco físico presente (número do `PhysicalDriveN`, modelo e barramento).
@@ -726,12 +739,34 @@ mod windows {
         use windows_sys::Win32::{
             Foundation::ERROR_BUFFER_OVERFLOW,
             NetworkManagement::IpHelper::{
-                GetAdaptersAddresses, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER,
+                GetAdaptersAddresses, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_SKIP_ANYCAST,
                 GAA_FLAG_SKIP_MULTICAST, IP_ADAPTER_ADDRESSES_LH,
             },
-            Networking::WinSock::{AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR_IN, SOCKADDR_IN6},
+            Networking::WinSock::{
+                AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6,
+            },
         };
-        let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER;
+        // Endereço de um SOCKADDR (IPv4 ou IPv6); `None` para outras famílias.
+        let ip_of = |sockaddr: *mut SOCKADDR| -> Option<std::net::IpAddr> {
+            if sockaddr.is_null() {
+                return None;
+            }
+            // SAFETY: `sockaddr` aponta para a estrutura da família indicada, dentro do buffer.
+            let family = unsafe { (*sockaddr).sa_family };
+            if family == AF_INET {
+                let sin = unsafe { &*(sockaddr as *const SOCKADDR_IN) };
+                let b = unsafe { sin.sin_addr.S_un.S_addr }.to_ne_bytes();
+                Some(std::net::IpAddr::V4(Ipv4Addr::new(b[0], b[1], b[2], b[3])))
+            } else if family == AF_INET6 {
+                let sin6 = unsafe { &*(sockaddr as *const SOCKADDR_IN6) };
+                Some(std::net::IpAddr::V6(Ipv6Addr::from(unsafe {
+                    sin6.sin6_addr.u.Byte
+                })))
+            } else {
+                None
+            }
+        };
+        let flags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_INCLUDE_GATEWAYS;
         let mut size = 16 * 1024u32;
         let mut buffer: Vec<u64> = Vec::new();
         let mut status = ERROR_BUFFER_OVERFLOW;
@@ -784,6 +819,63 @@ mod windows {
                 }
                 unicast = node.Next;
             }
+            // Primeiro prefixo IPv4 (máscara) da interface.
+            let mut prefix = None;
+            let mut node_ptr = adapter.FirstUnicastAddress;
+            while !node_ptr.is_null() {
+                // SAFETY: nó da lista de endereços dentro de `buffer`.
+                let node = unsafe { &*node_ptr };
+                if prefix.is_none()
+                    && matches!(
+                        ip_of(node.Address.lpSockaddr),
+                        Some(std::net::IpAddr::V4(_))
+                    )
+                {
+                    prefix = Some(node.OnLinkPrefixLength);
+                }
+                node_ptr = node.Next;
+            }
+            let mut gateways = Vec::new();
+            let mut gateway_ptr = adapter.FirstGatewayAddress;
+            while !gateway_ptr.is_null() {
+                // SAFETY: nó da lista de gateways dentro de `buffer`.
+                let node = unsafe { &*gateway_ptr };
+                if let Some(ip) = ip_of(node.Address.lpSockaddr) {
+                    gateways.push(ip.to_string());
+                }
+                gateway_ptr = node.Next;
+            }
+            let mut dns = Vec::new();
+            let mut dns_ptr = adapter.FirstDnsServerAddress;
+            while !dns_ptr.is_null() {
+                // SAFETY: nó da lista de servidores DNS dentro de `buffer`.
+                let node = unsafe { &*dns_ptr };
+                if let Some(ip) = ip_of(node.Address.lpSockaddr) {
+                    dns.push(ip.to_string());
+                }
+                dns_ptr = node.Next;
+            }
+            let physical =
+                &adapter.PhysicalAddress[..(adapter.PhysicalAddressLength as usize).min(8)];
+            let mac = (physical.len() == 6 && physical.iter().any(|b| *b != 0)).then(|| {
+                physical
+                    .iter()
+                    .map(|b| format!("{b:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(":")
+            });
+            let guid = adapter.NetworkGuid;
+            let network_guid =
+                (guid.data1 != 0 || guid.data2 != 0 || guid.data3 != 0 || guid.data4 != [0u8; 8])
+                    .then(|| {
+                        format!(
+                    "{{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
+                    guid.data1, guid.data2, guid.data3, guid.data4[0], guid.data4[1], guid.data4[2],
+                    guid.data4[3], guid.data4[4], guid.data4[5], guid.data4[6], guid.data4[7]
+                )
+                    });
+            // SAFETY: união de 8 bytes; o índice da interface é lido como em qualquer chamada de IP Helper.
+            let if_index = unsafe { adapter.Anonymous1.Anonymous.IfIndex };
             let speed = adapter.TransmitLinkSpeed;
             out.push(NetAdapter {
                 // SAFETY: nomes são texto UTF-16 terminado em NUL dentro de `buffer`.
@@ -794,6 +886,15 @@ mod windows {
                 link_speed_bps: (speed != 0 && speed != u64::MAX).then_some(speed),
                 ipv4,
                 ipv6,
+                if_index,
+                mac,
+                // SAFETY: união de 4 bytes (Flags).
+                dhcp_v4: unsafe { adapter.Anonymous2.Flags } & 0x4 != 0,
+                ipv4_metric: Some(adapter.Ipv4Metric).filter(|m| *m != u32::MAX),
+                ipv4_prefix: prefix,
+                gateways,
+                dns,
+                network_guid,
             });
             current = adapter.Next as *const IP_ADAPTER_ADDRESSES_LH;
         }
@@ -1070,6 +1171,13 @@ pub(crate) mod registry {
                 Probe::Present if size <= min_bytes => Probe::Absent,
                 other => other,
             }
+        }
+
+        /// Valor binário (ex.: FILETIME de 8 bytes do Defender).
+        pub fn binary(&self, name: &str) -> Option<Vec<u8>> {
+            const REG_BINARY_KIND: u32 = 3;
+            let (kind, data) = self.raw(name)?;
+            (kind == REG_BINARY_KIND).then_some(data)
         }
 
         /// REG_MULTI_SZ → lista de textos (vazios descartados).
