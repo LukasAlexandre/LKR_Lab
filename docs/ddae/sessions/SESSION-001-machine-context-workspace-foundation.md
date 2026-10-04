@@ -102,6 +102,14 @@ Integrado à `main` por fast-forward (`de2c605`). As branches `feat/session-001-
 - **Próximo domínio:** WORKTREES. **Concept 08: A INICIAR** (branch `feat/session-001-worktrees-foundation`); auditoria em [CONCEPT-08-worktrees-audit.md](../audits/CONCEPT-08-worktrees-audit.md). Nada do Concept 08 foi implementado.
 - SESSION-001 continua ATIVA (9/10, bloco atual Concept 09); Concept 09 segue EM REFINAMENTO.
 
+### Checkpoint — WORKTREES FOUNDATION COMPLETE
+
+Integrado à `main` por fast-forward (`cfebf88`). As branches `feat/session-001-ddae-foundation`, `feat/session-001-ddae-session-detail` e `feat/session-001-worktrees-foundation` foram preservadas.
+
+- **Concept 08 — Worktrees:** IMPLEMENTADO E VALIDADO NO DESKTOP (ver D06).
+- **Próximo domínio:** PLANEJAMENTO. **Concept 09: EM REFINAMENTO** (não aprovado, não implementado); branch `feat/session-001-planning-foundation`; auditoria e especificação refinada em [CONCEPT-09-planning-refinement.md](../audits/CONCEPT-09-planning-refinement.md). Nenhum código de Planejamento foi escrito.
+- SESSION-001 continua ATIVA; bloco atual **Concept 09 — Planejamento** (não alterado).
+
 ### Bloco D06 — Worktrees / Concept 08 (IMPLEMENTADO E VALIDADO NO DESKTOP)
 
 Camada operacional do LKR LAB sobre os Git worktrees REAIS. Commits: `4d72d23` (modelo operacional portátil) e `3d400fe` (workspace de worktrees do projeto). Rota: `#project/<id>/worktrees` (sem rota de detalhe).

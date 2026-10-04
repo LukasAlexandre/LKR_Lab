@@ -62,6 +62,8 @@ A direção visual está criada, mas ainda há inconsistências semânticas a co
 - a continuidade precisa mostrar a SESSION-001 no Concept 09;
 - o progresso deve refletir o estado definido na arquitetura.
 
+**Refinamento em curso:** a auditoria contra a arquitetura real (DDAE e Worktrees implementados) e a especificação revisada estão em [CONCEPT-09-planning-refinement](../../ddae/audits/CONCEPT-09-planning-refinement.md). O status continua **EM REFINAMENTO**.
+
 Próximo passo: aprovar o Concept 09; depois, fechamento/validação dos concepts e decisão de como e em que ordem implementar.
 
 ## Fora de escopo
