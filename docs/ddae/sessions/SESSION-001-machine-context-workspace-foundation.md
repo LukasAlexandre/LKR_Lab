@@ -27,9 +27,9 @@ Esta sessão combina **concepts e implementação**: 9 de 9 concepts estão apro
 | 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D04) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D05) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
 | 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D06) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
-| 10 | Concept 09 — Planejamento | EM ANDAMENTO (visual APROVADO; implementação em andamento) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
+| 10 | Concept 09 — Planejamento | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D07) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
 
-**Bloco atual:** 10 — Concept 09 — Planejamento, visual aprovado, em implementação ([CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md)). Progresso conceitual: 9 de 9 concepts aprovados.
+**Bloco atual:** nenhum — os 10 blocos estão CONCLUÍDOS (10 / 10); a **Session continua ATIVA** (a finalização é uma decisão separada). Roadmap de concepts 01–09 completo ([CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md)).
 
 ### Bloco 01 — Product Architecture (CONCLUÍDO)
 
@@ -110,6 +110,14 @@ Integrado à `main` por fast-forward (`cfebf88`). As branches `feat/session-001-
 - **Próximo domínio:** PLANEJAMENTO. **Concept 09: EM REFINAMENTO** (não aprovado, não implementado); branch `feat/session-001-planning-foundation`; auditoria e especificação refinada em [CONCEPT-09-planning-refinement.md](../audits/CONCEPT-09-planning-refinement.md). Nenhum código de Planejamento foi escrito.
 - SESSION-001 continua ATIVA; bloco atual **Concept 09 — Planejamento** (não alterado).
 
+### Checkpoint — ROADMAP 01–09 COMPLETE
+
+- **Integração:** a branch `feat/session-001-planning-foundation` foi integrada na `main` por **fast-forward** (`cfebf88` → `552a8f9`), sem merge commit; `main` == `origin/main` (0 / 0). As branches históricas foram preservadas.
+- **Block "Concept 09 — Planejamento": CONCLUÍDO** em 04/10/2026, por ação explícita do usuário, pela API DDAE real (`ddae_complete_block`; nenhum SQL direto, nenhum outro Block alterado). Evento real `BLOCK_COMPLETED` registrado; **não** existe `SESSION_COMPLETED`.
+- **SESSION-001 (real) depois:** `active`, 10 blocos, 10 concluídos, 0 em andamento, 0 pendentes, bloco atual **nenhum**, próximo **nenhum**, progresso **10 / 10**. **ATIVA mesmo em 10 / 10** (intencional): não foi finalizada, `desired_outcome` continua vazio, não há critérios, `planning_item_id = NULL`, `planning_items = 0`, `planning_events = 0`.
+- **Elegibilidade para finalizar ≠ Ready for AI:** `eligible_for_finalize = true` (todos os blocos concluídos, nenhum em andamento, zero critérios não bloqueia). `Ready for AI = false` (faltam resultado desejado, critérios de conclusão e bloco acionável). São regras independentes; finalizar **não** foi executado.
+- **Pendente (decisão separada do usuário):** finalizar a SESSION-001; preencher resultado desejado e critérios, se desejado.
+
 ### Checkpoint — CONCEPT 09 APROVADO VISUALMENTE
 
 - **Concept 09 — Planejamento: APROVADO VISUALMENTE**, NÃO implementado. O asset `concept-09-planning.webp` foi substituído pela versão final aprovada (7 itens operacionais, bloco PRÓXIMO, Iniciar desabilitado com Session ativa, cancelado separado, sem prioridade, drag handles ou "Mais filtros"; Session ativa e Próxima ação em blocos separados). Detalhes em [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md).
@@ -135,7 +143,7 @@ Fila ordenada de features ainda não iniciadas do Project. Commits: `de89b32` (a
 - **VALIDAÇÃO AUTOMATIZADA (executada por Claude):** 30 testes Rust em `tests/planning.rs` (migração v9→v10 preservando DDAE; criar/editar/cancelar/restaurar; mover; fases derivadas; vínculo, projeto errado, segunda Session, re-apontar, item cancelado; One Active; eventos append-only e portáteis; workspace v1–v5, round-trip, hash determinístico, sem dado local; passividade), testes JS do workspace (`lkr-workspace.planning.test.js`, golden), e testes de lógica/renderização do front (empty state, resumo, PRÓXIMO, Iniciar habilitado/desabilitado e motivo, busca, filtros, estados, subbadges, menu só com ações válidas, sem drag/prioridade/"Mais filtros", PCC, Próxima ação, DDAE, Session Detail). Renderização conferida também num harness temporário no navegador com dados simulados em memória (não é o desktop real).
 - **GATES FINAIS:** `npm test` (408 testes), lint, typecheck e build; `cargo fmt --check`, `cargo check --workspace`, clippy com `-D warnings` e `cargo test --workspace`, todos passando. `stacks_exec` é sensível ao runtime real da máquina: falhou de forma intermitente com `tauri dev`/cargo em execução (`runtime::inspect` devolvia Running) e passou em repetições e na rodada final; teste não alterado. Nenhum item foi criado no banco real.
 - **Limitações aceitas:** o ícone da linha é por fase (o concept mostra ícones por item, que não existem no modelo); editar só item planejado (com Session, título/objetivo vivem na Session); sem rota de item; sem importar `TASKS.md`/`ROADMAP.md`; cancelamento sem exclusão; o banco passa a `user_version = 10` e versões anteriores do app recusam abri-lo.
-- **Status:** Concept 09 — IMPLEMENTADO E VALIDADO NO DESKTOP. **SESSION-001 segue ATIVA** (9 / 10, bloco atual Concept 09 — Planejamento, **não** concluído nem finalizada; essas são decisões separadas).
+- **Status:** Concept 09 — IMPLEMENTADO E VALIDADO NO DESKTOP. **SESSION-001 segue ATIVA.** O Block do Concept 09 foi concluído depois, por decisão explícita (ver "ROADMAP 01–09 COMPLETE"): 10 / 10, ainda ativa, não finalizada.
 
 ### Bloco D06 — Worktrees / Concept 08 (IMPLEMENTADO E VALIDADO NO DESKTOP)
 
@@ -283,15 +291,15 @@ Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como esta
 
 | # | Concept | Status |
 |---|---------|--------|
-| 01 | Primeiro acesso / Computador não cadastrado | APROVADO / IMPLEMENTADO |
-| 02 | Dashboard da Máquina / Machine Health | APROVADO / IMPLEMENTADO |
-| 03 | Projetos | APROVADO |
-| 04 | Cadastro de Projeto | APROVADO / IMPLEMENTADO (validação visual no desktop pendente) |
-| 05 | Project Control Center | APROVADO |
-| 06 | DDAE / Sessões | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 07 | DDAE / Detalhe da Sessão | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 08 | Worktrees | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 09 | Planejamento | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
+| 01 | Primeiro acesso / Computador não cadastrado | IMPLEMENTADO |
+| 02 | Dashboard da Máquina / Machine Health | IMPLEMENTADO |
+| 03 | Projetos | IMPLEMENTADO E VALIDADO |
+| 04 | Cadastro de Projeto | IMPLEMENTADO E VALIDADO |
+| 05 | Project Control Center | IMPLEMENTADO E VALIDADO |
+| 06 | DDAE / Sessões | IMPLEMENTADO E VALIDADO |
+| 07 | DDAE / Detalhe da Sessão | IMPLEMENTADO E VALIDADO |
+| 08 | Worktrees | IMPLEMENTADO E VALIDADO |
+| 09 | Planejamento | IMPLEMENTADO E VALIDADO |
 
 ## Decisões de arquitetura registradas
 
