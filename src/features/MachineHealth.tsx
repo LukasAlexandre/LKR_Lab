@@ -64,6 +64,8 @@ import { useMachine } from "../state/machine";
 import { refreshTelemetry, useTelemetry, useTelemetryWatch } from "../state/telemetry";
 import { refreshWindowsHealth, useWindowsHealth } from "../state/windowsHealth";
 import { WindowsHealthPanel } from "./WindowsHealthPanel";
+import { NetworkSecurityPanel } from "./NetworkSecurityPanel";
+import { refreshNetworkSecurity, useNetworkSecurity } from "../state/networkSecurity";
 
 const STATUS_TONE = { healthy: "good", attention: "warn", critical: "danger" } as const;
 
@@ -122,6 +124,7 @@ export function MachineHealth() {
   useTelemetryWatch();
   const { latest: t, history } = useTelemetry();
   const windowsHealth = useWindowsHealth();
+  const networkSecurity = useNetworkSecurity();
   const machine = useMachine();
   const [tab, setTab] = useState<ProcessMetric>(DEFAULT_PROCESS_TAB);
   const name = machine.status?.machine?.name ?? "Este computador";
@@ -131,6 +134,7 @@ export function MachineHealth() {
     void machine.refresh(true);
     void refreshTelemetry().catch(() => undefined);
     void refreshWindowsHealth();
+    void refreshNetworkSecurity();
   };
 
   const header = (
@@ -504,6 +508,7 @@ export function MachineHealth() {
       </div>
 
       <WindowsHealthPanel state={windowsHealth} now={Date.now()} />
+      <NetworkSecurityPanel state={networkSecurity} now={Date.now()} />
     </>
   );
 }

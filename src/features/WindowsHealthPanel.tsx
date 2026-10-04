@@ -26,12 +26,12 @@ const STATUS_DOT = { healthy: "good", attention: "warn", critical: "danger", unk
 /** O `Badge` não tem tom "danger": crítico usa o mesmo tom de atenção, com o rótulo "Crítico". */
 const BADGE_TONE = { healthy: "good", attention: "warn", critical: "warn", unknown: "neutral" } as const;
 
-function Status({ status }: { status: WinHealth }) {
+export function Status({ status }: { status: WinHealth }) {
   return <Badge tone={BADGE_TONE[status]}>{WIN_HEALTH_LABEL[status]}</Badge>;
 }
 
 /** Um domínio expansível: selo de saúde, motivo visível, fontes e quando foi lido. */
-function Domain({ title, section, now, summary, children }: {
+export function Domain({ title, section, now, summary, children }: {
   title: string;
   section: WinSection<object>;
   now: number;

@@ -2580,5 +2580,10 @@ summary {
 .mh-win-list .reason { color: var(--warning); }
 .mh-win-source { margin: 0; }
 .mh-stale { color: var(--warning); }
+.mh-net-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.mh-net-filters input[type="search"] { flex: 1 1 220px; min-width: 0; }
+.mh-net-filters input, .mh-net-filters select { padding: 6px 8px; font-size: 12.5px; background: var(--surface-1); color: inherit; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.mh-netsec .mh-win-list li.active { border-color: var(--accent, var(--border)); }
+.mh-netsec .mh-win-list li small { overflow-wrap: anywhere; }
 .mh-win-missing { margin-top: 10px; font-size: 12px; color: var(--muted); }
 .mh-win-missing summary { cursor: pointer; }

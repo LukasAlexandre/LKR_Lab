@@ -1030,3 +1030,115 @@ export interface WindowsHealthSnapshot {
   }>;
   capabilities: WinSourceNote[];
 }
+
+/* ---- Network & Security Visibility (SESSION-002, Block 08): espelho de `hub-core::network_security`. ---- */
+export type NetProfileKind = "domain" | "private" | "public";
+export type NetListenerScope = "loopback" | "specific" | "all_interfaces";
+export type NetRemoteScope = "loopback" | "local" | "remote";
+export type NetFirewallAction = "allow" | "block";
+export type NetWscHealth = "good" | "not_monitored" | "poor" | "snooze";
+export type NetDefenderState = "active" | "passive" | "disabled" | "unknown";
+export type NetAvProvider = "defender" | "third_party" | "none" | "unknown";
+export type NetBitlockerState = "protected" | "suspended" | "off" | "unknown";
+export type NetSecureBootState = "enabled" | "disabled" | "unsupported" | "unavailable";
+export type NetConfidence = "unknown" | "medium" | "high" | "exact";
+export interface NetInterface {
+  name: string;
+  description: string;
+  kind: string;
+  up: boolean;
+  /** Interface que o Windows usa para sair (rota padrão). */
+  active: boolean;
+  ipv4: string[];
+  ipv6: string[];
+  prefix: number | null;
+  gateways: string[];
+  dns: string[];
+  dhcp: boolean;
+  mac: string | null;
+  linkSpeedBps: number | null;
+  profile: NetProfileKind | null;
+}
+export interface NetListener {
+  port: number;
+  address: string;
+  ipVersion: "v4" | "v6";
+  scope: NetListenerScope;
+  pid: number | null;
+  processName: string | null;
+  executable: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  confidence: NetConfidence;
+  system: boolean;
+  note: string;
+}
+export interface NetConnection {
+  localAddress: string;
+  localPort: number;
+  remoteAddress: string;
+  remotePort: number;
+  scope: NetRemoteScope;
+  pid: number | null;
+  processName: string | null;
+  projectName: string | null;
+}
+export interface NetBitlockerVolume { mount: string; system: boolean; state: NetBitlockerState }
+export interface NetDefenderView {
+  state: NetDefenderState;
+  serviceRunning: boolean | null;
+  realtimeProtection: boolean | null;
+  engineVersion: string | null;
+  signatureVersion: string | null;
+  signaturesUpdatedAt: number | null;
+  signatureAgeDays: number | null;
+  /** `null` = não consultado. */
+  activeThreats: number | null;
+}
+export interface NetFirewallProfile {
+  kind: NetProfileKind;
+  label: string;
+  enabled: boolean | null;
+  defaultInbound: NetFirewallAction | null;
+  defaultOutbound: NetFirewallAction | null;
+  active: boolean;
+}
+export interface NetworkSecuritySnapshot {
+  capturedAt: number;
+  overall: { status: WinHealth; reasons: { domain: string; text: string }[]; evaluated: number; rateable: number };
+  network: WinSection<{
+    interfaces: NetInterface[];
+    activeInterface: string | null;
+    localIpv4: string | null;
+    gateway: string | null;
+    dns: string[];
+    profile: NetProfileKind | null;
+    publicIp: { queried: boolean; note: string };
+  }>;
+  exposure: WinSection<{
+    listeners: NetListener[];
+    counts: { total: number; loopback: number; specific: number; allInterfaces: number; unidentified: number };
+    notes: string[];
+  }>;
+  connections: WinSection<{
+    total: number; loopback: number; local: number; remote: number;
+    items: NetConnection[]; truncated: boolean; notes: string[];
+  }>;
+  firewall: WinSection<{
+    profiles: NetFirewallProfile[];
+    activeProfile: NetProfileKind | null;
+    securityCenter: NetWscHealth | null;
+    notes: string[];
+  }>;
+  antivirus: WinSection<{
+    provider: NetAvProvider;
+    thirdPartyCount: number | null;
+    securityCenter: NetWscHealth | null;
+    defender: NetDefenderView;
+    notes: string[];
+  }>;
+  encryption: WinSection<{ volumes: NetBitlockerVolume[] }>;
+  secureBoot: WinSection<{ state: NetSecureBootState; uefi: boolean | null }>;
+  tpm: WinSection<{ present: boolean | null; version: string | null }>;
+  capabilities: WinSourceNote[];
+}
