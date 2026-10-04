@@ -963,3 +963,70 @@ export interface ControlPlaneSnapshot {
   signals: HealthSignal[];
   limitations: Limitation[];
 }
+
+/* ---- Windows Health & Integrity (SESSION-002, Block 07): espelho de `hub-core::windows_health`. ---- */
+/** `unknown` = sem informação suficiente; nunca é lido como saudável. */
+export type WinHealth = "unknown" | "healthy" | "attention" | "critical";
+export type WinSourceState = "available" | "partial" | "unavailable" | "requires_elevation";
+export interface WinSourceNote { id: string; label: string; state: WinSourceState; reason: string | null }
+export type WinSection<T> = {
+  status: WinHealth;
+  /** Informativo (sem regra objetiva): mostrado, mas fora do estado geral. */
+  rated: boolean;
+  reasons: string[];
+  checkedAt: number;
+  ttlMs: number;
+  sources: WinSourceNote[];
+} & T;
+export type WinServiceState = "running" | "stopped" | "start_pending" | "stop_pending" | "paused" | "unknown";
+export type WinStartType = "automatic" | "automatic_delayed" | "manual" | "disabled" | "unknown";
+export interface WinServiceView {
+  id: string;
+  label: string;
+  state: WinServiceState;
+  start: WinStartType;
+  expectation: "running" | "on_demand";
+  health: WinHealth;
+  reason: string | null;
+}
+export interface WinDeviceIssue { name: string; class: string | null; manufacturer: string | null; problemCode: number; problem: string }
+export type WinSignalKind =
+  | "unexpected_shutdown" | "bugcheck" | "storage_error" | "filesystem_error"
+  | "service_failure" | "update_failure" | "application_crash" | "application_hang";
+export interface WinLevelCounts { critical: number; error: number; warning: number | null }
+export interface WinEventSignal { kind: WinSignalKind; label: string; count24h: number; count7d: number; lastAt: number | null }
+export interface WinEventEntry { at: number; provider: string; id: number; kind: WinSignalKind }
+export interface WinVolume {
+  mount: string;
+  filesystem: string | null;
+  readOnly: boolean | null;
+  dirty: boolean | null;
+  status: WinHealth;
+  reasons: string[];
+}
+export interface WindowsHealthSnapshot {
+  capturedAt: number;
+  overall: { status: WinHealth; reasons: { domain: string; text: string }[]; evaluated: number; rateable: number };
+  system: WinSection<{
+    productName: string | null; edition: string | null; version: string | null; build: string | null;
+    architecture: string | null; installedAt: number | null; bootTime: number | null; uptimeSecs: number | null;
+  }>;
+  restart: WinSection<{ pending: boolean | null; fileRenameOperations: boolean | null }>;
+  updates: WinSection<{
+    service: WinServiceView | null; lastInstallSuccessAt: number | null; lastScanSuccessAt: number | null;
+    failures7d: number | null; pendingCount: number | null;
+  }>;
+  services: WinSection<{ items: WinServiceView[] }>;
+  devices: WinSection<{ issues: WinDeviceIssue[]; disabled: number; total: number }>;
+  events: WinSection<{
+    last24h: WinLevelCounts; last7d: WinLevelCounts; warningsCapped: boolean;
+    signals: WinEventSignal[]; recent: WinEventEntry[]; truncated: boolean;
+  }>;
+  volumes: WinSection<{ items: WinVolume[] }>;
+  reliability: WinSection<{ appCrashes7d: number | null; appHangs7d: number | null }>;
+  integrity: WinSection<{
+    signals: { id: string; label: string; present: boolean }[];
+    onDemand: { id: string; label: string; available: boolean; requiresElevation: boolean; note: string }[];
+  }>;
+  capabilities: WinSourceNote[];
+}

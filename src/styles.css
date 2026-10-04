@@ -2551,3 +2551,34 @@ summary {
 .mh-battery-level { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 12px; margin-bottom: 10px; }
 .mh-battery-level strong { font-size: 22px; }
 @media (max-width: 900px) { .mh-detail-grid { grid-template-columns: 1fr; } }
+
+/* Windows Health (SESSION-002, Block 07): somente observação; cada Atenção/Crítico mostra o motivo. */
+.mh-winhealth { margin-top: 16px; }
+.mh-win-overall { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
+.mh-win-overall small { color: var(--muted); font-weight: 400; }
+.mh-win-reasons { list-style: none; margin: 10px 0 0; padding: 10px 12px; display: grid; gap: 6px; font-size: 12.5px; border: 1px solid var(--border); border-left-width: 3px; border-radius: var(--radius-md); background: var(--surface-1); }
+.mh-win-reasons.attention { border-left-color: var(--warning); }
+.mh-win-reasons.critical { border-left-color: #e5484d; }
+.mh-win-reasons li { display: flex; gap: 8px; align-items: flex-start; }
+.mh-win-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0 10px; }
+.mh-win-item { display: grid; gap: 2px; padding: 8px 10px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-md); font-size: 12px; }
+.mh-win-item small { color: var(--muted); }
+.mh-win-item strong { font-size: 13px; }
+.mh-win-item.attention { border-color: var(--warning); }
+.mh-win-item.critical { border-color: #e5484d; }
+.mh-win-system { margin: 6px 0 12px; font-size: 12.5px; }
+.mh-win-domain { border-top: 1px solid var(--border); padding: 8px 0; }
+.mh-win-domain > summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; list-style: none; }
+.mh-win-domain > summary::-webkit-details-marker { display: none; }
+.mh-win-domain .chev { transition: transform 0.15s; color: var(--muted); }
+.mh-win-domain[open] .chev { transform: rotate(180deg); }
+.mh-win-body { display: grid; gap: 8px; padding: 10px 0 4px 22px; font-size: 12.5px; }
+.mh-win-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.mh-win-list li { display: grid; gap: 2px; padding: 6px 8px; background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.mh-win-list li > span:last-of-type { color: var(--muted); }
+.mh-win-list li.attention, .mh-win-list li.critical { border-color: var(--warning); }
+.mh-win-list .reason { color: var(--warning); }
+.mh-win-source { margin: 0; }
+.mh-stale { color: var(--warning); }
+.mh-win-missing { margin-top: 10px; font-size: 12px; color: var(--muted); }
+.mh-win-missing summary { cursor: pointer; }

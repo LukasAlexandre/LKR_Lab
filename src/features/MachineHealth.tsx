@@ -62,6 +62,8 @@ import {
 import type { Domain, ProcessMetric, Telemetry, TelemetryPoint } from "../shared/types";
 import { useMachine } from "../state/machine";
 import { refreshTelemetry, useTelemetry, useTelemetryWatch } from "../state/telemetry";
+import { refreshWindowsHealth, useWindowsHealth } from "../state/windowsHealth";
+import { WindowsHealthPanel } from "./WindowsHealthPanel";
 
 const STATUS_TONE = { healthy: "good", attention: "warn", critical: "danger" } as const;
 
@@ -119,6 +121,7 @@ function DomainTag({ domain }: { domain: Domain | undefined }) {
 export function MachineHealth() {
   useTelemetryWatch();
   const { latest: t, history } = useTelemetry();
+  const windowsHealth = useWindowsHealth();
   const machine = useMachine();
   const [tab, setTab] = useState<ProcessMetric>(DEFAULT_PROCESS_TAB);
   const name = machine.status?.machine?.name ?? "Este computador";
@@ -127,6 +130,7 @@ export function MachineHealth() {
   const refresh = () => {
     void machine.refresh(true);
     void refreshTelemetry().catch(() => undefined);
+    void refreshWindowsHealth();
   };
 
   const header = (
@@ -498,6 +502,8 @@ export function MachineHealth() {
           </section>
         </div>
       </div>
+
+      <WindowsHealthPanel state={windowsHealth} now={Date.now()} />
     </>
   );
 }
