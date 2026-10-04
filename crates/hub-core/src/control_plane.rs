@@ -852,6 +852,12 @@ pub fn build_snapshot(input: Inputs) -> ControlPlaneSnapshot {
 
     // ---- DISCOVERED: um runtime por raiz de árvore que possui porta em escuta
     let boundary = |p: &RawProcess| BOUNDARY.contains(&p.name.to_lowercase().as_str());
+    // Hospedeiros: pais de processos gerenciados (ex.: o próprio LKR LAB). Um serviço externo que também
+    // é filho dele não pode ser agrupado com os gerenciados nem herdar a atribuição Exata deles.
+    let hosts: HashSet<u32> = managed
+        .keys()
+        .filter_map(|pid| by_pid.get(pid).and_then(|p| p.parent))
+        .collect();
     let mut roots: HashMap<u32, Vec<&PortObservation>> = HashMap::new();
     let mut orphans: Vec<&PortObservation> = Vec::new();
     for port in &ports {
@@ -876,6 +882,7 @@ pub fn build_snapshot(input: Inputs) -> ControlPlaneSnapshot {
                 || parent.pid <= 4
                 || parent.start_time > current.start_time
                 || claimed.contains(&parent.pid)
+                || hosts.contains(&parent.pid)
             {
                 break;
             }
@@ -892,6 +899,9 @@ pub fn build_snapshot(input: Inputs) -> ControlPlaneSnapshot {
         let mut members: HashSet<u32> = HashSet::new();
         let mut queue = vec![root];
         while let Some(pid) = queue.pop() {
+            if managed.contains_key(&pid) {
+                continue;
+            }
             if members.insert(pid) {
                 queue.extend(children.get(&pid).cloned().unwrap_or_default());
             }

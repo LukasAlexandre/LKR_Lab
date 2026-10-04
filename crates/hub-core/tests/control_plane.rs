@@ -641,3 +641,205 @@ fn control_plane_state_never_enters_the_portable_workspace() {
         );
     }
 }
+
+// ---------------------------------------------------------------- Console Hub (backend)
+
+const BIG: &str =
+    "const l='x'.repeat(3900);for(let i=0;i<4500;i++)console.log(i+l);setInterval(()=>{},1000);";
+const NOISY: &str = "for(let i=0;i<30000;i++){console.log('out '+i);if(i%3===0)console.error('err '+i);}setInterval(()=>{},1000);";
+
+fn console_project(
+    scripts: &str,
+    files: &[(&str, &str)],
+) -> (
+    tempfile::TempDir,
+    std::path::PathBuf,
+    hub_core::models::Project,
+) {
+    let mut all = vec![("package.json", scripts), ("package-lock.json", "{}")];
+    all.extend_from_slice(files);
+    let (tmp, dir) = fixture("con", &all);
+    let p = common::project("con", &dir);
+    (tmp, dir, p)
+}
+
+#[test]
+fn output_events_announce_stdout_and_stderr_without_carrying_the_text() {
+    if !have("npm") || !have("node") {
+        return;
+    }
+    let (_t, _d, p) = console_project(
+        r#"{"scripts":{"web":"node server.js"}}"#,
+        &[("server.js", SERVER)],
+    );
+    let (sup, events) = supervisor();
+    let run = sup.start(&p, "web").unwrap();
+    wait_until("stdout e stderr capturados", || {
+        let text = text_of(&sup, &run.id);
+        text.contains("listen ") && text.contains("aviso no stderr")
+    });
+    wait_until("evento de saída", || {
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|e| matches!(e, hub_core::supervisor::RuntimeEvent::Output { .. }))
+    });
+    let seqs: Vec<u64> = events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            hub_core::supervisor::RuntimeEvent::Output { run_id, seq, .. } if run_id == &run.id => {
+                Some(*seq)
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        seqs.windows(2).all(|w| w[0] <= w[1]),
+        "avisos de saída em ordem: {seqs:?}"
+    );
+    let chunk = sup.logs(&run.id, 0).unwrap();
+    assert!(
+        seqs.iter().all(|s| *s <= chunk.next_seq),
+        "o aviso nunca aponta além do buffer"
+    );
+    assert!(
+        chunk.lines.iter().any(|l| l.stream == "out")
+            && chunk.lines.iter().any(|l| l.stream == "err")
+    );
+    sup.stop_and_wait(&run.id, std::time::Duration::from_secs(15))
+        .unwrap();
+}
+
+#[test]
+fn console_buffer_is_bounded_by_bytes_and_keeps_the_newest_lines() {
+    if !have("npm") || !have("node") {
+        return;
+    }
+    let (_t, _d, p) = console_project(r#"{"scripts":{"big":"node big.js"}}"#, &[("big.js", BIG)]);
+    let (sup, _) = supervisor();
+    let run = sup.start(&p, "big").unwrap();
+    wait_until("4500 linhas grandes", || {
+        sup.logs(&run.id, 0).unwrap().next_seq >= 4500
+    });
+    let chunk = sup.logs(&run.id, 0).unwrap();
+    let bytes: usize = chunk.lines.iter().map(|l| l.text.len()).sum();
+    assert!(
+        bytes <= hub_core::supervisor::MAX_LOG_BYTES,
+        "{bytes} bytes passam do limite"
+    );
+    assert!(
+        chunk.lines.len() < 4500 && chunk.truncated,
+        "o limite de bytes descartou as linhas mais antigas"
+    );
+    assert!(
+        chunk.lines.last().unwrap().text.starts_with("4499"),
+        "a mais recente fica"
+    );
+    assert!(chunk.lines.windows(2).all(|w| w[0].seq + 1 == w[1].seq));
+    sup.stop_and_wait(&run.id, std::time::Duration::from_secs(15))
+        .unwrap();
+}
+
+#[test]
+fn a_very_noisy_process_neither_blocks_observation_nor_stop_and_capture_needs_no_listener() {
+    if !have("npm") || !have("node") {
+        return;
+    }
+    let (_t, _d, p) = console_project(
+        r#"{"scripts":{"noisy":"node noisy.js"}}"#,
+        &[("noisy.js", NOISY)],
+    );
+    // Ninguém escuta os eventos (janela fechada): a captura segue igual.
+    let sup = hub_core::supervisor::Supervisor::new(std::sync::Arc::new(|_| {}));
+    let run = sup.start(&p, "noisy").unwrap();
+    let started = std::time::Instant::now();
+    for _ in 0..3 {
+        control_plane::observe(&Context::default(), sup.managed_runs(), sup.all_runs()).unwrap();
+        sup.logs(&run.id, 0).unwrap();
+    }
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "observar e ler o buffer não pode travar sob saída intensa"
+    );
+    wait_until("saída completa capturada", || {
+        sup.logs(&run.id, 0).unwrap().next_seq >= 40_000
+    });
+    sup.stop_and_wait(&run.id, std::time::Duration::from_secs(15))
+        .unwrap();
+    assert_eq!(
+        sup.all_runs()
+            .iter()
+            .find(|r| r.id == run.id)
+            .unwrap()
+            .state,
+        RunState::Stopped
+    );
+}
+
+#[test]
+fn console_is_local_only_and_commands_are_redacted_before_leaving_the_module() {
+    // Estado de console nunca é serializado no workspace portátil (ver teste de passividade) e a
+    // linha de comando de um runtime descoberto sai redigida.
+    let mut p = raw(900, None, "node.exe");
+    p.cmd = vec!["node".into(), "app.js".into(), "--token=segredo-xyz".into()];
+    let procs = vec![p];
+    let c = Context::default();
+    let s = build_snapshot(Inputs {
+        now_ms: 1,
+        processes: procs,
+        ports: vec![port(7000, Some(900))],
+        ctx: &c,
+        managed: HashMap::new(),
+        runs: vec![],
+        self_pid: 1,
+    });
+    let json = serde_json::to_string(&s).unwrap();
+    assert!(
+        !json.contains("segredo-xyz"),
+        "token vazou no contrato do Control Plane"
+    );
+    assert!(json.contains("--token=***"));
+}
+
+#[test]
+fn external_service_never_inherits_exact_from_managed_siblings_of_a_shared_host() {
+    // cmd (limite) -> host (ex.: o LKR LAB) -> { externo escutando 3500 ; npm gerenciado -> node gerenciado }
+    let procs = vec![
+        raw(101, None, "cmd.exe"),
+        raw(102, Some(101), "host.exe"),
+        raw(103, Some(102), "node.exe"),
+        raw(104, Some(102), "npm.exe"),
+        raw(105, Some(104), "node.exe"),
+    ];
+    let managed = HashMap::from([
+        (104, ("lab".to_string(), "run-1".to_string())),
+        (105, ("lab".to_string(), "run-1".to_string())),
+    ]);
+    let c = ctx();
+    let s = build_snapshot(Inputs {
+        now_ms: 1,
+        processes: procs,
+        ports: vec![port(3500, Some(103))],
+        ctx: &c,
+        managed,
+        runs: vec![],
+        self_pid: 999,
+    });
+    let external = s
+        .runtimes
+        .iter()
+        .find(|r| r.ports.iter().any(|p| p.port == 3500))
+        .unwrap();
+    assert_eq!(external.origin, Origin::Discovered);
+    assert_eq!(
+        external.root_pid,
+        Some(103),
+        "não sobe para o hospedeiro dos gerenciados"
+    );
+    assert_eq!(external.pids, vec![103]);
+    assert_eq!(external.association.confidence, Confidence::Unknown);
+    assert!(external.association.project_id.is_none());
+}
