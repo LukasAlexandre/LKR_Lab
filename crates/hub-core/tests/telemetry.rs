@@ -233,19 +233,24 @@ fn sustained_cpu_becomes_attention_then_critical() {
 
 #[test]
 fn sustained_memory_pressure_is_reported() {
-    let attention = evaluate(&load(40, 10.0, 91.0), &[], &[], now(40));
+    let attention = evaluate(&load(130, 10.0, 91.0), &[], &[], now(130));
     assert_eq!(attention.status, HealthStatus::Attention);
     let memory = attention.checks.iter().find(|c| c.id == "memory").unwrap();
     assert!(!memory.ok);
-    let critical = evaluate(&load(70, 10.0, 96.0), &[], &[], now(70));
+    let critical = evaluate(&load(190, 10.0, 96.0), &[], &[], now(190));
     assert_eq!(critical.status, HealthStatus::Critical);
-    // 20 s acima de 95% depois de RAM normal: ainda não.
-    let mut samples = load(70, 10.0, 50.0);
+    // Só 20 s acima de 95% depois de RAM normal: ainda não.
+    let mut samples = load(190, 10.0, 50.0);
     for s in samples.iter_mut().rev().take(20) {
         s.memory = 99.0;
     }
     assert_eq!(
-        evaluate(&samples, &[], &[], now(70)).status,
+        evaluate(&samples, &[], &[], now(190)).status,
+        HealthStatus::Healthy
+    );
+    // 60 s a 91% (a janela antiga) já não basta: é só uma oscilação.
+    assert_eq!(
+        evaluate(&load(60, 10.0, 91.0), &[], &[], now(60)).status,
         HealthStatus::Healthy
     );
 }

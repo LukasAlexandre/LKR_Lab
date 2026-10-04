@@ -6,7 +6,7 @@
 //! | Sinal | Atenção | Crítico |
 //! |---|---|---|
 //! | CPU total | ≥ 90% em TODAS as amostras dos últimos 60 s | ≥ 95% em todas as dos últimos 180 s |
-//! | Memória em uso | ≥ 90% nos últimos 30 s | ≥ 95% nos últimos 60 s |
+//! | Memória em uso | ≥ 90% nos últimos 120 s | ≥ 95% nos últimos 180 s |
 //! | Espaço livre de um volume fixo | < 10% E < 20 GiB livres | < 5% E < 5 GiB livres |
 //! | Temperatura de GPU/SSD com limite conhecido | ≥ aviso nas leituras dos últimos 30 s | ≥ crítico nos últimos 30 s |
 //!
@@ -25,8 +25,10 @@ pub const CPU_ATTENTION_WINDOW_MS: i64 = 60_000;
 pub const CPU_CRITICAL_WINDOW_MS: i64 = 180_000;
 pub const MEMORY_ATTENTION: f32 = 90.0;
 pub const MEMORY_CRITICAL: f32 = 95.0;
-pub const MEMORY_ATTENTION_WINDOW_MS: i64 = 30_000;
-pub const MEMORY_CRITICAL_WINDOW_MS: i64 = 60_000;
+/// RAM em uso inclui cache do Windows e uma máquina de uso intenso gira em torno de 90%: só 2 e 3
+/// minutos ininterruptos contam como pressão sustentada (30 s e 60 s faziam o alerta piscar).
+pub const MEMORY_ATTENTION_WINDOW_MS: i64 = 120_000;
+pub const MEMORY_CRITICAL_WINDOW_MS: i64 = 180_000;
 pub const FREE_SPACE_ATTENTION: f64 = 10.0;
 pub const FREE_SPACE_CRITICAL: f64 = 5.0;
 const GIB: u64 = 1024 * 1024 * 1024;
@@ -276,14 +278,14 @@ pub fn evaluate(
             HealthStatus::Critical,
             "memory",
             "Memória quase esgotada".into(),
-            format!("Mais de {MEMORY_CRITICAL:.0}% da RAM em uso há mais de 1 minuto."),
+            format!("Mais de {MEMORY_CRITICAL:.0}% da RAM em uso há mais de 3 minutos."),
         ));
     } else if memory_attention {
         alerts.push(alert(
             HealthStatus::Attention,
             "memory",
             "Memória alta".into(),
-            format!("Mais de {MEMORY_ATTENTION:.0}% da RAM em uso há mais de 30 segundos."),
+            format!("Mais de {MEMORY_ATTENTION:.0}% da RAM em uso há mais de 2 minutos."),
         ));
     }
 
