@@ -26,7 +26,7 @@ Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão apro
 | 06 | Concept 05 — Project Control Center | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D03) | [CONCEPT-05](../../concepts/machine-registry/CONCEPT-05.md), [imagem](../../concepts/machine-registry/concept-05-project-control-center.webp) |
 | 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D04) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D05) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
-| 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
+| 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D06) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
 | 10 | Concept 09 — Planejamento | EM ANDAMENTO (visual EM REFINAMENTO) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
 
 **Bloco atual:** 10 — Concept 09 — Planejamento, em refinamento (pendências em [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md)). Progresso conceitual: 8 de 9 concepts aprovados.
@@ -50,6 +50,7 @@ Primeiro acesso / Computador não cadastrado. Visual APROVADO. Detalhes, regras 
 | D02 | Machine Health (Concept 02) | CONCLUÍDO | `feat/session-001-machine-registry` |
 | D04 | DDAE Foundation (Concept 06) | IMPLEMENTADO E VALIDADO NO DESKTOP | `feat/session-001-ddae-foundation` |
 | D05 | DDAE Session Detail (Concept 07) | IMPLEMENTADO E VALIDADO NO DESKTOP | `feat/session-001-ddae-session-detail` |
+| D06 | Worktrees (Concept 08) | IMPLEMENTADO E VALIDADO NO DESKTOP | `feat/session-001-worktrees-foundation` |
 | D03 | Projects Foundation (Concepts 03–05) | CONCLUÍDO (Concepts 03, 04 e 05 implementados e validados no desktop) | `feat/session-001-projects-foundation`, `feat/session-001-project-control-center` |
 
 ### Checkpoint — MACHINE FOUNDATION COMPLETE
@@ -100,6 +101,28 @@ Integrado à `main` por fast-forward (`de2c605`). As branches `feat/session-001-
 - **Concept 07 — Detalhe da Session:** IMPLEMENTADO E VALIDADO NO DESKTOP (ver D05).
 - **Próximo domínio:** WORKTREES. **Concept 08: A INICIAR** (branch `feat/session-001-worktrees-foundation`); auditoria em [CONCEPT-08-worktrees-audit.md](../audits/CONCEPT-08-worktrees-audit.md). Nada do Concept 08 foi implementado.
 - SESSION-001 continua ATIVA (9/10, bloco atual Concept 09); Concept 09 segue EM REFINAMENTO.
+
+### Bloco D06 — Worktrees / Concept 08 (IMPLEMENTADO E VALIDADO NO DESKTOP)
+
+Camada operacional do LKR LAB sobre os Git worktrees REAIS. Commits: `4d72d23` (modelo operacional portátil) e `3d400fe` (workspace de worktrees do projeto). Rota: `#project/<id>/worktrees` (sem rota de detalhe).
+
+- **Invariantes:**
+  - **Worktree ID ≠ branch ≠ path.** A identidade é um UUID v4 do LKR LAB; branch, locator do repositório e HEAD destacado são só DICAS portáteis; o path é o binding local (classe C) e nunca entra no estado portátil, no hash nem em eventos.
+  - **Git Worktree ≠ Managed Worktree.** O Git worktree é lido de `git worktree list --porcelain` (path, HEAD, branch/detached, locked + motivo, prunable + motivo, bare); o gerenciado é a metadata portátil do LKR LAB.
+  - **Estado operacional ≠ estado Git ≠ runtime ≠ estado da Session.** ATIVO / CONGELADO / PARADO / FINALIZADO é metadata do LKR LAB: não vem de dirty/clean/ahead/behind/merged/branch apagada, nem de runtime, nem da Session, e nenhum deles altera o outro (incoerências só geram aviso).
+- **FINALIZAR no LKR LAB** só grava estado e eventos: **NÃO faz commit, NÃO faz merge, NÃO faz push, NÃO remove o Git worktree, NÃO remove a branch e NÃO apaga a pasta.** É terminal (`completed`). Com alterações Git há um aviso explícito, sem bloqueio. **Remover worktree do Git** é uma ação separada (`git worktree remove`, sem `--force`, recusa principal/bloqueado/sujo) que preserva a metadata e o histórico e remove só o binding local.
+- **PRINCIPAL:** sempre descoberto pelo Git e visível; **fora do ciclo operacional e dos contadores gerenciados; não adotável no MVP.**
+- **Descoberta híbrida e passiva:** abrir a página só roda `git worktree list` e `git status` (leitura). Worktrees adicionais sem metadata aparecem como **NÃO GERENCIADO** com "Adotar"; a metadata só nasce por ação explícita (adotar ou criar). Metadata sem binding válido vira **NÃO LOCALIZADO** (sem Git nem runtime inventados), com "Localizar" (UUID preservado, sem criar metadata).
+- **Relação:** PROJECT → SESSION → WORKTREE; um worktree tem 0..1 Session e 0..1 Block (o bloco exige a Session e precisa ser dela; validado no core e por gatilhos); uma Session pode ter N worktrees; vários ATIVOS por Project e por Session. Vincular/desvincular grava evento no worktree (`worktree_events`) e no histórico da Session (`ddae_events`), sem path.
+- **Persistência (migration 009):** `managed_worktrees` (portável), `worktree_bindings` (local), `worktree_events` (append-only, portável). **Workspace schema v4** (`managedWorktrees` com eventos; Rust + JS espelhados); v1, v2 e v3 continuam legíveis e normalizam para v4 com o mesmo hash. "Excluir metadata" não existe neste corte (o histórico fica pelo FINALIZADO).
+- **Runtime (limitação honesta):** não há atribuição confiável de processos/portas a um worktree adicional. Por isso **"Runtime: Não disponível" é proposital**; o runtime geral do Project nunca é usado como substituto.
+- **VALIDAÇÃO MANUAL (desktop real, hub.db real e Git real deste PC, executada pelo usuário em 03/10/2026 conforme o roteiro proposto):** o cenário real tem o checkout PRINCIPAL do LKR_Lab (`feat/session-001-worktrees-foundation`) e um worktree adicional (`docs/machine-context-concepts`), com **zero** worktrees gerenciados antes. O usuário **não** adotou, criou, finalizou nem removeu nenhum worktree. Roteiro: a página abre; o PRINCIPAL aparece com branch, HEAD e path reais, sem selo de estado, sem "Adotar" e fora dos contadores; o adicional aparece como NÃO GERENCIADO com Git real, Runtime "Não disponível", DDAE "—", Bloco "—" e "Adotar" (não clicado); resumo com 0 gerenciados e 1 não gerenciado; busca e filtros (operacional, Git, "Não gerenciados"); card Worktrees do Project Control Center com 0 gerenciados e o adicional como não gerenciado; Session Detail da SESSION-001 com "Nenhum worktree vinculado."; console sem erros além do favicon.
+- **PROVA DE PASSIVIDADE (releitura somente leitura depois da validação):**
+  - `hub.db`: `user_version = 9`; `managed_worktrees = 0`, `worktree_bindings = 0`, `worktree_events = 0`, nenhum worktree com `session_id`, nenhum `ddae_event` de worktree, nenhuma atividade de worktree. A SESSION-001 segue ativa, 10 blocos (9 concluídos, 1 em andamento), 1 evento DDAE (`LEGACY_IMPORTED`), 0 decisões e `updated_at` inalterado.
+  - Git: continuam exatamente 2 worktrees reais — o principal (`feat/session-001-worktrees-foundation`, HEAD `3d400fe`) e o adicional (`docs/machine-context-concepts`, HEAD `4729f99`) —, sem `locked` nem `prunable`; a pasta do adicional existe. Nenhum comando mutável do Git (fetch, pull, checkout, switch, prune, repair) foi executado.
+- **COBERTO POR TESTES AUTOMATIZADOS — NÃO EXERCITADO NO GIT REAL DO USUÁRIO** (37 testes Rust em `tests/worktrees.rs`, com repositórios Git temporários reais, mais testes de lógica/render e de workspace em JS): adotar; criar com branch nova (base explícita) e com branch existente (o Git recusa branch já em uso); falha parcial (Git criou, metadata falhou: nada removido, aparece como NÃO GERENCIADO); Localizar de worktree não localizado (UUID preservado, recusa divergência de branch); lifecycle ACTIVE/FROZEN/STOPPED/COMPLETED e transições inválidas; COMPLETED terminal (core e banco); vários ACTIVE; aviso de Git sujo (finalizar/pausar); finalizar sem nenhuma operação Git (lista, branches, HEAD e arquivos intactos); relação com Session e com Block, validação Project/Session e Session/Block (core e gatilhos); `worktree_events` e `ddae_events` de vínculo, sem path; remover do Git (recusa principal, bloqueado, sujo e sem confirmação; sem `--force`; só o binding some; metadata e branch preservadas); proteção do PRINCIPAL; Workspace v4 e compatibilidade v1/v2/v3; nenhum path absoluto; hash determinístico; abrir a página sem escrever nada.
+- **Divergências visuais e limitações aceitas:** o concept mostra worktrees de exemplo em todos os estados (não reproduzidos; só dados reais); sem seletor de pasta (destino digitado, com sugestão de pasta irmã); sem excluir metadata; sem detalhe por rota; "Runtime" só para o PRINCIPAL (pelo Project); a cor de PARADO é slate (decisão D8), não âmbar como na imagem.
+- **Status:** Concept 08 — IMPLEMENTADO E VALIDADO NO DESKTOP. **SESSION-001 segue ATIVA** (bloco atual Concept 09 — Planejamento, não alterado). **Concept 09: EM REFINAMENTO** (não aprovado).
 
 ### Bloco D05 — DDAE Session Detail / Concept 07 (IMPLEMENTADO E VALIDADO NO DESKTOP)
 
@@ -232,7 +255,7 @@ Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como esta
 | 05 | Project Control Center | APROVADO |
 | 06 | DDAE / Sessões | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 07 | DDAE / Detalhe da Sessão | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 08 | Worktrees | APROVADO |
+| 08 | Worktrees | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 09 | Planejamento | EM REFINAMENTO |
 
 ## Decisões de arquitetura registradas
