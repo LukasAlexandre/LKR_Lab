@@ -1,6 +1,6 @@
 # Concept 09 — Planejamento
 
-**Status:** APROVADO VISUALMENTE / IMPLEMENTADO (testes automatizados) — VALIDAÇÃO NO DESKTOP PENDENTE
+**Status:** IMPLEMENTADO E VALIDADO NO DESKTOP
 **Sessão DDAE:** [SESSION-001](../../ddae/sessions/SESSION-001-machine-context-workspace-foundation.md)
 **Imagem canônica:** [concept-09-planning.webp](concept-09-planning.webp)
 **Especificação refinada:** [CONCEPT-09-planning-refinement](../../ddae/audits/CONCEPT-09-planning-refinement.md)
@@ -45,4 +45,4 @@ A imagem canônica substitui a primeira direção visual (que tinha Backlog, Pri
 
 ## Estado atual
 
-Concept 09 está **APROVADO VISUALMENTE** e **implementado** (migration 010, módulo `hub-core::planning`, workspace v5, página `#project/<id>/planning`, Project Control Center, Próxima ação, DDAE e Session Detail), coberto por testes automatizados. A **validação no desktop real ainda não foi feita**: o status só passa a **IMPLEMENTADO E VALIDADO NO DESKTOP** depois que o usuário confirmar o roteiro no aplicativo. Detalhes e limitações no bloco D07 da [SESSION-001](../../ddae/sessions/SESSION-001-machine-context-workspace-foundation.md). SESSION-001 permanece **ATIVA** (9/10, bloco atual Concept 09 — Planejamento); o Block não é concluído por esta implementação.
+Concept 09 está **APROVADO VISUALMENTE** e **implementado** (migration 010, módulo `hub-core::planning`, workspace v5, página `#project/<id>/planning`, Project Control Center, Próxima ação, DDAE e Session Detail), coberto por testes automatizados. Foi **validado no desktop**: manualmente pelo usuário com os dados reais (estado vazio, SESSION-001, Próxima ação e Visão geral) e, no app Tauri real, em um banco isolado descartável para todos os estados e mutações; o hub.db real permaneceu intacto. Detalhes e limitações no bloco D07 da [SESSION-001](../../ddae/sessions/SESSION-001-machine-context-workspace-foundation.md). SESSION-001 permanece **ATIVA** (9/10, bloco atual Concept 09 — Planejamento); o Block não é concluído por esta implementação.
