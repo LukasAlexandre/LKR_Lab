@@ -21,11 +21,11 @@ Construir a camada de observabilidade e controle local do LKR LAB para processos
 | 05 | Live Console Hub | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 06 | Machine Telemetry Expansion | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 07 | Windows Health & Integrity | IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 08 | Network & Security Visibility | PENDENTE |
+| 08 | Network & Security Visibility | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 09 | Alerts & Diagnostics | PENDENTE |
 | 10 | Validation & Hardening | PENDENTE |
 
-Progresso no DDAE: **7 / 10**, sem bloco em andamento; próximo: **08 — Network & Security Visibility** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
+Progresso no DDAE: **8 / 10**, sem bloco em andamento; próximo: **09 — Alerts & Diagnostics** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
 
 ## Checkpoint — CONTROL PLANE MVP (Blocks 01–05)
 
@@ -205,16 +205,80 @@ Executada no app Tauri em execução, em um notebook (PC Casa). Valores são **o
 - A leitura do bit "sujo" via handle de dispositivo falhava com erro opaco; o caminho correto (volume aberto só para leitura) devolve "requer privilégio administrativo", dito explicitamente.
 - Uma edição minha duplicou um trecho do módulo nativo e foi reconstruída antes de qualquer commit.
 
+## Checkpoint — NETWORK & SECURITY VISIBILITY (Block 08)
+
+Block 08 — Network & Security Visibility: **IMPLEMENTADO E VALIDADO NO DESKTOP**. SESSION-002: **ATIVA, 8 / 10**, sem bloco atual; próximo: **09 — Alerts & Diagnostics** (não iniciado). Nada do 09 foi implementado.
+
+### Arquitetura
+
+Coletor **passivo e somente leitura** (`network_security.rs` + `security_native.rs`): nada é ativado, bloqueado, encerrado, escaneado ou alterado (firewall, regras, portas, processos, Defender, BitLocker, DNS, rotas, adaptadores e perfis de rede ficam como estão). O estado fica só na máquina: conexões e endpoints remotos não vão ao workspace portátil, ao Git, ao sync, ao Planejamento, ao DDAE nem ao contexto de IA (há teste).
+
+- **Fontes nativas em processo:** registro (leitura), IP Helper (interfaces, gateways, DNS), Windows Security Center (saúde agregada de antivírus e firewall), TPM Base Services (presença e versão), firmware (UEFI/BIOS) e `netstat` (portas e conexões). **Sem PowerShell, sem WMI, sem subprocessos, sem requisição externa, sem consulta de IP público, sem resolução reversa de DNS e sem varredura de portas**; há um teste que falha se o código passar a usar APIs de alteração, rede externa ou subprocessos.
+- **Reuso do Control Plane:** a atribuição Porta → PID → Project usa `control_plane::attribute`; a interface de saída usa a rota que o próprio SO escolhe (sem enviar pacote).
+- **Domínios independentes**, cada um com estado, motivo, fontes e instante próprios: firewall, antivírus (com Defender), criptografia (BitLocker), Secure Boot e TPM entram no estado geral; rede, exposição (portas em escuta) e conexões são **informativos**. Falha de um domínio nunca derruba os outros.
+- **Semântica:** `healthy`, `attention`, `critical` e `unknown`. **Ausência de informação é `unknown`, nunca `healthy`.** Sem pontuação de segurança.
+- **Cache por domínio:** rede e portas 15 s, conexões 10 s, firewall e antivírus 60 s, BitLocker 5 min, Secure Boot e TPM 10 min. "Atualizar agora" força a releitura; a interface consulta de 15 em 15 s com a janela visível.
+- **Permissões:** nada eleva no startup e não há UAC automático. Fonte que exige administrador vira `requires_elevation`, e a interface diz "Requer privilégio administrativo".
+- **API:** um único comando de leitura, `network_security_snapshot(force)`, atrás do gate de máquina cadastrada.
+
+### Regras (objetivas e sem inventar insegurança)
+
+- **Escuta em `0.0.0.0` ou `::` não é vulnerabilidade nem "exposto à internet":** é descrita como "todas as interfaces", e a interface diz que a alcançabilidade externa depende do firewall e do roteador, que o app não testa. A exposição nunca altera o estado geral.
+- **Firewall:** avalia o perfil da rede ativa quando conhecido. Desativado no perfil ativo é crítico, a menos que o Security Center informe outro firewall saudável. Perfis inativos desativados não alertam. Sem a categoria da rede, o estado reflete todos os perfis lidos e a tela diz isso.
+- **Antivírus:** Defender passivo ou parado por causa de antivírus de terceiros **não é problema**. Crítico só quando o Defender está inativo, não há antivírus de terceiros e o Security Center não informa antivírus saudável. Assinaturas com mais de 7 dias são atenção (ignoradas com o Defender passivo). Ameaças ativas: **"Não consultado"** na leitura passiva, nunca "zero".
+- **BitLocker:** indisponível é `unknown`; suspenso ou desligado no volume do sistema é atenção; volume de dados sem BitLocker é só informação. Chaves de recuperação nunca são lidas.
+- **Secure Boot:** desativado é um fato (atenção); BIOS legado e indisponível são `unknown`. **TPM:** presente é saudável; ausente é atenção; indisponível é `unknown`.
+
+### VALIDAÇÃO DESKTOP REAL
+
+Executada no app Tauri em execução, em um notebook (PC Casa). Valores são **observações daquele momento**, não requisitos.
+
+- **Estado geral: Saudável, 4 de 5 verificações avaliadas** (a quinta, BitLocker, ficou Desconhecida por exigir administrador).
+- **Rede:** interface ativa Wi-Fi (rota padrão, ~574 Mbps, DHCP), IPv4 privado /24, gateway IPv4, DNS (IPv4 antes de IPv6, sem repetição), IP público **"Não consultado"**. Outras interfaces listadas (VPN, adaptadores virtuais do Hyper-V/WSL, interfaces desconectadas). Categoria da rede: **requer privilégio administrativo** (a chave `NetworkList\Profiles` é negada ao usuário comum), mostrada como Desconhecido, não adivinhada.
+- **Exposição:** ~51 portas TCP em escuta (≈25 em todas as interfaces, 5 em interface específica, 21 só na máquina), com processo, PID e executável. A busca por porta atribuiu o Vite do desktop ao Project LKR_Lab. A tela explica que "todas as interfaces" não é exposição à internet.
+- **Conexões:** ~86 estabelecidas (≈64 remotas), em visão compacta filtrada por padrão para remotas, com processo e PID, sem DNS reverso.
+- **Firewall:** Domínio, Privado e Público ativados; saúde do Security Center "Bom".
+- **Antivírus:** Microsoft Defender ativo, nenhum antivírus de terceiros, assinaturas e mecanismo atuais, Security Center "Bom"; proteção em tempo real **Desconhecido** (o valor não existe no registro) e ameaças ativas **Não consultado**.
+- **Secure Boot:** ativado (UEFI). **TPM:** presente, versão 2.0. **BitLocker:** Desconhecido, requer administrador.
+- **Conferência cruzada (uma vez, só leitura, fora do app):** firewall nos três perfis, Defender com as mesmas versões de assinatura e mecanismo, único produto de antivírus o Defender, rota padrão pelo Wi-Fi com o mesmo gateway, contagens de portas e conexões compatíveis. O Windows classifica o Wi-Fi como Público; o app mostra "Desconhecido" por não conseguir ler essa categoria sem administrador.
+- **Fontes não disponíveis (2):** categoria da rede e BitLocker por volume (administrador).
+- **Custo (desta máquina, não SLA):** leitura completa forçada em ~520–580 ms.
+- **A máquina estava saudável:** nenhum estado Atenção/Crítico foi inventado para provar a interface. Esses estados estão cobertos por testes.
+
+### COBERTURA AUTOMATIZADA
+
+- **Rust (`network_security`):** 61 testes com fontes falsas (nenhum depende de firewall, Defender, TPM ou rede reais): interface ativa pela rota do SO e por métrica, IPv4/IPv6, gateway e DNS (ordem e repetição), categoria da rede, escopos de escuta, atribuição porta → PID → Project, dono não identificado, conexões e filtragem, truncamento com contagem exata, firewall (perfis, perfil ativo, desativado, outro firewall saudável, política de entrada, ilegível, requer elevação), antivírus (Defender ativo, passivo com antivírus de terceiros, serviço parado com terceiros, desativado sem antivírus, tempo real desligado, ameaça, assinaturas antigas, saúde do Security Center), BitLocker (protegido, suspenso, desligado, indisponível), Secure Boot, TPM, estado geral e isolamento de falhas, cache por domínio e relógio, serialização, ausência de segredos, nada no workspace portátil e passividade (varredura do código-fonte). Há um teste ignorado de leitura real (só estados agregados).
+- **Frontend (vitest):** 58 testes novos (saudável, atenção, crítico, desconhecido, interface ativa, IP local, gateway, DNS, IP público não consultado, listeners em loopback/interface/todas as interfaces, detalhes de exposição, perfis do firewall, provedor de antivírus, Defender ativo e passivo, BitLocker, Secure Boot, TPM, dado parcial, requer elevação, conexões vazias, recolhido por padrão, última leitura e desatualizado); total do projeto: 577.
+- **Gates:** `npm test` (577), `npm run lint`, `npm run typecheck`, `npm run build`, `cargo fmt --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` e `cargo test --workspace` passaram, inclusive `stacks_exec` (7/7) e `runtime` (25).
+
+### LIMITAÇÕES
+
+1. A categoria da rede (Público/Privado/Domínio) e o estado do BitLocker por volume exigem privilégio administrativo; sem ele ficam Desconhecidos.
+2. Proteção em tempo real do Defender depende de um valor de registro que pode não existir; ameaças ativas não são consultadas (exigiriam a API do Defender).
+3. O nome de antivírus de terceiros não é exposto (só a contagem de provedores e a saúde agregada), pois exigiria WMI.
+4. Somente TCP: UDP não é listado. Alcançabilidade externa não é testada.
+5. Sem IP público (nenhuma requisição externa) e sem DNS reverso.
+6. Sem remediação, alertas ou recomendações: ficam para o Block 09.
+
+### Bugs encontrados e corrigidos durante o Block 08
+
+- A interface "ativa" escolhida só por métrica/gateway era um adaptador de VPN; agora vale a rota que o SO realmente usa.
+- Gateway apresentado como endereço IPv6 link-local e DNS com repetições; agora IPv4 primeiro e sem repetição.
+- "Conexões" aparecia como desatualizada entre consultas (TTL de 10 s, consulta de 30 s); consulta de 15 s.
+- Endereços IPv6 remotos sem colchetes na lista de conexões.
+- Contagem de antivírus de terceiros falhava por um caminho de registro com barras perdidas numa edição minha (detectado na leitura real).
+
+
 ## Critérios de conclusão
 
-Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive depois dos Blocks 06 e 07: nenhum critério é marcado só porque um bloco terminou. Evidência reunida até aqui, para a revisão no fechamento da Session:
+Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive depois dos Blocks 06, 07 e 08: nenhum critério é marcado só porque um bloco terminou. Evidência reunida até aqui, para a revisão no fechamento da Session:
 
 - Inventário de processos e mapeamento de portas: demonstrados no desktop e por teste.
 - Diferenciar runtime conhecido de processo não associado; UI sem associação falsa com confiança insuficiente: demonstrados (Unknown) e por teste.
 - Relação com Project/Worktree por evidência: Project demonstrado no desktop; Worktree só por teste.
 - stdout/stderr capturados e Console Hub com logs ao vivo: stdout no desktop; stderr por teste.
 - Coleta local e páginas de observação sem ação mutante: cobertos por teste (passividade e workspace portátil).
-- "Gates e validação desktop passam": depende da Session inteira (Blocks 06–10).
+- "Gates e validação desktop passam": depende da Session inteira (Blocks 09–10).
 
 ## Bugs corrigidos nesta Session
 
@@ -226,7 +290,8 @@ Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive 
 - Timestamps ausentes na visualização do console.
 - `swapUsed` do sysinfo apresentado como uso de pagefile (era commit além da RAM); substituído pelo contador real do Windows (Block 06).
 - Avisos de 7 dias exibidos como "0" sem serem medidos (Block 07); agora aparecem como "não medido".
+- Interface ativa escolhida só por métrica (adaptador de VPN), gateway IPv6 e DNS repetido, "Conexões" desatualizada entre consultas e IPv6 sem colchetes (Block 08).
 
 ## Próximo bloco
 
-**08 — Network & Security Visibility** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
+**09 — Alerts & Diagnostics** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
