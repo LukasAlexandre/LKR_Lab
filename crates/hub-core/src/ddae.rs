@@ -2355,13 +2355,18 @@ pub fn parse_legacy(markdown: &str) -> HubResult<LegacySession> {
     for raw in markdown.lines() {
         let line = raw.trim_end();
         if let Some(rest) = line.strip_prefix("# SESSION-") {
-            let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-            number = digits.parse::<u32>().ok();
-            title = rest
-                .trim_start_matches(|c: char| c.is_ascii_digit())
-                .trim_start_matches(|c: char| c.is_whitespace() || c == '—' || c == '-' || c == '–')
-                .trim()
-                .to_string();
+            // Só o PRIMEIRO título vale: um rodapé como "# SESSION-001 FINALIZADA" não renomeia a sessão.
+            if number.is_none() {
+                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                number = digits.parse::<u32>().ok();
+                title = rest
+                    .trim_start_matches(|c: char| c.is_ascii_digit())
+                    .trim_start_matches(|c: char| {
+                        c.is_whitespace() || c == '—' || c == '-' || c == '–'
+                    })
+                    .trim()
+                    .to_string();
+            }
             continue;
         }
         if let Some(rest) = line.strip_prefix("## ") {

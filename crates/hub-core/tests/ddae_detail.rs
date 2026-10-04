@@ -515,16 +515,18 @@ fn legacy_import_records_one_deterministic_event_and_backfill_is_idempotent() {
     let after = db.ddae_session(&session.id).unwrap().events;
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].id, legacy_id);
+    // O documento real está finalizado: todos os blocos entram concluídos, mas só pelo estado do
+    // arquivo — o histórico continua com UM evento (nenhum BLOCK_COMPLETED fictício).
+    let stored = db.ddae_session(&session.id).unwrap();
     assert_eq!(
-        db.ddae_session(&session.id)
-            .unwrap()
+        stored
             .blocks
             .iter()
             .filter(|b| b.status == BlockStatus::Completed)
             .count(),
-        9,
-        "nenhum BLOCK_COMPLETED fictício"
+        stored.blocks.len(),
     );
+    assert_eq!(stored.events.len(), 1, "nenhum BLOCK_COMPLETED fictício");
 }
 
 // ---- blocos ----

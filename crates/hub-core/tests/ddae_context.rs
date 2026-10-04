@@ -439,7 +439,12 @@ fn legacy_session_001_is_not_ready_and_says_why() {
     let view = db.ddae_overview(&project.id).unwrap().sessions.remove(0);
     assert!(!view.ready_for_ai.ready);
     assert_eq!(view.ready_for_ai.state, ContextState::Incomplete);
-    assert_eq!(view.ready_for_ai.missing, ["desired_outcome", "criteria"]);
+    // O documento real foi finalizado (todos os blocos concluídos): sem bloco acionável, mas as duas
+    // lacunas que o importador nunca inventa continuam sendo as primeiras.
+    assert_eq!(
+        view.ready_for_ai.missing[..2],
+        ["desired_outcome", "criteria"]
+    );
     assert!(view.session.desired_outcome.is_empty() && view.session.criteria.is_empty());
     // O contexto ainda é gerável e diz o que falta, sem completar conteúdo.
     let ctx = db.ddae_generate_context(&view.session.id).unwrap().markdown;
