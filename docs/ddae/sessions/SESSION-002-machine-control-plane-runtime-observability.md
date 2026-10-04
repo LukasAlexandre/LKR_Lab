@@ -19,13 +19,13 @@ Construir a camada de observabilidade e controle local do LKR LAB para processos
 | 03 | Runtime Attribution Engine | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 04 | Managed Runtime Supervisor | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 05 | Live Console Hub | IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 06 | Machine Telemetry Expansion | PENDENTE |
+| 06 | Machine Telemetry Expansion | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 07 | Windows Health & Integrity | PENDENTE |
 | 08 | Network & Security Visibility | PENDENTE |
 | 09 | Alerts & Diagnostics | PENDENTE |
 | 10 | Validation & Hardening | PENDENTE |
 
-Progresso no DDAE: **5 / 10**, sem bloco em andamento; próximo: **06 — Machine Telemetry Expansion** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
+Progresso no DDAE: **6 / 10**, sem bloco em andamento; próximo: **07 — Windows Health & Integrity** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
 
 ## Checkpoint — CONTROL PLANE MVP (Blocks 01–05)
 
@@ -71,13 +71,78 @@ Executada no app Tauri em execução (`tauri dev`), sem reiniciá-lo, sobre o Pr
 4. O inventário de processos usa cache curto (1 s); um processo recém-criado pode demorar até 1 s para aparecer.
 5. `stacks_exec` tem flakiness histórica.
 6. Não existe Windows Service / Agent privilegiado: processos protegidos não expõem caminho nem linha de comando sem elevação e não podem ser associados a um Project.
-7. Os Blocks 06–10 não foram implementados.
+7. Na data deste checkpoint, os Blocks 06–10 ainda não estavam implementados (o 06 foi entregue no checkpoint seguinte).
 8. STDERR com conteúdo real não foi observado no desktop (o processo usado não escreve em stderr); está coberto por teste automatizado com subprocesso real.
 9. O caminho Worktree → Session → Block foi validado apenas por teste automatizado: o desktop está no checkout principal, sem Managed Worktree.
 
+## Checkpoint — MACHINE TELEMETRY (Block 06)
+
+Block 06 — Machine Telemetry Expansion: **IMPLEMENTADO E VALIDADO NO DESKTOP**. SESSION-002: **ATIVA, 6 / 10**, sem bloco atual; próximo: **07 — Windows Health & Integrity** (não iniciado). Nada do 07 foi implementado.
+
+### Arquitetura
+
+O Block 06 evolui o sampler de telemetria que já existia (Concept 02), sem criar inventário ou comando paralelos: o contrato `Telemetry` ganhou campos e o comando/evento existentes (`machine_telemetry`, `machine://telemetry`) continuam sendo a única via.
+
+- **Estático × vivo:** o hardware estático (modelo da CPU, núcleos, RAM total, identidade das GPUs) continua no inventário; a telemetria só carrega o que muda. O clock base da CPU é lido uma vez; tipo/estado/velocidade das interfaces de rede são relidos a cada 30 s e os discos físicos a cada 5 min.
+- **Fontes nativas, em processo:** sysinfo, PDH, D3DKMT, `GetSystemPowerStatus`, `GetPerformanceInfo`, `GetAdaptersAddresses`, registro e consultas de propriedade de disco. **Sem PowerShell, sem WMI e sem subprocesso periódico**; há um teste que falha se o coletor passar a usar `Command::new` ou PowerShell.
+- **Domínios independentes:** cada domínio (CPU, memória, GPU, disco, rede, bateria, temperaturas) é medido separadamente e reporta `available`, `partial` ou `unavailable`. A falha ou ausência de um sensor nunca derruba os outros nem aparece como erro.
+- **Primeira amostra:** CPU, disco e rede trazem `ready`; antes do primeiro intervalo a interface mostra "Calibrando…", nunca um zero inventado.
+- **Local:** nada é persistido e nada entra no Portable Workspace, no Git, no sync, no Planejamento ou no DDAE (há teste). O histórico continua sendo o buffer curto em memória (2 min).
+- **Refresh (Dashboard aberto):** CPU/memória a cada 1 s, E/S, rede e GPU a cada 2 s, temperaturas a cada 4 s (antes 10 s); em segundo plano 5 s, 10 s e 60 s. O Dashboard renova um lease de 15 s; ao sair dele o sampler reduz o ritmo.
+
+### O que o contrato passou a expor
+
+- **CPU:** uso por processador lógico, clock base (registro) além do clock efetivo, e `ready`.
+- **Memória:** RAM física separada de **commit** (RAM + pagefile) e de **pagefile em uso**.
+- **GPU:** fabricante (VendorId PCI) e versão do driver (registro DirectX), por adaptador.
+- **Disco:** atividade, taxas de leitura/escrita e operações por segundo **por disco físico** (modelo, NVMe, letras dos volumes), separadas da capacidade dos volumes.
+- **Rede:** todas as interfaces (sem loopback) com tipo, estado, velocidade de enlace, IPv4, IPv6 (sem link-local), taxas por interface e a interface ativa.
+- **Bateria:** presença, carga, tomada, carregando e autonomia; computador sem bateria é "não aplicável", nunca 0%.
+- **Disponibilidade:** `availability` por domínio e novas `capabilities` (núcleos, clock base, commit, bateria, saúde da bateria, disco por dispositivo, interfaces).
+
+### VALIDAÇÃO DESKTOP REAL
+
+Executada no app Tauri em execução, em um notebook (PC Casa). Valores são **observações daquele momento**, não especificações nem requisitos.
+
+- **CPU:** Intel Core i7-11370H, 8 processadores lógicos, clock efetivo observado ~4,19 GHz com base ~3,3 GHz (o clock efetivo varia a cada amostra).
+- **Memória:** commit ~35 GB de ~48 GB; pagefile em uso ~3,1–3,4 GB de ~24 GB, batendo com o uso informado pelo Windows (~3,3 GB).
+- **GPUs:** Intel Iris Xe (driver observado 31.0.101.4502) e NVIDIA GeForce GTX 1650 (driver observado 32.0.16.1047), com temperatura de ~60 °C na GTX 1650; a Iris Xe não informa temperatura.
+- **Temperaturas indisponíveis nesta máquina (não é erro):** CPU (pacote), placa-mãe e GPU integrada. A interface mostra "Não disponível" numa linha neutra e marca o domínio como **Parcial**. Os SSDs NVMe informam temperatura; o sensor ACPI é exibido sem avaliação, como já era.
+- **Discos:** Samsung NVMe e Kingston NVMe, com capacidade, espaço livre, taxa de leitura/escrita, operações por segundo e % ativo **por disco físico**, e a capacidade dos volumes C: e D: separada. **Saúde SMART: Não disponível**; nenhuma saúde de disco é afirmada sem dado real.
+- **Rede:** 8 interfaces naquele snapshot (3 desconectadas, recolhidas na tela). Wi-Fi ativo com velocidade de enlace ~574 Mbps no Dashboard (a negociação do Wi-Fi varia: outra leitura marcou ~542 Mbps). Taxas calculadas por delta real por interface; a primeira amostra aparece como calibrando.
+- **Bateria:** presente, 100%, tomada conectada. **Saúde da bateria e capacidade de projeto: Não disponível** (o Windows não as entrega sem driver ou elevação); nada foi calculado.
+- **Uptime:** da máquina (inicialização do Windows), não do app.
+- **Ao vivo:** o horário da última amostra avançou segundo a segundo e "Atualizar agora" força uma amostra imediata.
+
+### Desempenho do coletor (observação desta máquina, não SLA)
+
+Custo médio medido por rodada: carga ~2 ms, E/S + rede + GPU ~16 ms, temperaturas ~14 ms, rodada completa ~108 ms (inclui o ranking de processos, que só roda a cada 2 s com o Dashboard aberto).
+
+### COBERTURA AUTOMATIZADA
+
+- **Rust:** 19 testes em `machine_telemetry` (instâncias e modelo de disco, taxas ausentes viram `None`, interfaces por nome/descrição/IP, primeira amostra sem taxa, tipos de interface, desktop sem bateria, bateria de notebook, vendor/driver de GPU, iGPU + dGPU, disponibilidade por domínio, domínio que falha sem degradar os outros, amostragem real em duas rodadas com núcleos/commit/pagefile/taxas, planos parciais, ausência de PowerShell/subprocessos, nada no workspace portátil) mais o teste de política de refresh atualizado.
+- **Frontend (vitest):** 36 testes novos (helpers puros e renderização do Dashboard completo, parcial, sem bateria, sem GPU, primeira amostra e estado de espera); total do projeto: 479.
+- **Gates:** `npm test` (479), `npm run lint`, `npm run typecheck`, `npm run build`, `cargo fmt --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` e `cargo test --workspace` (na repetição completa) passaram.
+- **Intermitência registrada:** em uma rodada do workspace, `runtime_snapshot_for_a_ready_project_has_identity_git_and_no_secrets` e `tauri_build_is_a_task_with_an_exit_code_and_never_a_service` falharam por inspeção de processo. Passaram 5/5 isoladas, 3/3 nos binários completos e na repetição do workspace; é a mesma classe do `stacks_exec`, já reproduzida no commit `0336d93`, anterior a esta Session. Esses testes não foram alterados.
+
+### LIMITAÇÕES
+
+1. Sem temperatura de CPU e de placa-mãe: o Windows não as expõe sem driver de terceiros ou elevação, e nada é pedido ao usuário nem elevado automaticamente.
+2. Sem saúde SMART dos discos (fica para a fase de saúde do Windows).
+3. Sem saúde, capacidade de projeto ou de carga cheia da bateria; só carga, tomada, estado e autonomia estimada.
+4. Uso e temperatura de GPU dependem do driver: a GPU integrada desta máquina não informa temperatura.
+5. Sem histórico persistido de telemetria; só o buffer curto em memória.
+6. IP público não é coletado.
+7. Contadores PDH dependem de existirem na máquina; se não existirem, o campo fica `None` e o domínio vira parcial.
+8. A bateria é a leitura agregada do sistema (`GetSystemPowerStatus`), não por bateria física.
+
+### Bug corrigido
+
+O campo `swapUsed` herdado do sysinfo **não representava o uso real do pagefile** (ele mede commit além da RAM: ~12,5 GB contra ~3,4 GB reais). A interface passou a usar a medição real via contador PDH do Windows (`Paging File % Usage`), mantendo o commit como memória virtual separada da RAM física.
+
 ## Critérios de conclusão
 
-Os 10 critérios continuam **não marcados** neste checkpoint, de propósito. Evidência reunida até aqui, para a revisão no fechamento da Session:
+Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive depois do Block 06: nenhum critério é marcado só porque um bloco terminou. Evidência reunida até aqui, para a revisão no fechamento da Session:
 
 - Inventário de processos e mapeamento de portas: demonstrados no desktop e por teste.
 - Diferenciar runtime conhecido de processo não associado; UI sem associação falsa com confiança insuficiente: demonstrados (Unknown) e por teste.
@@ -94,7 +159,8 @@ Os 10 critérios continuam **não marcados** neste checkpoint, de propósito. Ev
 - `useRunLogs` sem `getServerSnapshot`.
 - Vazamento de processos Node nos testes quando uma asserção falhava.
 - Timestamps ausentes na visualização do console.
+- `swapUsed` do sysinfo apresentado como uso de pagefile (era commit além da RAM); substituído pelo contador real do Windows (Block 06).
 
 ## Próximo bloco
 
-**06 — Machine Telemetry Expansion** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
+**07 — Windows Health & Integrity** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
