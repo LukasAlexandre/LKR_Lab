@@ -1,6 +1,6 @@
 # Concept 09 — Planejamento: auditoria e especificação refinada
 
-**Status do Concept 09: EM REFINAMENTO** (não aprovado, não "a iniciar", não implementado). Este documento é uma proposta para uma **nova revisão visual**; nada aqui foi implementado nem decidido de forma definitiva.
+**Status do Concept 09: APROVADO VISUALMENTE** (versão final com PRÓXIMO, Iniciar desabilitado com Session ativa e Cancelado separado); implementação em andamento, ainda não implementado. Este documento é a especificação refinada que originou a versão aprovada; as decisões D1–D12 seguem as recomendações descritas aqui.
 **Base:** `main` em `cfebf88` (Concepts 01–08 integrados). **Branch:** `feat/session-001-planning-foundation`.
 **Fontes lidas:** [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md) e a imagem atual, CONCEPT-06/07/08, a [SESSION-001](../sessions/SESSION-001-machine-context-workspace-foundation.md), `TASKS.md` / `docs/ROADMAP.md`, o modelo real de DDAE (Sessions, Blocks, critérios, `ddae_events`), Worktrees (`managed_worktrees`, `worktree_events`), o workspace portátil v4, o roteador de Project e o Project Control Center.
 

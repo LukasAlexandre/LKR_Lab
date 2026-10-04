@@ -12,7 +12,7 @@ A feature começa pela identidade da workstation e evolui para:
 
 Machine Registry → Machine Health → Projects → Project Control Center → DDAE → Worktrees → Planning
 
-Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão aprovados e o Concept 09 — Planejamento está em refinamento. Implementados até agora: Concept 01 (D01) e Concept 02 (D02).
+Esta sessão combina **concepts e implementação**: 9 de 9 concepts estão aprovados (o Concept 09 — Planejamento foi aprovado visualmente e entra em implementação). Implementados até agora: Concept 01 (D01) e Concept 02 (D02).
 
 ## Blocos
 
@@ -27,9 +27,9 @@ Esta sessão combina **concepts e implementação**: 8 de 9 concepts estão apro
 | 07 | Concept 06 — DDAE / Sessões | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D04) | [CONCEPT-06](../../concepts/machine-registry/CONCEPT-06.md), [imagem](../../concepts/machine-registry/concept-06-ddae-sessions.webp) |
 | 08 | Concept 07 — DDAE / Detalhe da Sessão | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D05) | [CONCEPT-07](../../concepts/machine-registry/CONCEPT-07.md), [imagem](../../concepts/machine-registry/concept-07-ddae-session-detail.webp) |
 | 09 | Concept 08 — Worktrees | CONCLUÍDO (visual APROVADO; IMPLEMENTADO E VALIDADO NO DESKTOP — ver D06) | [CONCEPT-08](../../concepts/machine-registry/CONCEPT-08.md), [imagem](../../concepts/machine-registry/concept-08-worktrees.webp) |
-| 10 | Concept 09 — Planejamento | EM ANDAMENTO (visual EM REFINAMENTO) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
+| 10 | Concept 09 — Planejamento | EM ANDAMENTO (visual APROVADO; implementação em andamento) | [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md), [imagem](../../concepts/machine-registry/concept-09-planning.webp) |
 
-**Bloco atual:** 10 — Concept 09 — Planejamento, em refinamento (pendências em [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md)). Progresso conceitual: 8 de 9 concepts aprovados.
+**Bloco atual:** 10 — Concept 09 — Planejamento, visual aprovado, em implementação ([CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md)). Progresso conceitual: 9 de 9 concepts aprovados.
 
 ### Bloco 01 — Product Architecture (CONCLUÍDO)
 
@@ -109,6 +109,11 @@ Integrado à `main` por fast-forward (`cfebf88`). As branches `feat/session-001-
 - **Concept 08 — Worktrees:** IMPLEMENTADO E VALIDADO NO DESKTOP (ver D06).
 - **Próximo domínio:** PLANEJAMENTO. **Concept 09: EM REFINAMENTO** (não aprovado, não implementado); branch `feat/session-001-planning-foundation`; auditoria e especificação refinada em [CONCEPT-09-planning-refinement.md](../audits/CONCEPT-09-planning-refinement.md). Nenhum código de Planejamento foi escrito.
 - SESSION-001 continua ATIVA; bloco atual **Concept 09 — Planejamento** (não alterado).
+
+### Checkpoint — CONCEPT 09 APROVADO VISUALMENTE
+
+- **Concept 09 — Planejamento: APROVADO VISUALMENTE**, NÃO implementado. O asset `concept-09-planning.webp` foi substituído pela versão final aprovada (7 itens operacionais, bloco PRÓXIMO, Iniciar desabilitado com Session ativa, cancelado separado, sem prioridade, drag handles ou "Mais filtros"; Session ativa e Próxima ação em blocos separados). Detalhes em [CONCEPT-09](../../concepts/machine-registry/CONCEPT-09.md).
+- SESSION-001 continua ATIVA (9/10, bloco atual Concept 09 — Planejamento). Ela não nasceu do Planejamento e não terá Planning Item retroativo.
 
 ### Bloco D06 — Worktrees / Concept 08 (IMPLEMENTADO E VALIDADO NO DESKTOP)
 
@@ -264,7 +269,7 @@ Implementação do Concept 01. (Na época do bloco, o Dashboard seguia como esta
 | 06 | DDAE / Sessões | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 07 | DDAE / Detalhe da Sessão | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 08 | Worktrees | APROVADO / IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 09 | Planejamento | EM REFINAMENTO |
+| 09 | Planejamento | APROVADO VISUALMENTE (implementação em andamento) |
 
 ## Decisões de arquitetura registradas
 
