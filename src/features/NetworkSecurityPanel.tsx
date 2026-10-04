@@ -56,7 +56,7 @@ function Loaded({ snapshot: s, error, now }: { snapshot: NetworkSecuritySnapshot
   const overall = s.overall;
   const missing = unavailableNetSources(s);
   return (
-    <section className="panel mh-winhealth mh-netsec" aria-label="Network & Security">
+    <section className="panel mh-winhealth mh-netsec" id="network-security" aria-label="Network & Security">
       <div className="panel-title">
         <h2><ShieldCheck size={17} />Network &amp; Security</h2>
         <span className={`mh-win-overall status-${overall.status}`}>

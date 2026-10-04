@@ -65,6 +65,8 @@ import { refreshTelemetry, useTelemetry, useTelemetryWatch } from "../state/tele
 import { refreshWindowsHealth, useWindowsHealth } from "../state/windowsHealth";
 import { WindowsHealthPanel } from "./WindowsHealthPanel";
 import { NetworkSecurityPanel } from "./NetworkSecurityPanel";
+import { AlertsPanel, AlertsSummaryStrip } from "./AlertsPanel";
+import { loadAlerts, useAlerts } from "../state/alerts";
 import { refreshNetworkSecurity, useNetworkSecurity } from "../state/networkSecurity";
 
 const STATUS_TONE = { healthy: "good", attention: "warn", critical: "danger" } as const;
@@ -125,6 +127,7 @@ export function MachineHealth() {
   const { latest: t, history } = useTelemetry();
   const windowsHealth = useWindowsHealth();
   const networkSecurity = useNetworkSecurity();
+  const alerts = useAlerts();
   const machine = useMachine();
   const [tab, setTab] = useState<ProcessMetric>(DEFAULT_PROCESS_TAB);
   const name = machine.status?.machine?.name ?? "Este computador";
@@ -135,6 +138,7 @@ export function MachineHealth() {
     void refreshTelemetry().catch(() => undefined);
     void refreshWindowsHealth();
     void refreshNetworkSecurity();
+    void loadAlerts();
   };
 
   const header = (
@@ -188,6 +192,7 @@ export function MachineHealth() {
   return (
     <>
       {header}
+      <AlertsSummaryStrip state={alerts} />
       <section className="panel mh-identity">
         <div className="mh-machine">
           <div className="mh-machine-art"><Monitor size={40} /></div>
@@ -507,6 +512,7 @@ export function MachineHealth() {
         </div>
       </div>
 
+      <AlertsPanel state={alerts} now={Date.now()} />
       <WindowsHealthPanel state={windowsHealth} now={Date.now()} />
       <NetworkSecurityPanel state={networkSecurity} now={Date.now()} />
     </>

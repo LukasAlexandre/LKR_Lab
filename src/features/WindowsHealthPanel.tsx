@@ -85,7 +85,7 @@ function Loaded({ snapshot: s, error, now }: { snapshot: WindowsHealthSnapshot; 
   const missing = unavailableSources(s.capabilities);
   const system = s.system;
   return (
-    <section className="panel mh-winhealth" aria-label="Windows Health">
+    <section className="panel mh-winhealth" id="windows-health" aria-label="Windows Health">
       <div className="panel-title">
         <h2><Stethoscope size={17} />Windows Health</h2>
         <span className={`mh-win-overall status-${overall.status}`}>

@@ -1143,3 +1143,91 @@ export interface NetworkSecuritySnapshot {
   tpm: WinSection<{ present: boolean | null; version: string | null }>;
   capabilities: WinSourceNote[];
 }
+
+/* ---- Alerts & Diagnostics (SESSION-002, Block 09): espelho de `hub-core::diagnostics`. ---- */
+/** `unknown` NÃO é severidade: dado insuficiente nunca vira alerta. */
+export type AlertSeverity = "info" | "attention" | "critical";
+export type AlertConfidence = "low" | "medium" | "high";
+export type AlertDomain = "machine" | "windows" | "security" | "network" | "runtime";
+export type AlertStatus = "active" | "acknowledged" | "resolved";
+export interface AlertEvidence { label: string; value: string; source: string }
+export interface AlertDiagnosticRef { id: string; target: string | null; label: string }
+export interface AlertCta {
+  /** runtime | project | windows_health | network_security | machine */
+  kind: string;
+  target: string | null;
+}
+export interface AlertRecord {
+  /** Identidade desta ocorrência (o `id` do Finding é o fingerprint, que se repete entre ocorrências). */
+  alertId: string;
+  id: string;
+  fingerprint: string;
+  ruleId: string;
+  title: string;
+  summary: string;
+  severity: AlertSeverity;
+  confidence: AlertConfidence;
+  domain: AlertDomain;
+  source: string;
+  resource: string;
+  evidence: AlertEvidence[];
+  reason: string;
+  recommendedNextStep: string;
+  diagnosticAction: AlertDiagnosticRef | null;
+  cta: AlertCta | null;
+  status: AlertStatus;
+  firstSeen: number;
+  lastSeen: number;
+  acknowledgedAt: number | null;
+  resolvedAt: number | null;
+  /** Quantas vezes este fingerprint abriu (reabrir cria a próxima ocorrência). */
+  occurrenceCount: number;
+  observations: number;
+}
+export interface AlertSummary {
+  critical: number;
+  attention: number;
+  info: number;
+  acknowledged: number;
+  resolvedRecently: number;
+}
+export type AlertSourceState = "evaluated" | "stale" | "unavailable";
+export interface AlertSourceStatus { id: string; label: string; state: AlertSourceState; reason: string | null }
+export type DiagResult = "clean" | "problems_found" | "inconclusive" | "failed" | "cancelled";
+export interface DiagRun {
+  id: string;
+  diagnostic: string;
+  label: string;
+  target: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+  running: boolean;
+  result: DiagResult | null;
+  exitCode: number | null;
+  summary: string;
+  outputTail: string[];
+}
+export interface DiagInfo {
+  id: string;
+  label: string;
+  description: string;
+  needsTarget: boolean;
+  requiresElevation: boolean;
+  available: boolean;
+  reason: string | null;
+}
+export interface DiagnosticsView {
+  elevated: boolean;
+  catalog: DiagInfo[];
+  /** Letras dos volumes fixos (alvos válidos do diagnóstico de volume). */
+  targets: string[];
+  current: DiagRun | null;
+  history: DiagRun[];
+}
+export interface AlertsSnapshot {
+  capturedAt: number;
+  summary: AlertSummary;
+  alerts: AlertRecord[];
+  sources: AlertSourceStatus[];
+  diagnostics: DiagnosticsView;
+}
