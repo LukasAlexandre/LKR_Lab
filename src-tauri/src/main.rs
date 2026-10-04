@@ -94,6 +94,26 @@ fn machine_telemetry_watch(app: tauri::AppHandle) {
 fn machine_telemetry_refresh(app: tauri::AppHandle) {
     app.state::<TelemetryState>().0.poke();
 }
+/// Windows Health (SESSION-002, Block 07): coletor passivo com cache por domínio. Só leitura:
+/// nada é reparado, reiniciado, instalado, iniciado ou parado.
+struct WindowsHealthState(
+    hub_core::windows_health::Collector<hub_core::windows_health::WindowsSources>,
+);
+/// Snapshot atual; cada domínio só é relido quando o cache dele expira. `force` ("Atualizar agora")
+/// relê tudo. Roda fora do thread da interface (o Event Log pode levar algumas centenas de ms).
+#[tauri::command]
+async fn windows_health_snapshot(
+    app: tauri::AppHandle,
+    force: bool,
+) -> HubResult<hub_core::windows_health::WindowsHealthSnapshot> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.state::<WindowsHealthState>()
+            .0
+            .snapshot(hub_core::machine::now_ms(), force)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
 #[tauri::command]
 fn list_projects(state: State<AppState>) -> HubResult<Vec<ProjectEntry>> {
     let projects = db(&state)?.projects()?;
@@ -976,6 +996,9 @@ fn main() {
                 let _ = handle.emit("runtime://event", event);
             });
             app.manage(RuntimeState(hub_core::supervisor::Supervisor::new(sink)));
+            app.manage(WindowsHealthState(
+                hub_core::windows_health::Collector::new(hub_core::windows_health::WindowsSources),
+            ));
             let emitter = app.handle().clone();
             let window = app.handle().clone();
             app.manage(TelemetryState(hub_core::telemetry::Service::start(
@@ -998,6 +1021,7 @@ fn main() {
             machine_telemetry,
             machine_telemetry_watch,
             machine_telemetry_refresh,
+            windows_health_snapshot,
             list_projects,
             project_overviews,
             save_project,

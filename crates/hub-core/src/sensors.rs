@@ -918,13 +918,40 @@ mod windows {
 /// Leitura do registro do Windows, só de valores (HKLM, KEY_READ).
 #[cfg(windows)]
 pub(crate) mod registry {
+    use crate::windows_health::Probe;
     use windows_sys::Win32::{
-        Foundation::ERROR_SUCCESS,
+        Foundation::{
+            ERROR_ACCESS_DENIED, ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_SUCCESS,
+        },
         System::Registry::{
             RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE,
             KEY_READ, REG_BINARY, REG_DWORD, REG_EXPAND_SZ, REG_QWORD, REG_SZ,
         },
     };
+
+    /// Resultado de olhar uma chave/valor: "negado" NUNCA é lido como "ausente".
+    fn classify(status: u32) -> Probe {
+        match status {
+            ERROR_SUCCESS => Probe::Present,
+            ERROR_FILE_NOT_FOUND | ERROR_PATH_NOT_FOUND => Probe::Absent,
+            ERROR_ACCESS_DENIED => Probe::Denied,
+            _ => Probe::Unavailable,
+        }
+    }
+
+    /// A chave existe em HKLM? (só abre para leitura e fecha.)
+    pub fn probe_key(path: &str) -> Probe {
+        let path = wide(path);
+        let mut handle: HKEY = std::ptr::null_mut();
+        // SAFETY: `path` termina em NUL e `handle` recebe a chave aberta (fechada logo abaixo).
+        let status =
+            unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, path.as_ptr(), 0, KEY_READ, &mut handle) };
+        if status == ERROR_SUCCESS {
+            // SAFETY: handle aberto acima, fechado uma vez.
+            unsafe { RegCloseKey(handle) };
+        }
+        classify(status)
+    }
 
     fn wide(text: &str) -> Vec<u16> {
         text.encode_utf16().chain(Some(0)).collect()
@@ -1022,6 +1049,45 @@ pub(crate) mod registry {
             }
             data.truncate(size as usize);
             Some((kind, data))
+        }
+
+        /// O valor existe e tem mais que `min_bytes` (ex.: multi-string vazia tem 2 a 4 bytes).
+        pub fn probe_value(&self, name: &str, min_bytes: u32) -> Probe {
+            let name = wide(name);
+            let mut size = 0u32;
+            // SAFETY: sem buffer: só consulta a existência e o tamanho.
+            let status = unsafe {
+                RegQueryValueExW(
+                    self.0,
+                    name.as_ptr(),
+                    std::ptr::null(),
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    &mut size,
+                )
+            };
+            match classify(status) {
+                Probe::Present if size <= min_bytes => Probe::Absent,
+                other => other,
+            }
+        }
+
+        /// REG_MULTI_SZ → lista de textos (vazios descartados).
+        pub fn multi_string(&self, name: &str) -> Option<Vec<String>> {
+            const REG_MULTI_SZ: u32 = 7;
+            let (kind, data) = self.raw(name)?;
+            if kind != REG_MULTI_SZ {
+                return None;
+            }
+            let (pairs, _) = data.as_chunks::<2>();
+            let units: Vec<u16> = pairs.iter().map(|c| u16::from_le_bytes(*c)).collect();
+            Some(
+                units
+                    .split(|u| *u == 0)
+                    .map(|part| String::from_utf16_lossy(part).trim().to_string())
+                    .filter(|text| !text.is_empty())
+                    .collect(),
+            )
         }
 
         pub fn string(&self, name: &str) -> Option<String> {
