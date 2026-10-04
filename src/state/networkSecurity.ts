@@ -4,8 +4,8 @@ import type { NetworkSecuritySnapshot } from "../shared/types";
 
 /*
  * Cliente do Network & Security (Block 08). O backend guarda um cache por domínio (rede/portas 15 s,
- * conexões 10 s, firewall/antivírus 60 s, BitLocker 5 min, Secure Boot/TPM 10 min); consultar de 30 em
- * 30 s com a janela visível só relê o que expirou. Nada é gravado aqui nem no disco: endpoints remotos
+ * conexões 10 s, firewall/antivírus 60 s, BitLocker 5 min, Secure Boot/TPM 10 min); consultar de 15 em
+ * 15 s com a janela visível só relê o que expirou. Nada é gravado aqui nem no disco: endpoints remotos
  * e conexões são estado da MÁQUINA e nunca saem dela.
  */
 export interface NetworkSecurityState {
@@ -14,7 +14,7 @@ export interface NetworkSecurityState {
   loading: boolean;
 }
 
-const POLL_MS = 30_000;
+const POLL_MS = 15_000;
 
 let state: NetworkSecurityState = { snapshot: null, error: null, loading: false };
 const listeners = new Set<() => void>();

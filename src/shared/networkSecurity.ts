@@ -84,6 +84,9 @@ export function formatLinkSpeed(bps: number | null | undefined): string {
 export const listenerAddress = (l: Pick<NetListener, "address" | "port" | "ipVersion">) =>
   l.ipVersion === "v6" ? `[${l.address}]:${l.port}` : `${l.address}:${l.port}`;
 
+/** host:porta, com colchetes para IPv6. */
+export const hostPort = (address: string, port: number) => (address.includes(":") ? `[${address}]:${port}` : `${address}:${port}`);
+
 /** Quem escuta a porta; "não identificado" quando o SO não informou o dono. */
 export const listenerOwner = (l: Pick<NetListener, "processName" | "pid">) =>
   l.processName ? `${l.processName} (PID ${l.pid})` : l.pid != null ? `PID ${l.pid}` : "Processo não identificado";

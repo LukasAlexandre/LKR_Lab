@@ -19,6 +19,7 @@ import {
   filterConnections,
   filterListeners,
   formatLinkSpeed,
+  hostPort,
   listenerAddress,
   listenerOwner,
   profileLabel,
@@ -307,7 +308,7 @@ function ConnectionsDomain({ s, now }: { s: NetworkSecuritySnapshot; now: number
           {visible.map((c) => (
             <li key={`${c.localAddress}-${c.localPort}-${c.remoteAddress}-${c.remotePort}`}>
               <span>
-                <strong className="mono">{c.remoteAddress}:{c.remotePort}</strong>
+                <strong className="mono">{hostPort(c.remoteAddress, c.remotePort)}</strong>
                 <small className="muted"> · {REMOTE_SCOPE_LABEL[c.scope]}</small>
                 {c.projectName && <Badge tone="good">{c.projectName}</Badge>}
               </span>

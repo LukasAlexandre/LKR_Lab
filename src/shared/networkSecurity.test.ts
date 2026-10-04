@@ -5,6 +5,7 @@ import {
   filterConnections,
   filterListeners,
   formatLinkSpeed,
+  hostPort,
   listenerAddress,
   listenerOwner,
   profileLabel,
@@ -63,6 +64,10 @@ describe("apresentação", () => {
   it("endereço IPv6 usa colchetes", () => {
     expect(listenerAddress(listener({ address: "::1", ipVersion: "v6", port: 80 }))).toBe("[::1]:80");
     expect(listenerAddress(listener({ address: "127.0.0.1", port: 80 }))).toBe("127.0.0.1:80");
+  });
+  it("host:porta com colchetes para IPv6", () => {
+    expect(hostPort("2606:4700::1", 443)).toBe("[2606:4700::1]:443");
+    expect(hostPort("140.82.112.3", 443)).toBe("140.82.112.3:443");
   });
   it("dono da porta: nome+PID, só PID ou não identificado", () => {
     expect(listenerOwner({ processName: "node.exe", pid: 7 })).toBe("node.exe (PID 7)");
