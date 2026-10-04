@@ -297,6 +297,37 @@ fn active_interface_gateway_dns_and_profile() {
 }
 
 #[test]
+fn gateway_prefers_ipv4_and_dns_is_unique_and_ordered() {
+    let mut f = Fake::healthy();
+    let wifi = f.adapters.iter_mut().find(|a| a.name == "wifi").unwrap();
+    wifi.gateways = vec!["fe80::1".into(), "192.168.1.1".into()];
+    wifi.dns = vec![
+        "2804::2".into(),
+        "187.60.148.2".into(),
+        "2804::2".into(),
+        "187.60.148.2".into(),
+        "8.8.8.8".into(),
+    ];
+    let s = snap(&f);
+    assert_eq!(s.network.data.gateway.as_deref(), Some("192.168.1.1"));
+    assert_eq!(
+        s.network.data.dns,
+        vec!["187.60.148.2", "8.8.8.8", "2804::2"]
+    );
+}
+
+#[test]
+fn ipv6_only_gateway_is_still_reported() {
+    let mut f = Fake::healthy();
+    f.adapters
+        .iter_mut()
+        .find(|a| a.name == "wifi")
+        .unwrap()
+        .gateways = vec!["fe80::1".into()];
+    assert_eq!(snap(&f).network.data.gateway.as_deref(), Some("fe80::1"));
+}
+
+#[test]
 fn ipv4_and_ipv6_are_listed() {
     let s = snap(&Fake::healthy());
     let wifi = s.network.data.interfaces.iter().find(|i| i.active).unwrap();

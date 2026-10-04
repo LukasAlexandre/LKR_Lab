@@ -490,6 +490,17 @@ pub fn select_active_adapter(adapters: &[NetAdapter], route_ip: Option<&str>) ->
         .map(|(index, _)| index)
 }
 
+/// Endereços sem repetição, IPv4 antes de IPv6 (a ordem original é mantida dentro de cada família).
+pub fn ordered_addresses(addresses: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let unique: Vec<&String> = addresses
+        .iter()
+        .filter(|a| seen.insert(a.as_str()))
+        .collect();
+    let (v4, v6): (Vec<&String>, Vec<&String>) = unique.into_iter().partition(|a| !a.contains(':'));
+    v4.into_iter().chain(v6).cloned().collect()
+}
+
 pub fn build_network(
     adapters: &[NetAdapter],
     profiles: &HashMap<String, ProfileKind>,
@@ -509,8 +520,8 @@ pub fn build_network(
             ipv4: a.ipv4.clone(),
             ipv6: a.ipv6.clone(),
             prefix: a.ipv4_prefix,
-            gateways: a.gateways.clone(),
-            dns: a.dns.clone(),
+            gateways: ordered_addresses(&a.gateways),
+            dns: ordered_addresses(&a.dns),
             dhcp: a.dhcp_v4,
             mac: a.mac.clone(),
             link_speed_bps: a.link_speed_bps,
@@ -525,8 +536,10 @@ pub fn build_network(
     NetworkData {
         active_interface: current.map(|v| v.name.clone()),
         local_ipv4: current.and_then(|v| v.ipv4.iter().find(|ip| !is_link_local_v4(ip)).cloned()),
-        gateway: current.and_then(|v| v.gateways.first().cloned()),
-        dns: current.map(|v| v.dns.clone()).unwrap_or_default(),
+        gateway: current.and_then(|v| ordered_addresses(&v.gateways).into_iter().next()),
+        dns: current
+            .map(|v| ordered_addresses(&v.dns))
+            .unwrap_or_default(),
         profile: current.and_then(|v| v.profile),
         interfaces: views,
         public_ip: PublicIpView::default(),
