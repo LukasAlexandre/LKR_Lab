@@ -2,9 +2,9 @@
 
 **PT:** Plano de controle local da máquina e observabilidade de runtimes
 **Tipo:** Feature
-**Status:** ACTIVE / ATIVA
+**Status:** COMPLETED / FINALIZADA
 **Branch:** `feat/session-002-machine-control-plane` (checkout principal; nenhuma Managed Worktree)
-**Planning Item:** Machine Control Plane & Runtime Observability (EM EXECUÇÃO)
+**Planning Item:** Machine Control Plane & Runtime Observability (CONCLUÍDO, derivado da Session finalizada)
 
 ## Objetivo
 
@@ -25,7 +25,7 @@ Construir a camada de observabilidade e controle local do LKR LAB para processos
 | 09 | Alerts & Diagnostics | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 10 | Validation & Hardening | CONCLUÍDO E VALIDADO NO DESKTOP |
 
-Progresso no DDAE: **10 / 10 blocos** e **10 / 10 critérios**, sem bloco em andamento e sem próximo bloco. A SESSION-002 **continua ATIVA** (elegível a finalizar, mas **não finalizada**: aguarda a revisão do usuário) e o Planning Item **continua EM EXECUÇÃO**. Nada foi mesclado em `main`.
+Progresso no DDAE: **10 / 10 blocos** e **10 / 10 critérios**, sem bloco em andamento e sem próximo bloco. A SESSION-002 foi **FINALIZADA** (`completed`, terminal) e o Planning Item aparece **CONCLUÍDO** por derivação; ver o fechamento formal ao final. A branch foi integrada na `main` por fast-forward.
 
 ## Checkpoint — CONTROL PLANE MVP (Blocks 01–05)
 
@@ -490,4 +490,44 @@ Os 10 critérios foram **formalmente revisados no Block 10** e marcados como con
 
 ## Próximo bloco
 
-Nenhum: os 10 blocos estão concluídos. A SESSION-002 permanece **ATIVA** para a revisão do usuário; finalizá-la e mesclar a branch são decisões do usuário, fora do Block 10.
+Nenhum: os 10 blocos estão concluídos e a Session está finalizada. Nenhuma Session nova nem Planning Item novo foi criado por este fechamento.
+
+## Checkpoint — SESSION-002 FINALIZADA
+
+# SESSION-002 FINALIZADA
+
+- **Status:** FINALIZADA (`completed`, terminal) em 05/10/2026 (`completed_at` = `2026-10-05T06:32:48.180Z`).
+- **Blocks:** 10 / 10 · **Completion criteria:** 10 / 10 · **Roadmap 01–10: COMPLETO.** Sem bloco atual e sem próximo.
+- **Integração:** `feat/session-002-machine-control-plane` (`5fbf7bd`) foi integrada na `main` por **fast-forward** (`0336d93` → `5fbf7bd`), sem merge commit e sem force push. `main` == `origin/main` (0 / 0) no momento da integração. Smoke gates na `main`: `npm run typecheck`, `npm run build` e `cargo check --workspace` passaram. A branch da feature e as demais branches históricas foram **preservadas**.
+- **Ação de finalização:** lifecycle canônico do DDAE (`ddae_complete`), explícita e autorizada pelo usuário, executada pela API real do backend (`hub-core`) sobre o `hub.db` real; sem SQL direto, sem alterar Blocks, critérios, objetivo ou resultado desejado. `result` **vazio** (a API permite; nenhum texto foi inventado). Backup do banco feito antes da ação.
+- **Terminal confirmado:** retomar, congelar, parar e finalizar de novo foram recusados ("Sessão finalizada é terminal e não pode ser alterada.").
+- **Eventos:** o histórico passou a ter `SESSION_COMPLETED` (1), além dos eventos anteriores, preservados (53 no total).
+- **Planning:** `planning_item_id` da SESSION-002 permanece o mesmo; nenhum item foi criado, duplicado, cancelado ou restaurado e o `stored_status` continua `open`. A fase **CONCLUÍDO** é derivada (Planning Item → Session vinculada finalizada → fase concluída). Contagens do Planning: 1 concluído, 0 planejados, 0 em execução.
+- **DDAE / Project Control Center (pelo modelo):** SESSION-002 FINALIZADA, 10 / 10, sem atual nem próximo; 2 Sessions, 2 finalizadas, nenhuma ativa.
+- **Próxima ação (regras existentes):** sem Session ativa e sem item planejado, nenhuma regra de trabalho dispara; permanece apenas a regra de contexto (`context_generated = false` neste projeto no momento da finalização, portanto "Gerar contexto"). Nada novo foi inventado.
+- **Ready for AI no momento da finalização:**
+  - **antes:** `false` (`incomplete`, falta `actionable_block`: não há bloco pendente ou em andamento após 10 / 10);
+  - **depois:** `ready = false`, estado de contexto `available` (Session finalizada permite gerar contexto), nada faltando.
+  - Isso **não** é erro da finalização: finalizar depende do lifecycle (`canComplete = true`), não de Ready for AI; são regras independentes. Nenhum campo foi alterado para forçar `true`.
+
+### Entregue
+
+- **Machine Control Plane** (Blocks 01–04): arquitetura, descoberta de processos e portas, atribuição de runtime com evidência e Managed Runtime Supervisor.
+- **Runtime observability e Console Hub** (Block 05): consoles ao vivo com captura de stdout/stderr.
+- **Machine Telemetry** (Block 06) e **Windows Health** (Block 07).
+- **Network & Security** (Block 08).
+- **Alerts & Diagnostics** (Block 09): alertas determinísticos com ciclo de vida persistido e Diagnostic Runner.
+- **Validation & Hardening** (Block 10): migrações, instância única, vazamentos, streams, privilégio, listeners e revisão formal dos 10 critérios.
+
+### Limitações preservadas (nada foi escondido)
+
+1. O monitoramento e a avaliação de alertas só ocorrem **enquanto o app está aberto**; não há Windows Service nem Agent privilegiado.
+2. Diagnósticos privilegiados (SFC, DISM, CHKDSK) **nunca foram executados de verdade** (exigem administrador).
+3. Algumas fontes do Windows exigem administrador e ficam Desconhecidas: categoria da rede, BitLocker por volume, bit "sujo" do volume, última instalação e verificação do Windows Update e temperatura do pacote da CPU.
+4. Sem SMART e sem saúde avançada da bateria; sem pontuação.
+5. Ameaças ativas do Defender e o nome do antivírus de terceiros **não** são consultados.
+6. Worktree tem evidência por teste automatizado; não há processo em Worktree gerenciado no desktop para demonstrar ao vivo.
+7. Sem regra para "execução gerenciada que desapareceu" nem para "processo com condição inconsistente".
+8. Apenas TCP é listado; sem teste de alcançabilidade externa e **sem IP público**.
+9. `stacks_exec` possui flake histórico intermitente (disputa de processos `cargo` no mesmo arquivo de testes), sem reprodução determinística.
+10. O Managed Runtime **morre com o app** (Job Object): execuções gerenciadas não sobrevivem ao app, por decisão de segurança.
