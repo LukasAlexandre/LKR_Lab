@@ -1122,6 +1122,15 @@ fn gated<R: tauri::Runtime>(
 }
 fn main() {
     let result = tauri::Builder::default()
+        // Instância única (primeiro plugin, antes do setup): uma segunda execução não chega a abrir o
+        // hub.db; ela encerra e a janela da instância existente é restaurada e focada.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
