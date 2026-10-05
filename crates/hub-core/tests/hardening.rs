@@ -835,3 +835,118 @@ fn a_real_git_worktree_attributes_worktree_and_session_and_lookalikes_stay_unkno
         assert!(gone, "processo {pid} ficou vivo");
     }
 }
+
+// ------------------------------------------------------------------ privilégio e segredos (varredura de código)
+
+fn code_of(relative: &str) -> String {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let text =
+        std::fs::read_to_string(root.join(relative)).unwrap_or_else(|_| panic!("{relative}"));
+    text.lines()
+        .filter(|l| !l.trim_start().starts_with("//"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn nothing_in_the_app_can_request_elevation_by_itself() {
+    // Nenhum módulo da Session (nem o app Tauri) pede administrador: sem runas, sem ShellExecute "runas",
+    // sem manifesto que force elevação na inicialização.
+    let modules = [
+        "src/control_plane.rs",
+        "src/telemetry.rs",
+        "src/sensors.rs",
+        "src/windows_health.rs",
+        "src/windows_native.rs",
+        "src/network_security.rs",
+        "src/security_native.rs",
+        "src/diagnostics.rs",
+        "src/diagnostic_runner.rs",
+        "src/alert_store.rs",
+        "src/supervisor.rs",
+        "src/machine.rs",
+        "../../src-tauri/src/main.rs",
+    ];
+    for module in modules {
+        let code = code_of(module).to_lowercase();
+        for banned in [
+            "runas",
+            "shellexecute",
+            "requireadministrator",
+            "highestavailable",
+            "createprocessasuser",
+            "-verb",
+        ] {
+            assert!(!code.contains(banned), "{module} contém {banned}");
+        }
+    }
+    let config = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src-tauri/tauri.conf.json"),
+    )
+    .unwrap()
+    .to_lowercase();
+    assert!(!config.contains("requireadministrator") && !config.contains("highestavailable"));
+}
+
+#[test]
+fn session_modules_expose_no_secret_fields() {
+    // Campos públicos serializáveis dos coletores nunca carregam segredos (senha, token, chave de
+    // recuperação, segredo de Wi-Fi, credenciais).
+    let banned = [
+        "password",
+        "passwd",
+        "secret",
+        "token",
+        "recovery",
+        "credential",
+        "psk",
+        "passphrase",
+        "private_key",
+    ];
+    for module in [
+        "src/control_plane.rs",
+        "src/telemetry.rs",
+        "src/windows_health.rs",
+        "src/network_security.rs",
+        "src/diagnostics.rs",
+        "src/diagnostic_runner.rs",
+        "src/alert_store.rs",
+    ] {
+        for line in code_of(module).lines() {
+            let trimmed = line.trim_start();
+            if let Some(rest) = trimmed.strip_prefix("pub ") {
+                if let Some(name) = rest.split(':').next().filter(|_| {
+                    rest.contains(':')
+                        && !rest.starts_with("fn ")
+                        && !rest.starts_with("struct ")
+                        && !rest.starts_with("enum ")
+                        && !rest.starts_with("const ")
+                        && !rest.starts_with("type ")
+                }) {
+                    let lower = name.to_lowercase();
+                    assert!(
+                        !banned.iter().any(|b| lower.contains(b)),
+                        "{module}: campo '{name}' sugere segredo"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn diagnostic_runner_has_no_free_command_surface() {
+    // A API pública só aceita ids do catálogo e uma letra de volume: nenhuma função recebe comando,
+    // argumentos ou shell como texto livre.
+    let code = code_of("src/diagnostic_runner.rs");
+    assert!(code.contains("pub fn start(&self, id: &str, target: Option<&str>)"));
+    for line in code.lines().filter(|l| l.contains("pub fn ")) {
+        let lower = line.to_lowercase();
+        for banned in ["command:", "args:", "shell", "program:", "cmdline"] {
+            assert!(
+                !lower.contains(banned),
+                "assinatura pública com superfície livre: {line}"
+            );
+        }
+    }
+}
