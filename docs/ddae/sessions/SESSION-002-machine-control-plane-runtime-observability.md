@@ -23,9 +23,9 @@ Construir a camada de observabilidade e controle local do LKR LAB para processos
 | 07 | Windows Health & Integrity | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 08 | Network & Security Visibility | IMPLEMENTADO E VALIDADO NO DESKTOP |
 | 09 | Alerts & Diagnostics | IMPLEMENTADO E VALIDADO NO DESKTOP |
-| 10 | Validation & Hardening | PENDENTE |
+| 10 | Validation & Hardening | CONCLUÍDO E VALIDADO NO DESKTOP |
 
-Progresso no DDAE: **9 / 10**, sem bloco em andamento; próximo: **10 — Validation & Hardening** (não iniciado). A SESSION-002 **continua ATIVA** e o Planning Item **continua EM EXECUÇÃO**.
+Progresso no DDAE: **10 / 10 blocos** e **10 / 10 critérios**, sem bloco em andamento e sem próximo bloco. A SESSION-002 **continua ATIVA** (elegível a finalizar, mas **não finalizada**: aguarda a revisão do usuário) e o Planning Item **continua EM EXECUÇÃO**. Nada foi mesclado em `main`.
 
 ## Checkpoint — CONTROL PLANE MVP (Blocks 01–05)
 
@@ -347,16 +347,131 @@ Executada no app Tauri em execução, em um notebook (PC Casa). Valores são **o
 - Conflito de CSS com a classe `.mh-alert` do card de saúde do Block 06 (selos e botões esticados); os cartões ganharam classe própria.
 - Testes de migração antigos assumiam `user_version` 10 e re-aplicavam a migração sobre tabelas já criadas; a migração 011 ficou idempotente e as expectativas foram atualizadas para 11.
 
+## VALIDATION & HARDENING (Block 10)
+
+Block 10 — Validation & Hardening: **CONCLUÍDO**. SESSION-002: **ATIVA, 10 / 10 blocos, 10 / 10 critérios**, sem bloco atual e sem próximo bloco. A Session **não foi finalizada** (decisão do usuário, depois da revisão) e `main` não foi mesclada.
+
+O Block 10 não adiciona feature: cada item abaixo foi provado por teste, reprodução, auditoria ou medição antes de qualquer mudança de código. Valores são **observações daquele momento**, não requisitos.
+
+### Banco de dados e migrações
+
+- **Schema:** `user_version = 11`. Migrações 001 a 011 em transação, cada uma aplicada por inteiro ou nada.
+- **Provado por teste (banco isolado):** banco novo chega à versão 11 com todas as tabelas; **v10 → v11** cria as tabelas de alerta e **preserva** Project, SESSION-001, Planning e Worktrees; reabrir um banco já em v11 é idempotente e preserva os alertas; uma migração que falha (tabela incompatível pré-existente) faz **rollback atômico**: a versão continua em 10, a segunda tabela da 011 não é criada e o erro é explícito; banco criado por um build **mais recente** é recusado ("mais recente") sem alterar o schema. Um build antigo (que só conhece até a sua versão) recusa o banco v11 da mesma forma, sem corromper nada.
+- **Concorrência SQLite:** WAL, `busy_timeout` de 5 s e chaves estrangeiras ligadas. 4 conexões simultâneas × 40 rodadas (gravação de alertas, histórico de diagnósticos e leituras) terminaram sem nenhum "database is locked".
+
+### Instância única (problema provado, corrigido)
+
+- **Problema provado:** numa etapa anterior uma ferramenta chegou a abrir uma segunda instância sobre o mesmo `hub.db` (PID 42108).
+- **Correção:** `tauri-plugin-single-instance` como primeiro plugin, antes do `setup`. A segunda execução **não chega a abrir o banco**: encerra com código 0 e a janela existente é restaurada, exibida e focada.
+- **Validado no app real:** segunda execução saiu com código 0, continuou **uma instância**, e uma janela **minimizada** foi restaurada e ficou em primeiro plano.
+
+### Restart, recuperação e reconciliação
+
+- **Alertas:** o ciclo de vida sobrevive a restart (ativo, reconhecido com o instante, resolvido e o histórico), a deduplicação continua, o fingerprint é estável e a contagem de ocorrências **não zera** (reabrir depois de reiniciar é a ocorrência 2). Testado com reabertura real do arquivo e confirmado no uso real: o app foi relançado várias vezes durante os Blocks 08 a 10 e Projects, Sessions, Planning, Worktrees e alertas permaneceram.
+- **Diagnósticos:** só o **término** é gravado (resumo, código e cauda curta); a tabela não tem coluna de estado "em execução" nem de PID. Um app que cai no meio de um diagnóstico **não deixa nada eternamente RUNNING**.
+- **Managed Runtime:** o estado do supervisor fica só na memória e a árvore gerenciada vive num Job Object `KILL_ON_JOB_CLOSE`: ao fechar o app (ou ele cair) o SO encerra a árvore, e um teste confirma que descartar o supervisor não deixa órfãos. Por isso, depois de um restart, **não existe execução RUNNING persistida** para reconciliar; um processo que continue vivo por outro caminho aparece como **Descoberto** (externo), nunca como gerenciado. Nenhum processo externo é encerrado.
+
+### Vazamentos, limpeza e buffers
+
+- **Processos e handles:** 12 ciclos de iniciar, observar (Control Plane) e parar uma execução gerenciada deixaram **zero processos órfãos**. O crescimento de handles foi investigado: o `sysinfo` mantém **um handle por processo vivo da máquina** (um platô do tamanho da lista de processos, ~380 neste PC, que aparece na primeira leitura do inventário e não cresce por ciclo) e cada execução finalizada retida (no máximo 10) segura **1 handle** do Job Object; ao descartar o supervisor os handles voltam ao nível anterior. O teste mede o crescimento por ciclo depois do aquecimento e passou 3 de 3.
+- **Listeners e timers (frontend):** o listener de eventos de execução é registrado **uma única vez** mesmo com 25 montagens; todo `setInterval` de estado e de tela tem o `clearInterval` correspondente; os polls de fundo só rodam com a janela visível; os listeners de documento e janela são removidos na limpeza; o console remonta por execução (sem herdar estado).
+- **Ring buffer do console:** limites de 10 000 linhas e 8 MB, mantendo as mais novas (testes existentes passando; processo ruidoso não bloqueia observação nem parada).
+- **Históricos:** alertas resolvidos limitados a 500 linhas e a 30 dias (visíveis por 7 dias) e **alertas abertos nunca são podados**; diagnósticos limitados a 50 execuções, com cauda de 30 linhas e 4 KB (nunca a saída inteira).
+
+### Desempenho (6 minutos, máquina real)
+
+Soma da árvore do app (processo principal + WebView2), 8 processadores lógicos:
+
+| Fase | CPU | RAM | Handles | Threads |
+|---|---|---|---|---|
+| Dashboard visível (amostragem ativa) | ~4,0% (máx. 5,5%) | ~610 MB | 900 → 907 | 20–23 |
+| Janela minimizada | ~1,0% (máx. 1,7%) | ~608 MB | 907 → 890 | 20–21 |
+| Janela restaurada | ~1,0% | ~606 MB | 884 → 892 | 19–20 |
+
+Sem crescimento de RAM, handles ou threads; minimizar reduz o custo (a política de visibilidade funciona). Não é um benchmark científico: serve para detectar regressão grosseira.
+
+### Isolamento de falhas e ausência de panic
+
+- Uma fonte que falha não derruba as outras: coletores com fontes falsas (Blocks 06 a 09), avaliação com fatos parciais, falha de gravação de alerta (devolve erro, sem panic, e o resto do banco continua funcional).
+- **Auditoria de panic:** `0` ocorrências de `unwrap()`/`expect()` nos módulos novos de runtime (`diagnostics`, `diagnostic_runner`, `alert_store`, `security_native`, `network_security`, `windows_health`, `windows_native`, `control_plane`, `supervisor`, `telemetry`, `sensors`, `machine`) e em `main.rs`.
+
+### Segurança e privilégio
+
+- **Diagnostic Runner:** allowlist fechada (4 ids), sem shell, sem comando ou argumento livre, volume validado como uma letra (`C:`); injeção por texto de shell, caminho ou flags é rejeitada; um teste de varredura impede assinaturas públicas com superfície livre.
+- **Bug provado e corrigido (redaction):** uma linha de comando como `curl -H "Authorization: Bearer <token>"` **vazava o token**. Agora cabeçalhos HTTP sensíveis (Authorization, X-Api-Key, Cookie), inclusive com padding base64 e com o valor no argumento seguinte, são mascarados; cabeçalhos comuns e caminhos do Windows não são alterados.
+- **Segredos:** varredura dos módulos da Session não encontra campos sugerindo senha, token, chave de recuperação, segredo de Wi-Fi ou credenciais; o console pode conter segredos gerados pelo processo, mas é local da máquina (fora do workspace portátil, do Git, do sync e do contexto de IA).
+- **Privilégio:** varredura prova que nenhum módulo (nem o app Tauri nem o manifesto) pede elevação por conta própria. Bloco 06: sensor indisponível fica indisponível; Block 07: volume sujo "requer privilégio administrativo"; Block 08: BitLocker e categoria da rede ficam Desconhecidos; Block 09: diagnósticos "requerem administrador". Nenhum dispara UAC.
+
+### Auditoria de falsos positivos
+
+Limites do disco testados no valor exato (estritamente menor; só um dos dois limites nunca alerta; histerese), listener em `0.0.0.0` é **INFO** e nunca "exposto à internet", Unknown nunca vira alerta, Defender passivo com antivírus de terceiros não é problema, ruído do Event Log não é crítico, estados de workflow (Session congelada, Worktree parada, Planning pendente) não são alerta, e uma execução **parada** pelo usuário não é falha. Nenhum limite foi alterado sem evidência.
+
+### Atribuição adversarial e Worktree real
+
+- **Cenário real e isolado:** repositório git temporário com `git worktree add` real, quatro processos reais (cwd no Worktree, no checkout principal, numa pasta com o mesmo prefixo e numa pasta fora), e depois limpeza total (processos encerrados, Worktree removido). Resultado: cwd no Worktree atribui **Project + Worktree + Session + bloco** com confiança Alta; o checkout principal atribui só o **Project** (sem Worktree nem Session); a pasta com prefixo parecido e a pasta de fora ficam **Unknown**, sem associação nenhuma.
+- A regressão do Block 03/05 segue coberta: um serviço externo **não herda Exata** só por dividir um ancestral com um runtime gerenciado.
+
+### Captura real de stdout e stderr
+
+Subprocesso controlado (Node) que escreve `OUT-1`, `ERR-1`, `OUT-2` e `ERR-2`: os fluxos chegam **separados**, **na ordem** em que foram escritos, com sequência estritamente crescente, sem repetir linhas ao reler e sem processo restante; com saída 7, a execução fica Failed com código 7 e o último stderr preservado.
+
+### Console, UX e rotas
+
+- **Desktop real:** execução gerenciada `lab` (porta 4317) iniciada e parada na tela: atribuição **Exata**, console ao vivo com horário por linha, filtros ALL/STDOUT/STDERR (STDERR vazio mostra "Nenhuma linha corresponde ao filtro"), busca ("bridge" encontrou as 2 linhas), pausa e retomada, aviso "Console local". Ao parar, a porta foi liberada, nenhum processo ficou e o Vite externo (PID 25904) **não foi tocado**; o console do Vite continua "não disponível — processo iniciado fora do LKR LAB".
+- **Walkthrough:** Dashboard (Telemetry, Windows Health, Network & Security, Alerts & Diagnostics), Projetos, Visão geral do Project, DDAE, Detalhe da Session, Worktrees (2 Worktrees), Planejamento e Runtime com Control Plane e Console. **Rotas:** recarga direta (F5) na rota do Runtime preservou a tela, e voltar e avançar do histórico funcionaram.
+- Estados vazio, carregando, parcial, requer elevação, desatualizado e erro têm texto próprio nos painéis (testes de renderização); nenhuma tela ficou em branco.
+
+### Revisão formal dos 10 critérios
+
+| # | Critério | Teste automatizado | Desktop | Status |
+|---|---|---|---|---|
+| 1 | Processos relevantes podem ser inventariados | `live_inventory_maps_own_pid_parent_and_listening_port`, `own_process_is_flagged_and_inventory_is_relevance_filtered` | Control Plane: 532 processos, serviços detectados | Concluído |
+| 2 | Portas listening mapeadas para processos | `live_inventory_maps_own_pid_parent_and_listening_port`, exposição com PID (Block 08) | 52 portas, porta 1420 → Vite PID 25904, 4317 → `lab` | Concluído |
+| 3 | Runtime conhecido ≠ processo não associado | `unassociated_listener_is_unknown_and_system_is_categorized`, `bare_node_exe_stays_unknown_even_with_an_active_project` | "Descoberto" vs "Gerenciado"; 17 serviços sem relação; "157 processos protegidos não podem ser associados" | Concluído |
+| 4 | Runtime relacionado a Project/Worktree com evidência confiável | `cwd_inside_a_worktree_attributes_worktree_and_session`, Worktree git real (hardening) | Project: Vite → LKR_Lab e `lab` Exata; **Worktree só por teste automatizado** (nenhum processo em Worktree gerenciado) | Concluído |
+| 5 | stdout/stderr dos processos iniciados pelo LKR LAB capturados | `stdout_and_stderr_are_captured_separately_in_order...`, `a_failing_controlled_process_keeps_its_exit_code_and_last_stderr`, `service_stays_alive_streams_both_outputs_and_stops_cleanly` | stdout do `lab`; **stderr por teste controlado** (o `lab` não escreve em stderr) | Concluído |
+| 6 | Console Hub exibe logs ao vivo | testes de eventos de saída e do console (filtros, pausa, limpeza, teto de 1000 linhas) | Console ao vivo do `lab` com filtros, busca e pausa | Concluído |
+| 7 | UI sem associação falsa com confiança insuficiente | `external_service_never_inherits_exact_from_managed_siblings_of_a_shared_host`, `project_without_a_local_folder_never_owns_anything`, prefixos parecidos ficam Unknown | Vite externo "Alta" (nunca Exata), sem console; "Processo não identificado" | Concluído |
+| 8 | Coleta local por padrão | `control_plane_state_never_enters_the_portable_workspace`, `console_is_local_only...`, testes de "nada no workspace portátil" dos Blocks 06 a 09 | Painéis rotulados "Somente local" e "Console local — não é sincronizado" | Concluído |
+| 9 | Abrir páginas de observabilidade não executa ação mutante | `observing_never_mutates_anything`, varreduras de passividade (Windows Health, Network & Security, diagnósticos), `nothing_in_the_app_can_request_elevation_by_itself` | Todas as páginas abertas no walkthrough sem nenhuma ação executada; diagnósticos só por clique e só com administrador | Concluído |
+| 10 | Gates e validação desktop passam | npm 636 testes, `cargo test --workspace` 604 passando e 0 falhas, lint, typecheck, build, fmt, check e clippy | Walkthrough completo, instância única e desempenho | Concluído |
+
+Os 10 critérios foram marcados pela UI real do DDAE (10 / 10). A contagem só foi alterada depois da evidência acima.
+
+### Gates e estabilidade
+
+- `npm test` (49 arquivos, 636 testes), `npm run lint`, `npm run typecheck`, `npm run build`, `cargo fmt --check`, `cargo check --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` e `cargo test --workspace --no-fail-fast` (**604 passando, 0 falhas, 6 ignorados**) passaram.
+- **Repetições:** control_plane ×5, runtime ×5, diagnostics ×5, diagnostic_runner ×5, windows_health ×3, network_security ×3, migrações (hardening, planning, ddae, machine, worktrees, portable) ×3, hardening_leaks ×3 e hardening_streams ×3: **todas passaram em todas as repetições**.
+- **stacks_exec (flake histórico):** falhou intermitentemente em passagens anteriores (no Block 09 e no início deste), sempre alternando entre testes do mesmo arquivo com `runtime::inspect` vendo `Running`; rodado isolado passou 5 de 5 na janela final. Registrado, sem alterar o teste (sem reprodução determinística).
+
+### Eligible for finalize e ReadyForAI
+
+- **eligible_for_finalize: sim.** `canComplete = true` e nenhum impedimento: 10 / 10 blocos concluídos e 10 / 10 critérios concluídos. **Não foi executado** (o botão "Finalizar" não foi usado).
+- **ReadyForAI: não** (`incomplete`, falta `actionable_block`): é a regra real e independente da finalização; sem bloco pendente ou em andamento, não há bloco acionável para um agente continuar.
+
+### LIMITAÇÕES REMANESCENTES
+
+1. A avaliação de alertas e o monitoramento só ocorrem **enquanto o app está aberto**; não há Windows Service nem agente privilegiado.
+2. Os diagnósticos privilegiados (SFC, DISM e CHKDSK) **nunca foram executados de verdade** (exigem administrador e o app não eleva sozinho); só a capability, os parsers e a execução com comandos inofensivos injetados são testados.
+3. Fontes do Windows indisponíveis sem administrador continuam Desconhecidas: categoria da rede, BitLocker por volume, bit "sujo" do volume, última instalação e verificação do Windows Update e temperatura do pacote da CPU.
+4. Sem SMART (saúde física dos discos) e sem saúde de bateria; sem pontuação.
+5. Ameaças ativas do Defender e o nome do antivírus de terceiros não são consultados (exigiriam WMI ou a API do Defender).
+6. Worktree tem evidência por teste automatizado (cenário git real); não há processo em Worktree gerenciado no desktop para demonstrar ao vivo.
+7. Não há regra para "execução gerenciada que desapareceu" nem para "processo com condição inconsistente" (o supervisor registra a saída como Failed, Stopped ou Completed).
+8. Só TCP é listado; alcançabilidade externa e IP público não são testados (nenhuma consulta externa).
+9. `stacks_exec` segue com instabilidade intermitente histórica (disputa de processos `cargo` no mesmo arquivo de testes).
+10. Uma queda abrupta do app encerra a árvore gerenciada (Job Object): execuções gerenciadas não sobrevivem ao app, por decisão de segurança.
+
+### Bugs encontrados e corrigidos durante o Block 10
+
+- **Redaction vazava `Authorization: Bearer …`** em linhas de comando (provado por teste; corrigido).
+- **Instância duplicada sobre o mesmo `hub.db`** (observada numa etapa anterior; corrigida com o guard de instância única e validada).
+- O teste de vazamento acusou crescimento de handles que se mostrou ser o platô do inventário do `sysinfo` e a retenção limitada de 10 execuções, não um vazamento por ciclo (investigado com sonda temporária, removida); o teste ficou com baseline aquecido.
+- Um erro de tipagem no teste de listeners do frontend (tipos do Node) foi pego pelo `typecheck` e corrigido com imports `?raw`.
+
 ## Critérios de conclusão
 
-Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive depois dos Blocks 06 a 09: nenhum critério é marcado só porque um bloco terminou. Evidência reunida até aqui, para a revisão no fechamento da Session:
-
-- Inventário de processos e mapeamento de portas: demonstrados no desktop e por teste.
-- Diferenciar runtime conhecido de processo não associado; UI sem associação falsa com confiança insuficiente: demonstrados (Unknown) e por teste.
-- Relação com Project/Worktree por evidência: Project demonstrado no desktop; Worktree só por teste.
-- stdout/stderr capturados e Console Hub com logs ao vivo: stdout no desktop; stderr por teste.
-- Coleta local e páginas de observação sem ação mutante: cobertos por teste (passividade e workspace portátil).
-- "Gates e validação desktop passam": depende da Session inteira (Block 10).
+Os 10 critérios foram **formalmente revisados no Block 10** e marcados como concluídos (**10 / 10**) pela UI real do DDAE, cada um com evidência automatizada e/ou de desktop (tabela em "VALIDATION & HARDENING"). Eles ficaram em 0 / 10 até o Block 09 de propósito: nenhum critério era marcado só porque um bloco terminou.
 
 ## Bugs corrigidos nesta Session
 
@@ -370,7 +485,9 @@ Os 10 critérios continuam **não marcados** (0 / 10), de propósito, inclusive 
 - Avisos de 7 dias exibidos como "0" sem serem medidos (Block 07); agora aparecem como "não medido".
 - Interface ativa escolhida só por métrica (adaptador de VPN), gateway IPv6 e DNS repetido, "Conexões" desatualizada entre consultas e IPv6 sem colchetes (Block 08).
 - Regra de disco só por porcentagem, alerta de memória que piscava (janelas curtas), conflito de CSS e migração não idempotente (Block 09).
+- Redaction de linha de comando vazava `Authorization: Bearer …` (Block 10).
+- Segunda instância do app podia abrir o mesmo `hub.db` (Block 10; guard de instância única).
 
 ## Próximo bloco
 
-**10 — Validation & Hardening** (não iniciado). Um agente privilegiado só será avaliado se uma informação concreta o exigir (Blocks 07–08).
+Nenhum: os 10 blocos estão concluídos. A SESSION-002 permanece **ATIVA** para a revisão do usuário; finalizá-la e mesclar a branch são decisões do usuário, fora do Block 10.
