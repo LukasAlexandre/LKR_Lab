@@ -306,9 +306,33 @@ fn secret_key(key: &str) -> bool {
         "credential",
         "private-key",
         "access-key",
+        "cookie",
     ]
     .iter()
     .any(|w| k.contains(w))
+}
+
+/// Argumento no formato de cabeçalho `Nome: valor` cujo nome é sensível (`curl -H "Authorization: Bearer x"`,
+/// `X-Api-Key: k`, `Cookie: …`). `Some(Some(nome))` = valor no próprio argumento; `Some(None)` = o valor vem no
+/// próximo argumento; `None` = não é um cabeçalho sensível (URLs, caminhos `C:\\…` e flags não entram aqui).
+fn header_secret(arg: &str) -> Option<Option<&str>> {
+    if arg.starts_with('-') {
+        return None;
+    }
+    let colon = arg.find(':')?;
+    // `CHAVE=valor:x` é uma variável, não um cabeçalho (o `=` do padding base64 vem depois do `:`).
+    if arg.find('=').is_some_and(|eq| eq < colon) {
+        return None;
+    }
+    let (name, rest) = (&arg[..colon], &arg[colon + 1..]);
+    if rest.starts_with("//") || name.contains(char::is_whitespace) || !secret_key(name) {
+        return None;
+    }
+    Some(if rest.trim().is_empty() {
+        None
+    } else {
+        Some(name)
+    })
 }
 
 /// Substitui valores sensíveis de uma linha de comando por `***`: `--token=x`, `--token x`,
@@ -336,7 +360,13 @@ pub fn redact(args: &[String]) -> String {
                 }
             }
         }
-        if let Some(eq) = text.find('=') {
+        if let Some(header) = header_secret(&text) {
+            // Cabeçalho HTTP: `Authorization: Bearer x` (valor junto) ou `Authorization:` (valor no próximo argumento).
+            match header {
+                Some(name) => text = format!("{name}: ***"),
+                None => hide_next = true,
+            }
+        } else if let Some(eq) = text.find('=') {
             if secret_key(&text[..eq]) {
                 text = format!("{}=***", &text[..eq]);
             }
