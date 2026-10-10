@@ -1,0 +1,25 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 1420,
+      "url": "http://127.0.0.1:1420"
+    },
+    {
+      "name": "bridge",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "lab"
+      ],
+      "port": 4317,
+      "url": "http://127.0.0.1:4317"
+    }
+  ]
+}
